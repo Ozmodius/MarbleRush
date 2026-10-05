@@ -284,3 +284,99 @@ export function icicleHits(icicles, tMs, x, z) {
     }
     return null;
 }
+
+// ---------------------------------------------------------------------------
+// WORLD 3, MAGMA WORKS. Three traps, each held to an argument already made:
+// flares and geysers are TIMED (like icicles: waiting always works), molten
+// gates are GATES (the level is solved with them open).
+// ---------------------------------------------------------------------------
+
+// A timed hazard's cycle: quiet, then `warn` ms of warning, then `live` ms of
+// danger, then quiet again. Shared by flares and geysers.
+function cycle(h, tMs, minPeriod, warn, live) {
+    const P = Math.max(minPeriod, Number(h.periodMs) || minPeriod);
+    const local = (((tMs / P + (Number(h.phase) || 0)) % 1 + 1) % 1) * P;
+    const liveAt = P - live, warnAt = liveAt - warn;
+    if (local >= liveAt) return { state: 'live', k: (local - liveAt) / live };
+    if (local >= warnAt) return { state: 'warn', k: (local - warnAt) / warn };
+    return { state: 'quiet', k: local / warnAt };
+}
+function firstLive(h, minPeriod, warn, live) {
+    const P = Math.max(minPeriod, Number(h.periodMs) || minPeriod);
+    const local0 = (((Number(h.phase) || 0) % 1) + 1) % 1 * P;
+    const liveAt = P - live;
+    let t = Math.ceil((local0 <= liveAt ? liveAt - local0 : P - local0 + liveAt) - 1e-6);
+    // Floating point can put the exact boundary a hair on the warning side;
+    // step to the first whole millisecond that really is live.
+    while (cycle(h, t, minPeriod, warn, live).state !== 'live') t++;
+    return t;
+}
+
+// FLARING SEAMS: a band of floor { x, z, w, d, periodMs, phase } across a
+// corridor. It glows brighter for FLARE_WARN_MS, then FLARES for FLARE_MS: a
+// ball on it then is burned (knocked out, like a hole). Between flares it is
+// just floor -- FLARE_MIN_PERIOD leaves over a second of quiet to cross in.
+export const FLARE_WARN_MS = 900;
+export const FLARE_MS = 600;
+export const FLARE_MIN_PERIOD = 2700;
+export function flareState(f, tMs) {
+    const c = cycle(f, tMs, FLARE_MIN_PERIOD, FLARE_WARN_MS, FLARE_MS);
+    return { state: c.state === 'live' ? 'flare' : c.state, k: c.k };
+}
+export function firstFlareMs(f) { return firstLive(f, FLARE_MIN_PERIOD, FLARE_WARN_MS, FLARE_MS); }
+// Burned if the ball's centre is on the band, or within half a radius of it:
+// a ball mostly over the fire is in it.
+export function flareHits(flares, tMs, x, z, R) {
+    for (const f of flares || []) {
+        if (flareState(f, tMs).state === 'flare' && distanceToRect(f, x, z) <= R * 0.5) return f;
+    }
+    return null;
+}
+
+// MOLTEN GATES: an ordinary gate (gateFraction et al.) marked `molten`. It
+// burns while it is CLOSING -- its lava edge advancing, glowing -- and is a
+// crusted, harmless wall while it opens. A player watches it close, waits,
+// and goes through while it withdraws.
+export function gateBurning(g, tMs) {
+    if (!g || !g.molten) return false;
+    const v = gateVelocity(g, tMs);
+    return Math.abs(v) > 1e-6 && Math.sign(v) === Math.sign(Number(g.travel) || 0);
+}
+export function moltenGateHits(gates, tMs, x, z, R) {
+    for (const g of gates || []) {
+        if (!gateBurning(g, tMs)) continue;
+        const at = gateSpecAt(g, gateFraction(g, tMs));
+        if (distanceToRect(at, x, z) <= R + 0.02) return g;
+    }
+    return null;
+}
+
+// GEYSERS: a vent { x, z, r, reach, periodMs, phase }. It bubbles for
+// GEYSER_WARN_MS, then BLASTS for GEYSER_BLAST_MS, pushing anything within
+// `reach` straight away from the vent -- hardest at the vent, nothing at the
+// edge of its reach. A blast can throw the ball a long way, so no hole may lie
+// within GEYSER_HOLE_CLEAR of a vent (test_maze_levels.js): a geyser costs you
+// position, never the run.
+export const GEYSER_WARN_MS = 1000;
+export const GEYSER_BLAST_MS = 320;
+export const GEYSER_MIN_PERIOD = 3000;
+export const GEYSER_ACCEL = 9;
+export const GEYSER_HOLE_CLEAR = 2.2;
+export function geyserState(g, tMs) {
+    const c = cycle(g, tMs, GEYSER_MIN_PERIOD, GEYSER_WARN_MS, GEYSER_BLAST_MS);
+    return { state: c.state === 'live' ? 'blast' : c.state, k: c.k };
+}
+export function firstBlastMs(g) { return firstLive(g, GEYSER_MIN_PERIOD, GEYSER_WARN_MS, GEYSER_BLAST_MS); }
+export function geyserAccel(geysers, tMs, x, z) {
+    let ax = 0, az = 0;
+    for (const g of geysers || []) {
+        if (geyserState(g, tMs).state !== 'blast') continue;
+        const dx = x - g.x, dz = z - g.z, d = Math.hypot(dx, dz);
+        if (d >= g.reach) continue;
+        const a = GEYSER_ACCEL * (1 - d / g.reach);
+        // Dead centre has no "away": throw it along +z, toward the player.
+        const ux = d > 1e-6 ? dx / d : 0, uz = d > 1e-6 ? dz / d : 1;
+        ax += ux * a; az += uz * a;
+    }
+    return { ax, az };
+}

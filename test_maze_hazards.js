@@ -210,6 +210,42 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
     }
     check(!H.icicleHits([ic], fi + 10, 0.5, 0), 'an icicle hits only within its radius');
 
+    // --- world 3: flares, molten gates, geysers ------------------------------
+    const flare = { x: 0, z: 0, w: 0.4, d: 1.2, periodMs: 3000, phase: 0.3 };
+    let fl = 0, warn = 0, quietRun = 0, longestQuiet = 0;
+    for (let t = 0; t < 3000; t++) {
+        const st = H.flareState(flare, t).state;
+        if (st === 'flare') fl++;
+        if (st === 'warn') warn++;
+        if (st === 'quiet') { quietRun++; longestQuiet = Math.max(longestQuiet, quietRun); } else quietRun = 0;
+    }
+    check(Math.abs(fl - H.FLARE_MS) <= 1 && Math.abs(warn - H.FLARE_WARN_MS) <= 1, `a flare warns ${H.FLARE_WARN_MS}ms then burns ${H.FLARE_MS}ms (got ${warn}/${fl})`);
+    check(H.FLARE_MIN_PERIOD - H.FLARE_WARN_MS - H.FLARE_MS >= 1000, 'a seam is quiet for at least a second each cycle -- the window to cross');
+    const ff = H.firstFlareMs(flare);
+    check(H.flareState(flare, ff).state === 'flare' && H.flareState(flare, ff - 1).state !== 'flare', `firstFlareMs (${ff}) is the first flare`);
+    check(!!H.flareHits([flare], ff + 5, 0, 0.5, 0.3) && !H.flareHits([flare], ff + 5, 0.5, 0, 0.3) && !H.flareHits([flare], ff - 50, 0, 0, 0.3),
+        'a flare burns a ball on the band, only while flaring');
+
+    const mg = { x: 0, z: 0, w: 0.3, d: 1, axis: 'z', travel: 1, periodMs: 2000, phase: 0, molten: true };
+    let burning = 0;
+    for (let t = 0; t < 2000; t++) if (H.gateBurning(mg, t)) burning++;
+    check(Math.abs(burning - 1000) <= 2, `a molten gate burns for the closing half of its cycle (${burning}ms of 2000)`);
+    check(H.gateBurning(mg, 400) && !H.gateBurning(mg, 1400), 'burning while it closes, crusted while it opens');
+    check(!H.gateBurning({ ...mg, molten: false }, 400), 'an ordinary gate never burns');
+    const atClose = H.gateSpecAt(mg, H.gateFraction(mg, 400));
+    check(!!H.moltenGateHits([mg], 400, atClose.x + 0.3, atClose.z, 0.28) && !H.moltenGateHits([mg], 1400, atClose.x + 0.3, atClose.z, 0.28),
+        'touching a closing molten gate burns; touching it as it opens does not');
+
+    const gy = { x: 0, z: 0, r: 0.3, reach: 1.0, periodMs: 3400, phase: 0.5 };
+    const fb = H.firstBlastMs(gy);
+    check(H.geyserState(gy, fb).state === 'blast' && H.geyserState(gy, fb - 1).state === 'warn', `a blast is preceded by its warning (first at ${fb}ms)`);
+    const push = H.geyserAccel([gy], fb + 10, 0.3, 0);
+    check(push.ax > 0 && Math.abs(push.az) < 1e-9, 'a blast pushes straight away from the vent');
+    check(Math.hypot(push.ax, push.az) <= H.GEYSER_ACCEL + 1e-9, 'never harder than GEYSER_ACCEL');
+    const far = H.geyserAccel([gy], fb + 10, 1.2, 0), gyCalm = H.geyserAccel([gy], fb - 200, 0.3, 0);
+    check(far.ax === 0 && gyCalm.ax === 0, 'nothing beyond its reach, nothing outside the blast');
+    check(H.GEYSER_ACCEL * H.GEYSER_BLAST_MS / 1000 <= 3.5, 'the most speed a blast can add stays in the range a tilt corrects within a cell');
+
     if (failures.length) {
         console.error('FAIL: maze hazard math\n - ' + failures.join('\n - '));
         process.exitCode = 1;

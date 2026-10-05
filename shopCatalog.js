@@ -76,7 +76,7 @@ export const CHARGE_IDS = Object.keys(CHARGES);
 export const PRIZE_GRANT = 3;
 export const PRIZES = {
     rubberCoat: { name: 'Rubber Coat', world: 1, blurb: 'Full grip on ice.', trap: 'ice', refill: { uses: 3, price: 250 } },
-    heatShield: { name: 'Heat Shield', world: 2, blurb: 'Shrugs off one lava flare.', trap: 'flares', refill: { uses: 3, price: 300 } },
+    heatShield: { name: 'Heat Shield', world: 2, blurb: 'Lava flares cannot burn you.', trap: 'flares', refill: { uses: 3, price: 300 } },
     obsidianCore: { name: 'Obsidian Core', world: 3, blurb: 'Bumpers push you half as hard.', trap: 'bumpers', refill: { uses: 3, price: 350 } },
     plasticBall: { name: 'Plastic Ball', world: 4, blurb: 'Magnets cannot grab you.', trap: 'magnets', refill: { uses: 3, price: 400 } },
     chromePolish: { name: 'Chrome Polish', world: 5, blurb: 'Slides through mud.', trap: 'mud', refill: { uses: 3, price: 450 } }

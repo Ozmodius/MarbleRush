@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { getScene, getCamera, getRenderer, onFrame, setExclusiveMode, requestRender } from './sceneHost.js';
 import { gateFraction, gateVelocity, gateSpecAt, isOnIce, ICE_FRICTION } from './mazeHazards.js';
-import { makeIceMaterial, makeGateMaterial } from './mazeTheme3d.js';
+import { makeIceMaterial, makeGateMaterial, makeMoltenGateMaterial } from './mazeTheme3d.js';
 import { buildFloorAndWalls } from './levelDressing3d.js';
+import { buildHoleMeshes } from './mazeTheme3d.js';
 import { resolveMazeTheme, resolveLevelTheme, makeWallGeometry, makeBallMaterial,
          makeHoleMaterial, makeGoalMaterial } from './mazeTheme3d.js';
 import { tickSurfaces } from './mazeSurface3d.js';
-import { conveyorAt, conveyorAccel, windAt, windAccel, icicleHits, icicleState, windStrength } from './mazeHazards.js';
+import { conveyorAt, conveyorAccel, windAt, windAccel, icicleHits, icicleState, windStrength,
+         flareHits, flareState, gateBurning, moltenGateHits, geyserAccel, geyserState } from './mazeHazards.js';
 import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from './mazePickups.js';
 import { buildLevelProps } from './mazeProps3d.js';
 import { sfx as uiSfx } from './sfx.js';
@@ -335,18 +337,9 @@ function boundaryRails(lv) {
 }
 
 function buildHoles(lv, group, theme) {
-    if (!lv.holes.length) return;
-    const geo = track(new THREE.CircleGeometry(1, 20));
-    const mat = track(makeHoleMaterial(theme));
-    const mesh = new THREE.InstancedMesh(geo, mat, lv.holes.length);
-    const m = new THREE.Matrix4();
-    const flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
-    lv.holes.forEach((h, i) => {
-        m.compose(new THREE.Vector3(h.x, FLOOR_Y + 0.012, h.z), flat, new THREE.Vector3(h.r, h.r, 1));
-        mesh.setMatrixAt(i, m);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    group.add(mesh);
+    const tracked = [];
+    group.add(buildHoleMeshes(lv, theme, FLOOR_Y + 0.012, tracked));
+    tracked.forEach(track);
 }
 
 // Ice patches, drawn as flat quads just above the floor. Instanced from one
@@ -382,19 +375,22 @@ function buildGates(lv, group, theme) {
     if (!specs.length) return [];
     const mat = track(makeGateMaterial(theme));
     return specs.map((spec, i) => {
+        // A molten gate gets its own material, so its glow can follow its own
+        // closing and opening (updateGates).
+        const own = spec.molten ? track(makeMoltenGateMaterial(theme)) : null;
         // Built around its own origin with its foot at y=0, so the mesh's
         // position is the gate's centre on the floor. The seed keeps two gates
         // from wearing identical rock.
         const geo = track(makeWallGeometry(theme, [{ x: 0, z: 0, w: spec.w, d: spec.d }],
             { height: WALL_HEIGHT, reach: lv.ballRadius, seed: i + 1 }));
-        const mesh = new THREE.Mesh(geo, mat);
+        const mesh = new THREE.Mesh(geo, own || mat);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         // Placed at its open extreme, matching what the verifier solved.
         const at = gateSpecAt(spec, 0);
         mesh.position.set(at.x, FLOOR_Y, at.z);
         group.add(mesh);
-        return { spec, mesh, body: null };
+        return { spec, mesh, body: null, glow: own ? own.userData.surfaceUniforms.mrGlow : null, heat: 0 };
     });
 }
 
@@ -737,7 +733,7 @@ function advance(elapsedMs) {
     const simMs = phase === 'running' ? elapsedMs * timeScale(pickupState) : elapsedMs;
     const steps = Math.min(Math.max(1, Math.round((simMs / 1000) / FIXED_STEP)), MAX_CATCHUP_STEPS);
     for (let i = 0; i < steps; i++) {
-        if (phase === 'running') { applyConveyor(FIXED_STEP); applyWind(FIXED_STEP); }
+        if (phase === 'running') { applyConveyor(FIXED_STEP); applyWind(FIXED_STEP); applyGeysers(FIXED_STEP); }
         world.step(FIXED_STEP);
     }
 
@@ -766,6 +762,12 @@ function updateGates() {
             g.body.velocity.set(alongX ? v : 0, 0, alongX ? 0 : v);
         }
         if (g.mesh) g.mesh.position.set(at.x, FLOOR_Y, at.z);
+        // A molten gate glows hot while it closes (when it burns) and dulls to
+        // crust while it opens -- easing between, so the change reads.
+        if (g.glow) {
+            g.heat += ((gateBurning(g.spec, runClockMs) ? 1 : 0) - g.heat) * 0.2;
+            g.glow.value = 0.25 + 2.6 * g.heat;
+        }
     }
 }
 
@@ -824,6 +826,15 @@ function applyWind(dt) {
     ballBody.velocity.z += a.az * dt;
 }
 
+// A geyser's blast throws the ball straight away from its vent (mazeHazards.js).
+function applyGeysers(dt) {
+    if (!level || !level.geysers || !ballBody) return;
+    const p = ballBody.position;
+    const a = geyserAccel(level.geysers, runClockMs, p.x, p.z);
+    ballBody.velocity.x += a.ax * dt;
+    ballBody.velocity.z += a.az * dt;
+}
+
 // Spin the star, and pop it in on arrival. The pop overshoots past full size
 // before settling, because a scale that eases straight to 1.0 reads as the
 // object fading in rather than as it landing.
@@ -862,6 +873,10 @@ function checkOutcomes() {
     }
     // An icicle striking the spot the ball is on ends the run like a hole does.
     if (level.icicles && icicleHits(level.icicles, runClockMs, p.x, p.z)) { knockOut('HIT BY AN ICICLE'); return; }
+    // World 3. A flare burns unless world 2's Heat Shield is spent on this
+    // level; a molten gate burns while it closes.
+    if (level.flares && flareHits(level.flares, runClockMs, p.x, p.z, level.ballRadius) && !usePrizeFor('flares')) { knockOut('BURNED'); return; }
+    if (level.gates && moltenGateHits(level.gates, runClockMs, p.x, p.z, level.ballRadius)) { knockOut('BURNED BY A MOLTEN GATE'); return; }
 
     // Coins and pickups, after the hole check so a ball going down a hole
     // does not also bank the coin on its lip.
@@ -1381,6 +1396,12 @@ window.__mazeDebug = {
     // World 2's timed hazards, for a test: jump the run clock, and read the
     // wind and icicles where the ball is.
     setRunClock: (ms) => { runClockMs = ms; updateGates(); if (props) props.tickRun(ms); return runClockMs; },
+    world3: () => (level ? {
+        flares: (level.flares || []).map(f => flareState(f, runClockMs).state),
+        moltenBurning: (level.gates || []).filter(g => g.molten).map(g => gateBurning(g, runClockMs)),
+        moltenGlow: gates.filter(g => g.glow).map(g => g.glow.value),
+        geysers: (level.geysers || []).map(g => geyserState(g, runClockMs).state)
+    } : null),
     world2: () => (level ? {
         fans: (level.fans || []).length,
         icicles: (level.icicles || []).length,

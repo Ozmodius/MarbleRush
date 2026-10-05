@@ -351,6 +351,41 @@ function checkExtras(lv, H, P) {
         check(reachableAt(ic.x, ic.z, ic.r), `${itag} is UNREACHABLE -- nothing can ever be under it`);
     });
 
+    // FLARING SEAMS -- timed, like icicles: a band across a corridor that
+    // must leave a real quiet to cross in and must warn before its first flare.
+    (Array.isArray(lv.flares) ? lv.flares : []).forEach((f, n) => {
+        const ftag = `${tag}: flare ${n} at (${f.x},${f.z})`;
+        check(Number.isFinite(f.w) && f.w > 0 && Number.isFinite(f.d) && f.d > 0, `${ftag} needs positive w and d`);
+        check(Number.isFinite(f.periodMs) && f.periodMs >= H.FLARE_MIN_PERIOD, `${ftag} needs a periodMs of at least ${H.FLARE_MIN_PERIOD}`);
+        check(Math.min(f.w, f.d) <= 0.6, `${ftag} is ${Math.min(f.w, f.d)} deep -- a band must be crossable in its quiet`);
+        check(H.firstFlareMs(f) >= 1500, `${ftag} first flares ${H.firstFlareMs(f)}ms into a run`);
+        check(Math.abs(f.x) + f.w / 2 <= a.hw + 1e-6 && Math.abs(f.z) + f.d / 2 <= a.hd + 1e-6, `${ftag} extends outside the level bounds`);
+        check(H.distanceToRect(f, lv.start.x, lv.start.z) > a.R * 1.5, `${ftag} is at the START`);
+        check(H.distanceToRect(f, lv.goal.x, lv.goal.z) > lv.goal.r, `${ftag} touches the GOAL`);
+        for (const h of lv.holes) check(H.distanceToRect(f, h.x, h.z) > a.R, `${ftag} has the hole at (${h.x},${h.z}) on it`);
+        sweeps.forEach(sw => check(!overlap(f, sw, a.R), `${ftag} lies under a gate's sweep`));
+        const live = [...rf.seen].some(k => { const [i, j] = k.split('_').map(Number); return H.distanceToRect(f, rf.px(i), rf.pz(j)) === 0; });
+        check(live, `${ftag} is UNREACHABLE`);
+    });
+
+    // MOLTEN GATES are gates (every gate rule above applies); here only the flag.
+    (Array.isArray(lv.gates) ? lv.gates : []).forEach((g, n) => {
+        if (g.molten !== undefined) check(g.molten === true, `${tag}: gate ${n} has molten ${JSON.stringify(g.molten)}; it is true or absent`);
+    });
+
+    // GEYSERS -- timed pushes: they warn, and no hole lies within
+    // GEYSER_HOLE_CLEAR, so a blast costs position, never the run.
+    (Array.isArray(lv.geysers) ? lv.geysers : []).forEach((gy, n) => {
+        const gtag = `${tag}: geyser ${n} at (${gy.x},${gy.z})`;
+        check(gy.r > 0 && gy.reach >= gy.r && gy.reach <= 1.5, `${gtag} needs 0 < r <= reach <= 1.5`);
+        check(Number.isFinite(gy.periodMs) && gy.periodMs >= H.GEYSER_MIN_PERIOD, `${gtag} needs a periodMs of at least ${H.GEYSER_MIN_PERIOD}`);
+        check(H.firstBlastMs(gy) >= 1500, `${gtag} first blasts ${H.firstBlastMs(gy)}ms into a run`);
+        for (const h of lv.holes) check(Math.hypot(gy.x - h.x, gy.z - h.z) >= H.GEYSER_HOLE_CLEAR, `${gtag} is within ${H.GEYSER_HOLE_CLEAR} of the hole at (${h.x},${h.z}) -- a blast could throw the ball in`);
+        check(Math.hypot(gy.x - lv.start.x, gy.z - lv.start.z) > gy.reach + a.R, `${gtag} reaches the START`);
+        check(Math.hypot(gy.x - lv.goal.x, gy.z - lv.goal.z) > gy.reach + lv.goal.r, `${gtag} reaches the GOAL`);
+        check(reachableAt(gy.x, gy.z, gy.reach), `${gtag} is UNREACHABLE`);
+    });
+
     // COINS AND PICKUPS. Every one must be collectible by a ball standing on
     // reachable floor, without that ball being over a hole, and must not sit
     // where a gate sweeps (a coin you can only take by being crushed is a
@@ -639,7 +674,9 @@ async function run() {
     // review; the rule is about what is new to the player.
     const TRAP_KINDS = { holes: l => l.holes.length, gates: l => (l.gates || []).length,
         ice: l => (l.ice || []).length, conveyors: l => (l.conveyors || []).length,
-        fans: l => (l.fans || []).length, icicles: l => (l.icicles || []).length };
+        fans: l => (l.fans || []).length, icicles: l => (l.icicles || []).length,
+        flares: l => (l.flares || []).length, moltenGates: l => (l.gates || []).filter(g => g.molten).length,
+        geysers: l => (l.geysers || []).length };
     const metBefore = new Set();
     for (const w of Object.keys(worldRanges).sort((a, b) => a - b)) {
         const lvls = DATA.levels.filter(l => String(l.world) === w);

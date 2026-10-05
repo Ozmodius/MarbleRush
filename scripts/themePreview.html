@@ -26,10 +26,10 @@
 <body>
 <script type="module">
 import * as THREE from 'three';
-import { resolveLevelTheme, makeWallGeometry, makeGateMaterial,
+import { resolveLevelTheme, makeWallGeometry, makeGateMaterial, makeMoltenGateMaterial, buildHoleMeshes,
          makeHoleMaterial, makeGoalMaterial, makeBallMaterial, makeIceMaterial } from '../mazeTheme3d.js';
 import { tickSurfaces } from '../mazeSurface3d.js';
-import { gateSpecAt } from '../mazeHazards.js';
+import { gateSpecAt, gateBurning } from '../mazeHazards.js';
 import { buildLevelProps } from '../mazeProps3d.js';
 import { buildFloorAndWalls } from '../levelDressing3d.js';
 
@@ -74,9 +74,12 @@ const built = buildFloorAndWalls(lv, lv.walls.concat(rails), theme, { height: WA
 scene.add(built.group);
 
 const gateMat = makeGateMaterial(theme);
+const moltenGlows = [];
 (lv.gates || []).forEach((g, i) => {
+    const mat = g.molten ? makeMoltenGateMaterial(theme) : gateMat;
+    if (g.molten) moltenGlows.push({ g, glow: mat.userData.surfaceUniforms.mrGlow });
     const m = new THREE.Mesh(makeWallGeometry(theme, [{ x: 0, z: 0, w: g.w, d: g.d }],
-        { height: WALL_HEIGHT, reach: lv.ballRadius, seed: i + 1 }), gateMat);
+        { height: WALL_HEIGHT, reach: lv.ballRadius, seed: i + 1 }), mat);
     const at = gateSpecAt(g, 0);
     m.position.set(at.x, 0, at.z);
     m.castShadow = m.receiveShadow = true;
@@ -90,11 +93,7 @@ for (const r of (lv.ice || [])) {
 }
 const props = buildLevelProps(lv);
 scene.add(props.group);
-const holeMat = makeHoleMaterial(theme);
-for (const h of lv.holes) {
-    const m = new THREE.Mesh(new THREE.CircleGeometry(h.r, 28), holeMat);
-    m.rotation.x = -Math.PI / 2; m.position.set(h.x, 0.012, h.z); scene.add(m);
-}
+scene.add(buildHoleMeshes(lv, theme));
 const goal = new THREE.Mesh(new THREE.RingGeometry(lv.goal.r * 0.62, lv.goal.r, 32), makeGoalMaterial(theme));
 goal.rotation.x = -Math.PI / 2; goal.position.set(lv.goal.x, 0.015, lv.goal.z); scene.add(goal);
 const ball = new THREE.Mesh(new THREE.SphereGeometry(lv.ballRadius, 32, 24), makeBallMaterial(theme));
@@ -125,7 +124,9 @@ renderer.setAnimationLoop((ms) => {
     props.tick(ms / 1000);
     // Fans and icicles on page time here; ?t=ms freezes their clock there,
     // to photograph a gust or a fall.
-    props.tickRun(q.has('t') ? Number(q.get('t')) : ms);
+    const runMs = q.has('t') ? Number(q.get('t')) : ms;
+    props.tickRun(runMs);
+    for (const mg of moltenGlows) mg.glow.value = gateBurning(mg.g, runMs) ? 2.85 : 0.25;
     // ?ball=x,z puts the marble somewhere, to see a canopy fade over it.
     if (built.forest) built.forest.tick(ball.position.x, ball.position.z, 16);
     renderer.render(scene, camera);

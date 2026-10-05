@@ -5,7 +5,7 @@ their own feel, upgrades, stars and a daily maze. Spun out of
 [3dBallSmack](https://github.com/Ozmodius/3dBallSmack)'s Marble Maze side game.
 
 **Status: Phase 0 done.** The game boots on its own with no server: level
-select, world 1 (Workshop to forest) and world 2 (Glacier), ten levels each, coins and power-ups, progress saved on the
+select, worlds 1-3 (Workshop to forest, Glacier, Magma Works), ten levels each, coins and power-ups, progress saved on the
 device (CrazyGames cloud save when signed in). See [docs/PLAN.md](docs/PLAN.md)
 for what comes next.
 
@@ -36,7 +36,7 @@ npm run test:browser:bundle   # the browser test against that bundle
 | `sceneHost.js` | Renderer, scene, camera, frame loop (Phase 0 seam) |
 | `progressStore.js` | Ladder, best times, coins, wallet, prizes; saves via `platform.js` (Phase 0 seam) |
 | `mazeGame.js` | Physics, run loop, HUD, level select |
-| `mazeHazards.js` | Gates, ice, conveyors, wind fans, icicles (pure) |
+| `mazeHazards.js` | Gates, ice, conveyors, wind fans, icicles, lava seams, molten gates, geysers (pure) |
 | `mazePickups.js` | Coins and power-ups (pure) |
 | `mazeTilt.js` | Tilt angle math (pure) |
 | `mazeWalls3d.js`, `mazeSurface3d.js`, `mazeTheme3d.js`, `mazeThemes.js` | Wall shapes, procedural surfaces, theme materials, theme catalog |

@@ -122,6 +122,9 @@ export function isSafeSpot(level, x, z, r) {
     // fall would undo the save before the player could act.
     if (windAt(level.fans, x, z)) return false;
     if ((level.icicles || []).some(ic => Math.hypot(x - ic.x, z - ic.z) < ic.r + r)) return false;
+    // Nor on a lava seam, nor within a geyser's blast.
+    if ((level.flares || []).some(f => distanceToRect(f, x, z) < r)) return false;
+    if ((level.geysers || []).some(g => Math.hypot(x - g.x, z - g.z) < g.reach + r)) return false;
     return true;
 }
 

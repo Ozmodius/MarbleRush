@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { conveyorDir, windStrength, icicleState, ICICLE_IMPACT_MS } from './mazeHazards.js';
+import { conveyorDir, windStrength, icicleState, ICICLE_IMPACT_MS, flareState, geyserState } from './mazeHazards.js';
+import { applySurface } from './mazeSurface3d.js';
 import { COIN_RADIUS, PICKUP_RADIUS } from './mazePickups.js';
 
 // LEVEL PROPS -- conveyor belts, coins and power-up pickups as meshes. Shared
@@ -324,6 +325,158 @@ export function buildIcicles(icicles, tracked = []) {
     };
 }
 
+// A soft vertical flame/steam texture, shared: bright at the base, gone at
+// the top, feathered at the sides.
+let _plume = null;
+function plumeTexture() {
+    if (_plume) return _plume;
+    const c = document.createElement('canvas');
+    c.width = 32; c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createLinearGradient(0, 64, 0, 0);
+    grad.addColorStop(0, 'rgba(255,240,180,1)');
+    grad.addColorStop(0.25, 'rgba(255,150,40,0.9)');
+    grad.addColorStop(0.7, 'rgba(220,60,10,0.35)');
+    grad.addColorStop(1, 'rgba(120,20,0,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 32, 64);
+    const side = g.createLinearGradient(0, 0, 32, 0);
+    side.addColorStop(0, 'rgba(0,0,0,1)'); side.addColorStop(0.3, 'rgba(0,0,0,0)');
+    side.addColorStop(0.7, 'rgba(0,0,0,0)'); side.addColorStop(1, 'rgba(0,0,0,1)');
+    g.globalCompositeOperation = 'destination-out';
+    g.fillStyle = side;
+    g.fillRect(0, 0, 32, 64);
+    _plume = new THREE.CanvasTexture(c);
+    _plume.colorSpace = THREE.SRGBColorSpace;
+    return _plume;
+}
+
+// FLARING SEAMS (world 3): a crusted fissure across the corridor whose veins
+// glow dull, brighten and flicker through the warning, then blaze with a
+// curtain of flame for the flare. Run clock, like every timed trap.
+export function buildFlares(flares, tracked = []) {
+    const group = new THREE.Group();
+    const flameMat = new THREE.MeshBasicMaterial({ map: plumeTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    const lipMat = new THREE.MeshStandardMaterial({ color: 0x1a1210, roughness: 1 });
+    tracked.push(flameMat, lipMat);
+    const units = (flares || []).map((f) => {
+        const geo = new THREE.PlaneGeometry(f.w, f.d).rotateX(-Math.PI / 2).translate(f.x, 0.008, f.z);
+        const mat = applySurface(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }), {
+            pattern: 'fissure', glowColor: '#ff5a14', glow: 0.4, bump: 2, grit: 0
+        });
+        tracked.push(geo, mat);
+        const band = new THREE.Mesh(geo, mat);
+        band.receiveShadow = true;
+        group.add(band);
+        // A crusted lip round the band, so it reads as a fissure in the floor
+        // and not a sticker on it. Low (0.018): far under the marble's reach.
+        const lip = 0.05, lipH = 0.018;
+        for (const [w, d, x, z] of [[f.w + lip * 2, lip, f.x, f.z - f.d / 2 - lip / 2], [f.w + lip * 2, lip, f.x, f.z + f.d / 2 + lip / 2],
+                                     [lip, f.d, f.x - f.w / 2 - lip / 2, f.z], [lip, f.d, f.x + f.w / 2 + lip / 2, f.z]]) {
+            const g = new THREE.BoxGeometry(w, lipH, d).translate(x, lipH / 2, z);
+            tracked.push(g);
+            group.add(new THREE.Mesh(g, lipMat));
+        }
+        // The flame curtain: crossed planes along the band's long axis.
+        const alongX = f.w >= f.d, len = Math.max(f.w, f.d);
+        const curtain = new THREE.Group();
+        curtain.position.set(f.x, 0, f.z);
+        const n = Math.max(2, Math.round(len / 0.3));
+        for (let i = 0; i < n; i++) {
+            const t = ((i + 0.5) / n - 0.5) * len;
+            for (const rot of [0, Math.PI / 2]) {
+                const q = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 1).translate(0, 0.5, 0), flameMat);
+                tracked.push(q.geometry);
+                q.position.set(alongX ? t : 0, 0, alongX ? 0 : t);
+                q.rotation.y = rot + (alongX ? 0 : Math.PI / 2);
+                curtain.add(q);
+            }
+        }
+        curtain.scale.y = 0.001;
+        group.add(curtain);
+        return { f, glow: mat.userData.surfaceUniforms.mrGlow, curtain };
+    });
+    return {
+        group,
+        tickRun(runMs) {
+            for (const u of units) {
+                const st = flareState(u.f, runMs);
+                let glow = 0.22, h = 0.001;
+                if (st.state === 'warn') glow = 0.5 + 1.9 * st.k + 0.4 * Math.sin(runMs * (0.015 + 0.03 * st.k));
+                // Flames shoot up over the first 15% of the flare, die over the last 15%.
+                if (st.state === 'flare') { glow = 3.2; h = 0.75 * Math.min(1, st.k / 0.15) * Math.min(1, (1 - st.k) / 0.15); }
+                u.glow.value = glow;
+                u.curtain.scale.y = Math.max(0.001, h);
+                u.curtain.children.forEach((c, i) => { c.scale.x = 0.8 + 0.3 * Math.sin(runMs * 0.02 + i); });
+            }
+        }
+    };
+}
+
+// GEYSERS (world 3): a rocky vent with a glowing throat that bubbles and
+// brightens through the warning, then a plume blasts up for the blast while
+// spray flies outward. Run clock.
+export function buildGeysers(geysers, tracked = []) {
+    const group = new THREE.Group();
+    const rimGeo = new THREE.TorusGeometry(1, 0.32, 10, 28).rotateX(Math.PI / 2);
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0x2a2220, roughness: 0.95 });
+    const throatGeo = new THREE.CircleGeometry(1, 28).rotateX(-Math.PI / 2);
+    const bubbleGeo = new THREE.SphereGeometry(0.05, 10, 8);
+    const plumeGeo = new THREE.CylinderGeometry(0.22, 0.42, 1, 18, 1, true).translate(0, 0.5, 0);
+    const plumeMat = new THREE.MeshBasicMaterial({ map: plumeTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    const reachGeo = new THREE.RingGeometry(0.94, 1, 48).rotateX(-Math.PI / 2);
+    tracked.push(rimGeo, rimMat, throatGeo, bubbleGeo, plumeGeo, plumeMat, reachGeo);
+    const units = (geysers || []).map((gy) => {
+        const vent = new THREE.Group();
+        vent.position.set(gy.x, 0, gy.z);
+        const rim = new THREE.Mesh(rimGeo, rimMat);
+        rim.scale.set(gy.r, gy.r * 0.6, gy.r);
+        rim.position.y = 0.02;
+        rim.castShadow = true;
+        vent.add(rim);
+        const throatMat = new THREE.MeshBasicMaterial({ color: 0xff6a1a });
+        const throat = new THREE.Mesh(throatGeo, throatMat);
+        throat.scale.setScalar(gy.r * 0.8);
+        throat.position.y = 0.012;
+        vent.add(throat);
+        // How far a blast reaches, marked faintly on the ground always.
+        const reachMat = new THREE.MeshBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.25, depthWrite: false });
+        const reachRing = new THREE.Mesh(reachGeo, reachMat);
+        reachRing.scale.setScalar(gy.reach);
+        reachRing.position.y = 0.011;
+        vent.add(reachRing);
+        const bubbles = [];
+        for (let i = 0; i < 6; i++) { const b = new THREE.Mesh(bubbleGeo, throatMat); vent.add(b); bubbles.push(b); }
+        const plume = new THREE.Mesh(plumeGeo, plumeMat);
+        plume.scale.set(1, 0.001, 1);
+        vent.add(plume);
+        tracked.push(throatMat, reachMat);
+        group.add(vent);
+        return { gy, throatMat, reachMat, bubbles, plume };
+    });
+    return {
+        group,
+        tickRun(runMs) {
+            for (const u of units) {
+                const st = geyserState(u.gy, runMs);
+                const heat = st.state === 'blast' ? 1 : st.state === 'warn' ? 0.35 + 0.65 * st.k : 0.2;
+                u.throatMat.color.setRGB(0.5 + 0.5 * heat, 0.15 + 0.45 * heat, 0.05 + 0.2 * heat);
+                u.reachMat.opacity = st.state === 'warn' ? 0.25 + 0.35 * st.k : st.state === 'blast' ? 0.7 : 0.18;
+                u.bubbles.forEach((b, i) => {
+                    const live = st.state !== 'quiet' || i < 2;
+                    b.visible = live;
+                    const a = i * 1.7 + runMs * 0.002;
+                    const bob = ((runMs * (0.002 + 0.004 * heat) + i * 0.37) % 1);
+                    b.position.set(Math.cos(a) * u.gy.r * 0.45, 0.02 + bob * 0.18 * (0.3 + heat), Math.sin(a) * u.gy.r * 0.45);
+                    b.scale.setScalar(0.6 + heat);
+                });
+                const h = st.state === 'blast' ? 1.6 * Math.sin(Math.min(1, st.k * 2.5) * Math.PI * 0.5) * (st.k > 0.7 ? (1 - st.k) / 0.3 : 1) : 0.001;
+                u.plume.scale.set(1 + 0.6 * (st.state === 'blast' ? st.k : 0), Math.max(0.001, h), 1 + 0.6 * (st.state === 'blast' ? st.k : 0));
+            }
+        }
+    };
+}
+
 // All of them at once, for a level. tick(seconds) runs on the page clock
 // (coins spin, belts scroll); tickRun(runMs) on the run clock (fans, icicles).
 export function buildLevelProps(lv, tracked = []) {
@@ -332,12 +485,14 @@ export function buildLevelProps(lv, tracked = []) {
     const pickups = buildPickups(lv.pickups, tracked);
     const fans = buildFans(lv.fans, tracked);
     const icicles = buildIcicles(lv.icicles, tracked);
+    const flares = buildFlares(lv.flares, tracked);
+    const geysers = buildGeysers(lv.geysers, tracked);
     const group = new THREE.Group();
-    group.add(belts.group, coins.group, pickups.group, fans.group, icicles.group);
+    group.add(belts.group, coins.group, pickups.group, fans.group, icicles.group, flares.group, geysers.group);
     return {
         group,
         tick(seconds) { belts.tick(seconds); coins.tick(seconds); pickups.tick(seconds); },
-        tickRun(runMs) { fans.tickRun(runMs); icicles.tickRun(runMs); },
+        tickRun(runMs) { fans.tickRun(runMs); icicles.tickRun(runMs); flares.tickRun(runMs); geysers.tickRun(runMs); },
         takeCoin: i => coins.take(i),
         takePickup: i => pickups.take(i),
         reset() { coins.reset(); pickups.reset(); }

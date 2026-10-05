@@ -74,6 +74,25 @@ export const MAZE_THEMES = {
         gateColor: '#b8572f',
         backdropColor: '#0d1824'
     },
+    // WORLD 3, MAGMA WORKS: levels say theme 'cinder', themeTo 'lava' and a
+    // blend -- grey ash fields with dull seams cooling the first levels, black
+    // basalt split by bright lava by the last. Holes switch to glowing lava
+    // pools at the halfway level (mazeTheme3d.js SWITCH).
+    'cinder': {
+        id: 'cinder',
+        name: 'Cinder Fields',
+        rarity: 'rare',
+        floorColor: '#6b6460', floorColor2: '#3b3532', floorRoughness: 0.95, floorMetalness: 0.0,
+        floorPattern: 'lavaCracks', floorGlow: 0.25,
+        wallColor: '#56504c', wallColor2: '#2c2826', wallRoughness: 0.9, wallMetalness: 0.0,
+        wallStyle: 'rock', wallPattern: 'rock', wallGlow: 0, wallJag: 0.12,
+        glowColor: '#c2410c',
+        marbleColor: '#eef1f5', marbleRoughness: 0.14, marbleMetalness: 0.1,
+        holeColor: '#0b0807',
+        goalColor: '#3fd0ff',
+        gateColor: '#7d6a5a',
+        backdropColor: '#1d1614'
+    },
     'slate': {
         id: 'slate',
         name: 'Cold Storage',
@@ -114,12 +133,15 @@ export const MAZE_THEMES = {
         wallStyle: 'rock', wallPattern: 'rock', wallGlow: 0, wallJag: 0.14,
         glowColor: '#e0340a',
         marbleColor: '#eef1f5', marbleRoughness: 0.14, marbleMetalness: 0.1,
-        holeColor: '#ff7a1f',
+        // Near black, not a lava orange: world 3 is full of gold coins and orange
+        // seams, and a hole must never look like either.
+        holeColor: '#120403',
+        holeRim: '#ff4d1a',
         goalColor: '#3fd0ff',
-        // Gates are lava that has not set yet: molten, crusted, glowing. A wall
-        // that is about to move must look different from one that never will,
-        // and on a board of black rock nothing reads more "not solid" than this.
-        gateColor: '#3a1a10', gatePattern: 'molten', gateGlow: 2.2,
+        // Ordinary gates here are dull bronze slabs. MOLTEN gates -- the
+        // world 3 trap -- always wear the molten pattern (mazeTheme3d.js
+        // makeMoltenGateMaterial), so the two can never be confused.
+        gateColor: '#8a6a3c',
         backdropColor: '#140604'
     }
 };

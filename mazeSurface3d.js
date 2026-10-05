@@ -314,6 +314,18 @@ const PATTERN_GLSL = {
         float mrH = mrN * 0.3 - mrCrk * 0.4;
         float mrHot = 0.0;
     `,
+    // A FLARING SEAM's band (world 3): a crusted fissure with molten veins
+    // creeping along it. Its glow (mrGlow, per seam) is driven by the seam's
+    // state in mazeProps3d.js -- dull, brightening, then blazing.
+    fissure: /* glsl */`
+        vec3 mrP = vMrPos * mrScale;
+        float mrN = mrFbm(mrP * 3.0);
+        float mrVein = smoothstep(0.32, 0.7, mrFbm(mrP * 5.0 + vec3(0.0, mrTime * 0.5, mrTime * 0.2)));
+        diffuseColor.rgb = mix(vec3(0.07, 0.045, 0.035), vec3(0.32, 0.07, 0.02), mrVein);
+        float mrTone = 0.0;
+        float mrH = (1.0 - mrVein) * 0.9 + mrN * 0.3;
+        float mrHot = 0.35 + 0.65 * mrVein;
+    `,
     // Rock still molten: glowing everywhere except where a thin dark crust has
     // floated on top. The inverse of lavaCracks, and in 3D rather than on the
     // ground plane, so it wraps an upright surface without streaking. Made for

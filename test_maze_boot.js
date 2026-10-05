@@ -76,8 +76,11 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.locator('#worldLabel_2').click({ force: true });   // labels drift with their planets
         check((await page.textContent('#worldSheetName')).trim() === 'Glacier' && await page.locator('.level-node').count() === levels.filter(l => l.world === 2).length
             && /Clear World 1/.test(await page.textContent('#worldSheetNote')), 'a built but locked world shows its levels, locked, and says what opens it');
-        await page.locator('#worldLabel_3').click({ force: true });
-        check((await page.textContent('#worldSheetName')).trim() === 'Magma Works' && await page.locator('.level-node').count() === 0
+        // The first world not built yet: one past the last world in the data.
+        const comingN = Math.max(...levels.map(l => l.world)) + 1;
+        const comingName = (await import('./worlds.js')).worldName(comingN);
+        await page.locator('#worldLabel_' + comingN).click({ force: true });
+        check((await page.textContent('#worldSheetName')).trim() === comingName && await page.locator('.level-node').count() === 0
             && /Coming/.test(await page.textContent('#worldSheetNote')), 'tapping a world not built yet says it is coming, with no levels');
         // A tap on the planet itself (just above its label) picks it too.
         const anchor = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
@@ -218,6 +221,49 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 `an icicle landing on the ball knocks it out (phase ${await dbg('phase')}, status "${await page.textContent('#mazeStatus')}")`);
         }
 
+        // --- world 3: flares, molten gates, geysers --------------------------
+        const lvFl = levels.find(l => (l.flares || []).length && (l.gates || []).some(g => g.molten));
+        if (lvFl) {
+            check(await dbg('startLevelForTest', lvFl.id), `can build ${lvFl.id}`);
+            await page.tap('#mazeStartBtn');
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const f = lvFl.flares[0], tf = H.firstFlareMs(f);
+            await dbg('setRunClock', tf - 1300);
+            await dbg('placeBall', f.x, f.z);
+            await dbg('advanceFrames', 3);
+            check(await dbg('phase') === 'running', 'a seam between flares is just floor');
+            await dbg('setRunClock', tf + 20);
+            await dbg('placeBall', f.x, f.z);
+            await dbg('advanceFrames', 2);
+            check(await dbg('phase') === 'falling' && /BURNED/.test(await page.textContent('#mazeStatus')), 'a flaring seam burns the ball on it');
+
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { timeout: 5000 }).catch(() => {});
+            const mg = lvFl.gates.find(g => g.molten);
+            let tBurn = 0;
+            for (let t = 0; t < mg.periodMs; t += 10) if (H.gateBurning(mg, t) && H.gateFraction(mg, t) > 0.5) { tBurn = t; break; }
+            const at = H.gateSpecAt(mg, H.gateFraction(mg, tBurn));
+            await dbg('setRunClock', tBurn);
+            const w3 = await dbg('world3');
+            check(w3.moltenGlow.length && w3.moltenGlow[0] > 1, `a molten gate glows while it closes (glow ${w3.moltenGlow[0]})`);
+            // Beside the bar, off its far side along its thin axis.
+            const off = mg.axis === 'x' ? { x: at.x, z: at.z + at.d / 2 + lvFl.ballRadius * 0.9 } : { x: at.x + at.w / 2 + lvFl.ballRadius * 0.9, z: at.z };
+            await dbg('placeBall', off.x, off.z);
+            await dbg('advanceFrames', 1);
+            check(await dbg('phase') === 'falling' && /MOLTEN/.test(await page.textContent('#mazeStatus')), 'touching a closing molten gate burns');
+        }
+        const lvGy = levels.find(l => (l.geysers || []).length);
+        if (lvGy) {
+            check(await dbg('startLevelForTest', lvGy.id), `can build ${lvGy.id}`);
+            await page.tap('#mazeStartBtn');
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const gy = lvGy.geysers[0], tb = H.firstBlastMs(gy);
+            await dbg('setRunClock', tb - 40);
+            const g0 = await dbg('placeBall', gy.x + 0.25, gy.z);
+            const g1 = await dbg('advanceFrames', 20);
+            check(Math.hypot(g1.x - gy.x, g1.z - gy.z) > Math.hypot(g0.x - gy.x, g0.z - gy.z) + 0.1, 'a geyser blast throws the ball away from the vent');
+            check(await dbg('phase') === 'running', 'a blast moves the ball; it does not end the run');
+        }
+
         // --- progress survives a reload ----------------------------------
         await page.reload();
         await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
@@ -234,7 +280,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await shopCtx.addInitScript(() => {
             if (sessionStorage.getItem('seeded')) return;
             sessionStorage.setItem('seeded', '1');
-            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 2000, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: ['rubberCoat'], prizeUses: { rubberCoat: 3 }, charges: { slowmo: 1 } }));
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 2000, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: ['rubberCoat', 'heatShield'], prizeUses: { rubberCoat: 3, heatShield: 2 }, charges: { slowmo: 1 } }));
         });
         const shop = await shopCtx.newPage();
         shop.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
@@ -287,6 +333,18 @@ const check = (c, m) => { if (!c) failures.push(m); };
             check(hz.onIce && !hz.floorIsIce, 'with the Rubber Coat, ice grips like floor');
             await sdbg('placeBall', r.x, r.z);
             check((await sdbg('progress')).prizeUses.rubberCoat === 2, 'the Rubber Coat spends one use for the level, not one per touch');
+        }
+        // World 2's prize on world 3's seams: a flare does not burn.
+        const flLv = levels.find(l => (l.flares || []).length);
+        if (flLv) {
+            check(await sdbg('startLevelForTest', flLv.id), `can build ${flLv.id}`);
+            await shop.tap('#mazeStartBtn');
+            await shop.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const f = flLv.flares[0];
+            await sdbg('setRunClock', H.firstFlareMs(f) + 20);
+            await sdbg('placeBall', f.x, f.z);
+            await sdbg('advanceFrames', 2);
+            check(await sdbg('phase') === 'running' && (await sdbg('progress')).prizeUses.heatShield === 1, 'with the Heat Shield a flare does not burn, and one use is spent');
         }
         await shop.reload();
         await shop.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });

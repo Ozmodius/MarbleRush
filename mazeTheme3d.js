@@ -33,6 +33,9 @@ const HARD_DEFAULTS = {
     wallColor: '#8a6a44', wallRoughness: 0.82, wallMetalness: 0.05, wallTextureTile: 4,
     marbleColor: '#f2f2f2', marbleRoughness: 0.18, marbleMetalness: 0.0,
     holeColor: '#120c07', goalColor: '#2a9d5f', backdropColor: '#241a10',
+    // A glowing rim round each hole, for floors too dark for a dark hole to
+    // read on (world 3's lava). '' = none.
+    holeRim: '',
     // HAZARDS. Both default to something legible against the workshop theme so
     // a level can use ice or a gate before anyone has authored colours for them.
     // Ice is deliberately a separate colour from the floor rather than a
@@ -105,7 +108,7 @@ export function resolveLevelTheme(lv) {
     // The goal and the holes SWITCH at the halfway point rather than blend: a
     // goal ring halfway between green and gold is a muddy olive that reads
     // as neither, and a hazard must never be the colour of nothing.
-    const SWITCH = ['goalColor', 'holeColor'];
+    const SWITCH = ['goalColor', 'holeColor', 'holeRim'];
     for (const k of Object.keys(from)) {
         if (SWITCH.includes(k)) { out[k] = blend < 0.5 ? from[k] : to[k]; continue; }
         const a = from[k], b = to[k];
@@ -222,6 +225,26 @@ export function makeHoleMaterial(theme) {
     return new THREE.MeshBasicMaterial({ color: new THREE.Color(theme.holeColor) });
 }
 
+// Every hole of a level: one instanced disc, plus one instanced rim when the
+// theme asks for it. Shared by mazeGame.js and the theme preview.
+export function buildHoleMeshes(lv, theme, y = 0.012, tracked = []) {
+    const group = new THREE.Group();
+    const holes = lv.holes || [];
+    if (!holes.length) return group;
+    const flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+    const m = new THREE.Matrix4();
+    const add = (geo, mat, yy) => {
+        tracked.push(geo, mat);
+        const mesh = new THREE.InstancedMesh(geo, mat, holes.length);
+        holes.forEach((h, i) => { m.compose(new THREE.Vector3(h.x, yy, h.z), flat, new THREE.Vector3(h.r, h.r, 1)); mesh.setMatrixAt(i, m); });
+        mesh.instanceMatrix.needsUpdate = true;
+        group.add(mesh);
+    };
+    add(new THREE.CircleGeometry(1, 28), makeHoleMaterial(theme), y);
+    if (theme.holeRim) add(new THREE.RingGeometry(0.96, 1.16, 36), new THREE.MeshBasicMaterial({ color: new THREE.Color(theme.holeRim) }), y + 0.0005);
+    return group;
+}
+
 export function makeGoalMaterial(theme) {
     return new THREE.MeshBasicMaterial({ color: new THREE.Color(theme.goalColor), side: THREE.DoubleSide });
 }
@@ -247,6 +270,14 @@ export function makeIceMaterial(theme) {
 // with gateColor so the player can tell at a glance which walls are about to
 // move. Getting that wrong is not a cosmetic problem: a gate that looks exactly
 // like a wall reads as the level cheating when it shifts.
+// A MOLTEN gate (world 3): lava under a thin crust, whatever the theme, and
+// its own material so its glow can follow its state -- bright while it
+// closes (burning), dull while it opens (crusted). mazeGame.js sets
+// userData.surfaceUniforms.mrGlow each frame.
+export function makeMoltenGateMaterial(theme) {
+    return makeWallMaterial({ ...theme, glowColor: '#ff5a14' }, '#3a1a10', 'molten', 2.4);
+}
+
 export function makeGateMaterial(theme) {
     return makeWallMaterial(theme, theme.gateColor,
         theme.gatePattern || theme.wallPattern,

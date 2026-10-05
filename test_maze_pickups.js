@@ -81,6 +81,11 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(!P.isSafeSpot(lv2, 5, 5, R), 'a spot in a wind zone is not safe');
     check(!P.isSafeSpot(lv2, -5, 5.5, R), 'a spot under an icicle is not safe');
 
+    // 4c. nor on a lava seam, nor in a geyser's reach (world 3)
+    const lv3 = { ...level, flares: [{ x: 5, z: -5, w: 0.4, d: 1.2, periodMs: 3000, phase: 0 }], geysers: [{ x: -5, z: -5, r: 0.24, reach: 1, periodMs: 3400, phase: 0 }] };
+    check(!P.isSafeSpot(lv3, 5, -5, R), 'a spot on a lava seam is not safe');
+    check(!P.isSafeSpot(lv3, -5, -4.2, R), "a spot in a geyser's reach is not safe");
+
     // 5. bought charges
     s = P.createRunPickups(level, { shield: 1, slowmo: 2 });
     check(s.shield, 'a bought shield is armed from the start');

@@ -889,6 +889,52 @@ function placeIcicles(open, cfg, g, path, rand, count) {
     return out;
 }
 
+// FLARING SEAMS lie ACROSS the corridor on straight route cells: a band the
+// player must cross, and can, in the quiet between flares. Each one's first
+// flare comes late enough into a run that the player has read the board.
+function placeFlares(open, cfg, g, path, rand, count) {
+    const out = [];
+    const cells = [];
+    for (let n = 3; n < path.length - 2; n++) {
+        const [pi, pj] = path[n - 1], [i, j] = path[n], [ni, nj] = path[n + 1];
+        if ((i - pi) + ',' + (j - pj) !== (ni - i) + ',' + (nj - j)) continue;
+        cells.push({ i, j, alongX: i !== pi });
+    }
+    shuffle(cells, rand);
+    for (const c of cells) {
+        if (out.length >= count) break;
+        if (out.some(o => Math.hypot(o.x - g.cx(c.i), o.z - g.cz(c.j)) < Math.min(g.px, g.pz) * 1.4)) continue;
+        const band = 0.42;
+        const f = {
+            x: r2(g.cx(c.i)), z: r2(g.cz(c.j)),
+            w: r2(c.alongX ? band : g.px - g.t), d: r2(c.alongX ? g.pz - g.t : band),
+            periodMs: 2800 + Math.round(rand() * 8) * 100, phase: r2(rand())
+        };
+        for (let k = 0; k < 20 && H.firstFlareMs(f) < 1800; k++) f.phase = r2((f.phase + 0.13) % 1);
+        if (H.firstFlareMs(f) < 1800) continue;
+        out.push(f);
+    }
+    return out;
+}
+
+// GEYSERS sit in route cells, well away from the start and the goal and from
+// each other; holes are then kept GEYSER_HOLE_CLEAR away (see buildLevel).
+function placeGeysers(open, cfg, g, path, rand, count) {
+    const cells = path.slice(3, -3);
+    shuffle(cells, rand);
+    const out = [];
+    for (const [i, j] of cells) {
+        if (out.length >= count) break;
+        if (out.some(o => Math.hypot(o.x - g.cx(i), o.z - g.cz(j)) < 2.6)) continue;
+        const gy = { x: r2(g.cx(i)), z: r2(g.cz(j)), r: 0.24, reach: r2(Math.min(1.1, Math.min(g.px, g.pz) * 0.85)),
+            periodMs: 3200 + Math.round(rand() * 8) * 100, phase: r2(rand()) };
+        for (let k = 0; k < 20 && H.firstBlastMs(gy) < 2000; k++) gy.phase = r2((gy.phase + 0.13) % 1);
+        if (H.firstBlastMs(gy) < 2000) continue;
+        out.push(gy);
+    }
+    return out;
+}
+
 // Gates go on a DOORWAY the solution path crosses -- the boundary between two
 // cells the player has to pass between, not a bar standing in the middle of a
 // corridor. A gate on a branch nobody takes is scenery; a bar in a corridor wide
@@ -1032,6 +1078,31 @@ const WORLDS = [
             { cols: 6, rows: 9, holes: 5, gates: 0, conveyors: 0, ice: 2, fans: 1, icicles: 3, coins: 12, route: 0.5 }
         ],
         prize: 'heatShield'
+    },
+    {
+        // MAGMA WORKS. Grey cinder fields turning to black basalt split by
+        // lava (blend cinder -> lava). New here: FLARING SEAMS (L1), MOLTEN
+        // GATES (L4), GEYSERS (L10). Holes and gates return as review.
+        world: 3, theme: 'cinder', themeTo: 'lava', ball: 0.28, wall: 0.3, braid: 0.25,
+        names: ['Ash Road', 'Hot Ground', 'Cinder Path', 'Forge Door', 'Slag Run',
+                'Firewall', 'Crucible', 'Caldera', 'Smelter', 'Geyser Field'],
+        teaches: ['FLARING SEAMS: bands of lava that glow, then flare. Cross in the quiet.', 'More seams.', 'Seams and a gate.',
+                  'MOLTEN GATES: they burn while they close. Wait, then follow them out.', 'Seams and a molten gate.', 'Two molten gates.',
+                  'Seams and molten gates.', 'A finer grid.', 'The finest grid this ball fits.',
+                  'GEYSERS: they bubble, then blast you away from them.'],
+        levels: [
+            { cols: 6, rows: 9,  holes: 4, gates: 0, molten: 0, conveyors: 0, flares: 2, geysers: 0, coins: 7,  route: 0.35 },
+            { cols: 6, rows: 9,  holes: 5, gates: 0, molten: 0, conveyors: 0, flares: 3, geysers: 0, coins: 8,  route: 0.45 },
+            { cols: 6, rows: 9,  holes: 5, gates: 1, molten: 0, conveyors: 0, flares: 3, geysers: 0, coins: 8,  route: 0.5 },
+            { cols: 6, rows: 9,  holes: 5, gates: 0, molten: 1, conveyors: 0, flares: 2, geysers: 0, coins: 9,  route: 0.4 },
+            { cols: 6, rows: 10, holes: 6, gates: 0, molten: 1, conveyors: 0, flares: 3, geysers: 0, coins: 9,  route: 0.45 },
+            { cols: 7, rows: 10, holes: 6, gates: 0, molten: 2, conveyors: 0, flares: 3, geysers: 0, coins: 10, route: 0.45 },
+            { cols: 7, rows: 10, holes: 7, gates: 0, molten: 2, conveyors: 0, flares: 3, geysers: 0, coins: 10, route: 0.5 },
+            { cols: 7, rows: 10, holes: 7, gates: 0, molten: 2, conveyors: 0, flares: 4, geysers: 0, coins: 11, route: 0.5 },
+            { cols: 7, rows: 10, holes: 8, gates: 0, molten: 2, conveyors: 0, flares: 4, geysers: 0, coins: 11, route: 0.55 },
+            { cols: 7, rows: 10, holes: 6, gates: 0, molten: 1, conveyors: 0, flares: 3, geysers: 3, coins: 12, route: 0.5 }
+        ],
+        prize: 'obsidianCore'
     }
 ];
 
@@ -1080,8 +1151,11 @@ function buildLevel(cfg, n, index, seed) {
     // doorway.
     const gates = [];
     const gatedFaces = new Set();
-    for (const gt of (cfg.gates ? placeGates(open, cfg, g, path, rand, cfg.gates * 12) : [])) {
-        if (gates.length >= cfg.gates) break;
+    // Molten gates (world 3) are gates too, placed by the same rules; the last
+    // cfg.molten of them are marked molten once placed.
+    const gateQuota = cfg.gates + (cfg.molten || 0);
+    for (const gt of (gateQuota ? placeGates(open, cfg, g, path, rand, gateQuota * 12) : [])) {
+        if (gates.length >= gateQuota) break;
         // Closed, it shuts a way through.
         const shuts = sealsDoorway(gt, open, cfg, g, cfg.ball, walls);
         if (!shuts.length) continue;
@@ -1120,6 +1194,24 @@ function buildLevel(cfg, n, index, seed) {
         .filter(f => ice.every(r => Math.abs(f.x - r.x) >= (f.w + r.w) / 2 || Math.abs(f.z - r.z) >= (f.d + r.d) / 2))
         .slice(0, cfg.fans || 0);
     const icicles = cfg.icicles ? placeIcicles(open, cfg, g, path, rand, cfg.icicles) : [];
+    // World 3. Molten gates: the last cfg.molten gates placed.
+    if (cfg.molten) gates.slice(-cfg.molten).forEach(gt => { gt.molten = true; });
+    const sweepRects = gates.map(gt => {
+        const a = gt.x, b = gt.x + (gt.axis === 'x' ? gt.travel : 0), c = gt.z, e = gt.z + (gt.axis === 'z' ? gt.travel : 0);
+        return { x: (a + b) / 2, z: (c + e) / 2, w: Math.abs(b - a) + gt.w, d: Math.abs(e - c) + gt.d };
+    });
+    const apart = (p, q, pad) => Math.abs(p.x - q.x) >= (p.w + q.w) / 2 + pad || Math.abs(p.z - q.z) >= (p.d + q.d) / 2 + pad;
+    const flares = (cfg.flares ? placeFlares(open, cfg, g, path, rand, cfg.flares * 3) : [])
+        .filter(f => sweepRects.every(sw => apart(f, sw, cfg.ball)))
+        .slice(0, cfg.flares || 0);
+    const geysers = (cfg.geysers ? placeGeysers(open, cfg, g, path, rand, cfg.geysers * 3) : [])
+        .filter(gy => sweepRects.every(sw => apart({ x: gy.x, z: gy.z, w: gy.reach * 2, d: gy.reach * 2 }, sw, 0)))
+        .filter(gy => flares.every(f => apart({ x: gy.x, z: gy.z, w: gy.reach * 2, d: gy.reach * 2 }, f, 0)))
+        .slice(0, cfg.geysers || 0);
+    // Holes stay off flares, and well clear of geysers (a blast can throw
+    // the ball; mazeHazards.js GEYSER_HOLE_CLEAR).
+    const world3Keepouts = flares.map(f => ({ x: f.x, z: f.z, w: f.w, d: f.d }))
+        .concat(geysers.map(gy => ({ x: gy.x, z: gy.z, w: H.GEYSER_HOLE_CLEAR * 2, d: H.GEYSER_HOLE_CLEAR * 2 })));
     const icicleRects = icicles.map(ic => ({ x: ic.x, z: ic.z, w: ic.r * 2, d: ic.r * 2 }));
 
     // Belts after gates (a bar must not slide across a belt -- the ball would
@@ -1139,7 +1231,7 @@ function buildLevel(cfg, n, index, seed) {
 
     const holes = [];
     const openSpecs = base.gates.map(gt => ({ x: gt.x, z: gt.z, w: gt.w, d: gt.d }));
-    for (const h of placeHoles(open, cfg, g, path, rand, cfg.holes * 3, gates, ice.concat(conveyors, fans.map(fanRects), icicleRects), cfg)) {
+    for (const h of placeHoles(open, cfg, g, path, rand, cfg.holes * 3, gates, ice.concat(conveyors, fans.map(fanRects), icicleRects, world3Keepouts), cfg)) {
         if (holes.length >= cfg.holes) break;
         base.holes.push(h);
         // Solvable is not enough -- see orphanArea(). A hole that seals a branch
@@ -1183,6 +1275,8 @@ function buildLevel(cfg, n, index, seed) {
     if (conveyors.length) lv.conveyors = conveyors;
     if (fans.length) lv.fans = fans;
     if (icicles.length) lv.icicles = icicles;
+    if (flares.length) lv.flares = flares;
+    if (geysers.length) lv.geysers = geysers;
     lv.coins = coins;
     if (pickups.length) lv.pickups = pickups;
     return lv;
@@ -1245,7 +1339,9 @@ function buildAll() {
                 if (!built) continue;
                 if (!fallback) fallback = built;
                 if (built.holes.length === cfg.holes
-                    && (built.gates || []).length === cfg.gates
+                    && (built.gates || []).length === cfg.gates + (cfg.molten || 0)
+                    && (built.flares || []).length === (cfg.flares || 0)
+                    && (built.geysers || []).length === (cfg.geysers || 0)
                     && (built.ice || []).length === cfg.ice
                     && (built.conveyors || []).length === cfg.conveyors
                     && (built.fans || []).length === (cfg.fans || 0)
@@ -1319,7 +1415,9 @@ function renderLevel(lv) {
     const blocks = [
         ['holes', lv.holes, ['x', 'z', 'r']],
         ['ice', lv.ice, ['x', 'z', 'w', 'd']],
-        ['gates', lv.gates, ['x', 'z', 'w', 'd', 'axis', 'travel', 'periodMs', 'phase']],
+        ['gates', lv.gates, ['x', 'z', 'w', 'd', 'axis', 'travel', 'periodMs', 'phase', 'molten']],
+        ['flares', lv.flares, ['x', 'z', 'w', 'd', 'periodMs', 'phase']],
+        ['geysers', lv.geysers, ['x', 'z', 'r', 'reach', 'periodMs', 'phase']],
         ['conveyors', lv.conveyors, ['x', 'z', 'w', 'd', 'dir', 'speed']],
         ['fans', lv.fans, ['x', 'z', 'w', 'd', 'dir', 'periodMs', 'phase']],
         ['icicles', lv.icicles, ['x', 'z', 'r', 'periodMs', 'phase']],
