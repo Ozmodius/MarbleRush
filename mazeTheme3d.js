@@ -91,6 +91,33 @@ export function resolveMazeTheme(source) {
     return out;
 }
 
+// A LEVEL's theme. Most levels name one theme; world 1's levels also name a
+// `themeTo` and a `blend` (0..1), and get the two themes' colours mixed by it,
+// so the Workshop shades into the Forest level by level. Patterns and styles
+// come from `theme` and the blend is passed on (theme.blend) for the patterns
+// and dressing that change with it.
+export function resolveLevelTheme(lv) {
+    const from = resolveMazeTheme(lv && lv.theme);
+    const blend = lv && Number.isFinite(lv.blend) ? Math.max(0, Math.min(1, lv.blend)) : 0;
+    if (!lv || !lv.themeTo || !MAZE_THEMES[lv.themeTo]) return { ...from, blend, themeTo: null };
+    const to = resolveMazeTheme(lv.themeTo);
+    const out = { ...from, blend, themeTo: lv.themeTo };
+    // The goal and the holes SWITCH at the halfway point rather than blend: a
+    // goal ring halfway between green and gold is a muddy olive that reads
+    // as neither, and a hazard must never be the colour of nothing.
+    const SWITCH = ['goalColor', 'holeColor'];
+    for (const k of Object.keys(from)) {
+        if (SWITCH.includes(k)) { out[k] = blend < 0.5 ? from[k] : to[k]; continue; }
+        const a = from[k], b = to[k];
+        if (typeof a === 'string' && /^#[0-9a-f]{6}$/i.test(a) && typeof b === 'string' && /^#[0-9a-f]{6}$/i.test(b)) {
+            out[k] = '#' + new THREE.Color(a).lerp(new THREE.Color(b), blend).getHexString();
+        } else if (typeof a === 'number' && typeof b === 'number') {
+            out[k] = a + (b - a) * blend;
+        }
+    }
+    return out;
+}
+
 // Tiling is authored "per 10 world units" so one number reads the same on a
 // small level and a large one. An absolute repeat count would stretch on a big
 // floor and pack on a small one, forcing a level author to re-tune the theme
@@ -118,7 +145,10 @@ function secondColor(main, second) {
     return second ? new THREE.Color(second) : new THREE.Color(main).multiplyScalar(0.55);
 }
 
-export function makeFloorMaterial(theme, extentUnits = 10) {
+// `extras` carries what a pattern needs from the level rather than the theme:
+// { mask, board } for woodToDirt (forest3d.js buildPathMask). The blend comes
+// from the theme (resolveLevelTheme).
+export function makeFloorMaterial(theme, extentUnits = 10, extras = {}) {
     const mat = new THREE.MeshStandardMaterial({
         color: new THREE.Color(theme.floorColor),
         roughness: theme.floorRoughness,
@@ -130,7 +160,9 @@ export function makeFloorMaterial(theme, extentUnits = 10) {
     }
     return applySurface(mat, {
         pattern: theme.floorPattern, color2: secondColor(theme.floorColor, theme.floorColor2),
-        glowColor: theme.glowColor, glow: theme.floorGlow, scale: theme.patternScale, bump: 1
+        glowColor: theme.glowColor, glow: theme.floorGlow, scale: theme.patternScale,
+        bump: theme.floorPattern === 'woodToDirt' ? 3.4 : 1,
+        blend: theme.blend || 0, mask: extras.mask, board: extras.board
     });
 }
 

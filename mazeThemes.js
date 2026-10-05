@@ -15,7 +15,29 @@ export const MAZE_THEMES = {
         marbleColor: '#f2f2f2', marbleRoughness: 0.18, marbleMetalness: 0.0,
         holeColor: '#120c07',
         goalColor: '#2a9d5f',
-        backdropColor: '#241a10'
+        backdropColor: '#241a10',
+        // Boards and planks, drawn procedurally (mazeSurface3d.js). The floor
+        // pattern is world 1's: boards that give way to a dirt path as a
+        // level's blend toward 'forest' rises.
+        floorPattern: 'woodToDirt', wallPattern: 'planks'
+    },
+    // World 1's destination. A level never uses this alone: world 1's levels
+    // say theme 'workshop', themeTo 'forest' and a blend, and the colours here
+    // are mixed in by that blend (mazeTheme3d.js resolveLevelTheme), while
+    // walls turn into tree trunks one by one (forestDressing.js).
+    'forest': {
+        id: 'forest',
+        name: 'The Forest',
+        rarity: 'rare',
+        floorColor: '#6b4a2e', floorRoughness: 1.0, floorMetalness: 0.0,
+        wallColor: '#5a4128', wallRoughness: 0.9, wallMetalness: 0.0,
+        marbleColor: '#f4f1ea', marbleRoughness: 0.2, marbleMetalness: 0.0,
+        holeColor: '#0a0704',
+        // Gold, not green: a green ring would vanish into the moss.
+        goalColor: '#f2c14e',
+        gateColor: '#8a5a32',
+        backdropColor: '#0e1a0d',
+        floorPattern: 'woodToDirt', wallPattern: 'planks'
     },
     'slate': {
         id: 'slate',

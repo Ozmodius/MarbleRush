@@ -21,7 +21,7 @@ Arrow keys / WASD or drag to tilt on desktop; the phone's tilt sensor on a phone
 ## Test and build
 
 ```sh
-npm test                      # levels, hazards, tilt, walls, pickups, progress store, shop
+npm test                      # levels, hazards, tilt, walls, pickups, progress store, shop, forest
 npm run test:browser          # boot to home, use the tabs, play level 1, shop, pick a marble
 npm run levels                # regenerate mazeLevels.json (seeded, reproduces exactly)
 npm run build:crazygames      # flat bundle + dist/marble-rush-crazygames.zip
@@ -41,6 +41,8 @@ npm run test:browser:bundle   # the browser test against that bundle
 | `mazeTilt.js` | Tilt angle math (pure) |
 | `mazeWalls3d.js`, `mazeSurface3d.js`, `mazeTheme3d.js`, `mazeThemes.js` | Wall shapes, procedural surfaces, theme materials, theme catalog |
 | `mazeProps3d.js` | Belts, coins, pickups as meshes |
+| `forestDressing.js` | World 1's forest as numbers: which walls are trees, trunks, roots, leafy canopies, all held to the physics (pure; `test_forest.js`) |
+| `forest3d.js`, `levelDressing3d.js` | Forest meshes and the floor's path mask; the shared floor-and-walls builder |
 | `shopCatalog.js` | Marbles, upgrades, power-ups, prize refills: prices and effects (pure) |
 | `menus.js` | Bottom tab bar (Home, Gear, Worlds, Store) and the home screen's HUD |
 | `planet3d.js` | The home screen's planet: the current world as a marble, your marble as its moon |

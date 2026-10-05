@@ -386,6 +386,13 @@ async function run() {
         check(!!(THEMES[lv.theme]),
             `${tag}: theme '${lv.theme}' is not in mazeThemes.js (have: ${Object.keys(THEMES).join(', ')}). It would silently render with the fallback theme.`);
 
+        // A level blending into a second theme (world 1: workshop -> forest)
+        // names one that exists and how far along it is.
+        if (lv.themeTo !== undefined) {
+            check(!!THEMES[lv.themeTo], `${tag}: themeTo '${lv.themeTo}' is not in mazeThemes.js`);
+            check(Number.isFinite(lv.blend) && lv.blend >= 0 && lv.blend <= 1, `${tag}: blend must be 0..1, got ${lv.blend}`);
+        }
+
         if (!lv.size || !lv.walls || !lv.holes || !lv.start || !lv.goal) continue;
 
         const a = analyse(lv, H);
@@ -581,6 +588,14 @@ async function run() {
     for (let i = 1; i < DATA.levels.length; i++) {
         check(DATA.levels[i].ballRadius <= DATA.levels[i - 1].ballRadius,
             `${DATA.levels[i].id}: ball radius ${DATA.levels[i].ballRadius} is LARGER than the previous level's ${DATA.levels[i - 1].ballRadius} -- difficulty must not go backwards`);
+    }
+
+    // A world's blend never goes backwards: the forest only grows.
+    for (let i = 1; i < DATA.levels.length; i++) {
+        const a = DATA.levels[i - 1], b = DATA.levels[i];
+        if (a.world === b.world && a.themeTo && b.themeTo) {
+            check(b.blend >= a.blend, `${b.id}: blend ${b.blend} is below ${a.id}'s ${a.blend} -- the world must not turn back`);
+        }
     }
 
     // --- WORLDS ----------------------------------------------------------

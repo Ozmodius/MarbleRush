@@ -3,7 +3,8 @@ import * as CANNON from 'cannon-es';
 import { getScene, getCamera, getRenderer, onFrame, setExclusiveMode, requestRender } from './sceneHost.js';
 import { gateFraction, gateVelocity, gateSpecAt, isOnIce, ICE_FRICTION } from './mazeHazards.js';
 import { makeIceMaterial, makeGateMaterial } from './mazeTheme3d.js';
-import { resolveMazeTheme, makeFloorMaterial, makeWallMaterial, makeWallGeometry, makeBallMaterial,
+import { buildFloorAndWalls } from './levelDressing3d.js';
+import { resolveMazeTheme, resolveLevelTheme, makeWallGeometry, makeBallMaterial,
          makeHoleMaterial, makeGoalMaterial } from './mazeTheme3d.js';
 import { tickSurfaces } from './mazeSurface3d.js';
 import { conveyorAt, conveyorAccel } from './mazeHazards.js';
@@ -305,22 +306,19 @@ function disposeAll() {
 // Building them here instead would mean an author tuning a theme against a
 // render only they ever see -- a preview that lies is worse than no preview.
 //
-// Every wall in ONE mesh -- the authored walls plus the four boundary rails,
-// merged into a single geometry at their real sizes. A maze meshed one box at a
-// time would blow past the draw-call budget the 3D scene is held to
-// (test_r3d_environment.js caps the game scene at 100), and this is a phone.
-// Merged rather than instanced from a stretched unit box, because a stretched
-// box stretches its texture and any bevel with it (mazeWalls3d.js); the
-// theme's wallStyle decides whether the walls are sharp boxes or rock.
+// Floor and walls (levelDressing3d.js, shared with the theme preview): every
+// plank wall in ONE mesh at its real size -- a maze meshed one box at a time
+// would blow past the draw-call budget (test_r3d_environment.js caps the game
+// scene at 100), and this is a phone -- and, in world 1 as it turns to
+// forest, the tree-trunk walls, roots and canopies in a few more.
+let forest = null;
 function buildWalls(lv, group, theme) {
-    const rails = boundaryRails(lv);
-    const all = lv.walls.concat(rails);
-    const geo = track(makeWallGeometry(theme, all, { height: WALL_HEIGHT, floorY: FLOOR_Y, reach: lv.ballRadius }));
-    const mat = track(makeWallMaterial(theme));
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
+    const all = lv.walls.concat(boundaryRails(lv));
+    const tracked = [];
+    const built = buildFloorAndWalls(lv, all, theme, { height: WALL_HEIGHT, floorY: FLOOR_Y }, tracked);
+    tracked.forEach(track);
+    group.add(built.group);
+    forest = built.forest;
     return all;
 }
 
@@ -471,16 +469,8 @@ function buildWinStar(group) {
 function buildLevelMeshes(lv, theme) {
     const group = new THREE.Group();
 
-    // Laid flat in the geometry rather than by rotating the mesh: a floor
-    // pattern is drawn in local space, which has to be level space
-    // (mazeSurface3d.js).
-    const floorGeo = track(new THREE.PlaneGeometry(lv.size.w, lv.size.d).rotateX(-Math.PI / 2));
-    const floorMat = track(makeFloorMaterial(theme, Math.max(lv.size.w, lv.size.d)));
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.position.y = FLOOR_Y;
-    floor.receiveShadow = true;
-    group.add(floor);
-
+    // The floor comes with the walls (buildWalls), since world 1's floor
+    // follows where the walls are.
     // Ice first, so the hole discs and goal ring paint on top of it.
     iceRects = buildIce(lv, group, theme);
 
@@ -752,6 +742,8 @@ function advance(elapsedMs) {
 
     ballMesh.position.copy(ballBody.position);
     ballMesh.quaternion.copy(ballBody.quaternion);
+    // Leafy branches fade while the marble is under them (forest3d.js).
+    if (forest) forest.tick(ballBody.position.x, ballBody.position.z, elapsedMs);
 
     if (phase === 'running') checkOutcomes();
     else if (phase === 'falling' && performance.now() - fallStartedAt > FALL_RESTART_MS) restart();
@@ -1186,7 +1178,7 @@ function startLevel(levelId) {
     prizeOn = {};
     // Out of the menus: their screens come down and the HUD goes up.
     if (menuHandler) menuHandler(null);
-    const theme = resolveMazeTheme(lv.theme);
+    const theme = resolveLevelTheme(lv);
     scene.background = new THREE.Color(theme.backdropColor);
 
     const built = buildLevelMeshes(lv, theme);
@@ -1232,6 +1224,7 @@ function teardownLevel() {
     winStar = null;
     winStarMs = 0;
     props = null;
+    forest = null;
     planet = null;
     solar = null;
     backdrop = null;
@@ -1286,7 +1279,11 @@ window.__mazeDebug = {
     // theme resolved" apart from "the theme reached the material" -- the ball
     // used to take the player's equipped marble skin, and the whole point of
     // the change is that it no longer does.
-    theme: () => (level ? resolveMazeTheme(level.theme) : null),
+    theme: () => (level ? resolveLevelTheme(level) : null),
+    // World 1's forest on this level: canopies and their opacity right now.
+    forest: () => (forest ? { canopies: forest.canopyCount, opacities: forest.canopyOpacities(), centres: forest.canopyCentres() } : null),
+    // Run the canopy fade as if the marble sat at (x, z) for `ms`.
+    canopyFadeAt: (x, z, ms) => (forest ? (forest.tick(x, z, ms || 600), forest.canopyOpacities()) : null),
     ballColor: () => (ballMesh && ballMesh.material && ballMesh.material.color
         ? '#' + ballMesh.material.color.getHexString() : null),
     // Advance the maze deterministically, without waiting on rAF. Feeds the

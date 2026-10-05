@@ -158,6 +158,18 @@ const check = (c, m) => { if (!c) failures.push(m); };
             const end = await dbg('advanceFrames', 12);
             const moved = (end[axis] - start[axis]) * sign;
             check(moved > 0.05, `a ball left on a belt is carried along ${belt.dir} (moved ${moved.toFixed(3)})`);
+
+            // World 1's last level is full forest: leafy canopies, and one
+            // fades when the marble is under it, the others stay.
+            const fo = await dbg('forest');
+            check(fo && fo.canopies > 0, `${lv10.id} grows leafy canopies`);
+            if (fo && fo.canopies) {
+                const c = fo.centres[0];
+                const op = await dbg('canopyFadeAt', c.x, c.z, 800);
+                check(op[0] < 0.4, `a canopy fades over the marble (opacity ${op[0].toFixed(2)})`);
+                const far = await dbg('canopyFadeAt', 99, 99, 2000);
+                check(far.every(o => o > 0.95), 'with the marble away, every canopy is back to solid');
+            }
         }
 
         // --- progress survives a reload ----------------------------------

@@ -904,7 +904,9 @@ module.exports.holeRadiusFor = holeRadiusFor;
 const PICKUP_ROTATION = ['shield', 'magnet', 'slowmo'];
 const WORLDS = [
     {
-        world: 1, theme: 'workshop', ball: 0.32, wall: 0.33, braid: 0.3,
+        // Starts in the Workshop and grows into a forest, level by level: each
+        // level's blend runs 0 -> 1 (forestDressing.js, mazeTheme3d.js).
+        world: 1, theme: 'workshop', themeTo: 'forest', ball: 0.32, wall: 0.33, braid: 0.3,
         names: ['First Roll', 'Threading', 'The Long Way', 'Sliding Door', 'Clockwork',
                 'Metronome', 'Shift Work', 'Dovetail', 'Sawdust', 'Assembly Line'],
         teaches: ['HOLES, and the tilt mapping itself.', 'Holes off the route.', 'A longer route.',
@@ -1053,6 +1055,7 @@ function buildLevel(cfg, n, index, seed) {
         index,
         name: cfg.names[n],
         theme: cfg.theme,
+        ...(cfg.themeTo ? { themeTo: cfg.themeTo, blend: r2(n / Math.max(1, cfg.levels.length - 1)) } : {}),
         ballRadius: cfg.ball,
         size: { w: BOARD_W, d: BOARD_D },
         start: base.start,
@@ -1181,6 +1184,8 @@ function renderLevel(lv) {
     L.push(`      "index": ${lv.index},`);
     L.push(`      "name": ${JSON.stringify(lv.name)},`);
     L.push(`      "theme": ${JSON.stringify(lv.theme)},`);
+    if (lv.themeTo) L.push(`      "themeTo": ${JSON.stringify(lv.themeTo)},`);
+    if (lv.themeTo) L.push(`      "blend": ${lv.blend},`);
     L.push(`      "ballRadius": ${lv.ballRadius},`);
     L.push(`      "size": { "w": ${lv.size.w}, "d": ${lv.size.d} },`);
     L.push(`      "start": ${obj(lv.start, ['x', 'z'])},`);

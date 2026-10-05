@@ -26,17 +26,25 @@
 <body>
 <script type="module">
 import * as THREE from 'three';
-import { resolveMazeTheme, makeFloorMaterial, makeWallMaterial, makeWallGeometry, makeGateMaterial,
+import { resolveLevelTheme, makeWallGeometry, makeGateMaterial,
          makeHoleMaterial, makeGoalMaterial, makeBallMaterial, makeIceMaterial } from '../mazeTheme3d.js';
 import { tickSurfaces } from '../mazeSurface3d.js';
 import { gateSpecAt } from '../mazeHazards.js';
 import { buildLevelProps } from '../mazeProps3d.js';
+import { buildFloorAndWalls } from '../levelDressing3d.js';
 
 const q = new URLSearchParams(location.search);
 const data = await (await fetch('../mazeLevels.json')).json();
 const levels = Array.isArray(data) ? data : data.levels;
 const lv = levels.find(l => l.id === q.get('level')) || levels[levels.length - 1];
-const theme = resolveMazeTheme(q.get('theme') || lv.theme);
+// ?theme= shows the level in another theme; ?blend= sets how far toward the
+// forest a world 1 level is (0..1), to see any stage of it.
+const theme = resolveLevelTheme({
+    ...lv,
+    theme: q.get('theme') || lv.theme,
+    themeTo: q.get('theme') ? null : lv.themeTo,
+    blend: q.has('blend') ? Number(q.get('blend')) : lv.blend
+});
 const WALL_HEIGHT = 0.55;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -57,20 +65,13 @@ Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near:
 sun.shadow.bias = -0.0005;
 scene.add(sun);
 
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(lv.size.w, lv.size.d).rotateX(-Math.PI / 2),
-    makeFloorMaterial(theme, Math.max(lv.size.w, lv.size.d)));
-floor.receiveShadow = true;
-scene.add(floor);
-
 const hd = lv.size.d / 2, hw = lv.size.w / 2, t = 0.4;
 const rails = [
     { x: 0, z: -hd - t / 2, w: lv.size.w + t * 2, d: t }, { x: 0, z: hd + t / 2, w: lv.size.w + t * 2, d: t },
     { x: -hw - t / 2, z: 0, w: t, d: lv.size.d }, { x: hw + t / 2, z: 0, w: t, d: lv.size.d }
 ];
-const walls = new THREE.Mesh(makeWallGeometry(theme, lv.walls.concat(rails), { height: WALL_HEIGHT, reach: lv.ballRadius }),
-    makeWallMaterial(theme));
-walls.castShadow = walls.receiveShadow = true;
-scene.add(walls);
+const built = buildFloorAndWalls(lv, lv.walls.concat(rails), theme, { height: WALL_HEIGHT });
+scene.add(built.group);
 
 const gateMat = makeGateMaterial(theme);
 (lv.gates || []).forEach((g, i) => {
@@ -97,13 +98,16 @@ const goal = new THREE.Mesh(new THREE.RingGeometry(lv.goal.r * 0.62, lv.goal.r, 
 goal.rotation.x = -Math.PI / 2; goal.position.set(lv.goal.x, 0.015, lv.goal.z); scene.add(goal);
 const ball = new THREE.Mesh(new THREE.SphereGeometry(lv.ballRadius, 32, 24), makeBallMaterial(theme));
 ball.position.set(lv.start.x, lv.ballRadius, lv.start.z); ball.castShadow = true; scene.add(ball);
+if (q.get('ball')) { const [bx, bz] = q.get('ball').split(',').map(Number); ball.position.set(bx, lv.ballRadius, bz); }
 
 // ?zoom=1 frames a close-up near the start, to judge rock up close;
 // &at=x,z moves that close-up to another spot (a gate, say).
 const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.1, 100);
 if (q.get('zoom')) {
     const [ax, az] = (q.get('at') || `${lv.start.x},${lv.start.z}`).split(',').map(Number);
-    camera.position.set(ax + 1.2, 3.2, az + 3.0);
+    // &camh= lowers the close-up camera (default 3.2) to look along a wall.
+    const ch = Number(q.get('camh')) || 3.2;
+    camera.position.set(ax + 1.2 * ch / 3.2, ch, az + 3.0 * ch / 3.2);
     camera.lookAt(ax, 0, az);
 } else {
     const tilt = 10 * Math.PI / 180;
@@ -118,6 +122,8 @@ let frames = 0;
 renderer.setAnimationLoop((ms) => {
     tickSurfaces(ms / 1000);
     props.tick(ms / 1000);
+    // ?ball=x,z puts the marble somewhere, to see a canopy fade over it.
+    if (built.forest) built.forest.tick(ball.position.x, ball.position.z, 16);
     renderer.render(scene, camera);
     if (++frames === 3) window.__previewReady = true;
 });
