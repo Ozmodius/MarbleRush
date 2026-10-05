@@ -191,11 +191,43 @@ export function initMenus({ store, game }) {
     const play = $('homePlayBtn');
     if (play) play.addEventListener('click', (e) => { e.preventDefault(); game.playLevel(); });
     onFrame(placeLabels);
-    // A tap on the canvas while WORLDS is up picks the planet under it.
+    // On the canvas while WORLDS is up: a drag sideways spins the solar
+    // system (and coasts when let go); a tap picks the planet under it. A
+    // drag past DRAG_PX is never also a tap.
     const canvas = getRenderer() && getRenderer().domElement;
-    if (canvas) canvas.addEventListener('click', (e) => {
-        if (current === 'worlds') pickWorld(game.pickWorld(e.clientX, e.clientY));
-    });
+    if (canvas) {
+        const DRAG_PX = 8, RAD_PER_PX = 0.008;
+        let drag = null;
+        canvas.addEventListener('pointerdown', (e) => {
+            if (current !== 'worlds') return;
+            drag = { id: e.pointerId, x0: e.clientX, x: e.clientX, t: performance.now(), v: 0, moved: false };
+        });
+        canvas.addEventListener('pointermove', (e) => {
+            if (!drag || e.pointerId !== drag.id || current !== 'worlds') return;
+            if (!drag.moved && Math.abs(e.clientX - drag.x0) < DRAG_PX) return;
+            if (!drag.moved) { drag.moved = true; try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ } }
+            const now = performance.now(), dx = e.clientX - drag.x;
+            // Dragging right carries the near planets right: the angle runs
+            // from screen right toward the viewer, so it goes down.
+            game.spinWorlds(-dx * RAD_PER_PX);
+            const dt = Math.max(1, now - drag.t) / 1000;
+            drag.v = drag.v * 0.6 + (-dx * RAD_PER_PX / dt) * 0.4;
+            drag.x = e.clientX; drag.t = now;
+        });
+        const end = (e) => {
+            if (!drag || e.pointerId !== drag.id) return;
+            // A pause before letting go means no fling.
+            if (drag.moved) game.releaseWorlds(performance.now() - drag.t > 120 ? 0 : drag.v);
+            drag.wasDrag = drag.moved;
+            setTimeout(() => { drag = null; }, 0);
+        };
+        canvas.addEventListener('pointerup', end);
+        canvas.addEventListener('pointercancel', end);
+        canvas.addEventListener('click', (e) => {
+            if (current !== 'worlds' || (drag && drag.wasDrag)) return;
+            pickWorld(game.pickWorld(e.clientX, e.clientY));
+        });
+    }
 }
 
 // After the marble changed: rebuild the backdrop so it shows the new one.

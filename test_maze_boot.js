@@ -86,6 +86,17 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const anchor = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
         await page.mouse.click(anchor.x, anchor.y - 30);
         check((await page.textContent('#worldSheetName')).trim() === 'Toy Box', 'tapping a planet on the canvas selects its world');
+        // A drag sideways spins the system; it is not a tap.
+        const spin0 = await dbg('solarSpin');
+        await page.mouse.move(80, 250);
+        await page.mouse.down();
+        for (let k = 1; k <= 10; k++) await page.mouse.move(80 + k * 20, 250);
+        await page.mouse.up();
+        const spin1 = await dbg('solarSpin');
+        check(spin1 < spin0 - 1, `dragging right spins the solar system (spin ${spin0.toFixed(2)} -> ${spin1.toFixed(2)})`);
+        check((await page.textContent('#worldSheetName')).trim() === 'Toy Box', 'a drag does not pick a world');
+        const moved = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
+        check(Math.hypot(moved.x - anchor.x, moved.y - anchor.y) > 30, 'and the planets (and their labels) go round with it');
         await page.locator('#worldLabel_1').click({ force: true });
         const rows = await page.$$eval('.level-node', els => els.map(e => ({ next: e.classList.contains('is-next'), locked: e.disabled })));
         const world1 = levels.filter(l => l.world === 1);

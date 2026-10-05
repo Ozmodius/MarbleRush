@@ -1244,6 +1244,9 @@ export function pickWorld(clientX, clientY) {
     _ray.setFromCamera(_ndc, camera);
     return solar.pick(_ray);
 }
+// Turn the solar system by a drag (menus.js), and let it coast on release.
+export function spinWorlds(d) { if (solar) { solar.spinBy(d); requestRender(); } }
+export function releaseWorlds(v) { if (solar) solar.release(v); }
 export function selectWorld(n) { if (solar) solar.select(n); requestRender(); }
 export function worldAnchors() {
     const r = getRenderer(), camera = getCamera();
@@ -1494,6 +1497,7 @@ window.__mazeDebug = {
     menuPhase: () => phase === 'menu' && !!(planet || solar),
     backdrop: () => (phase === 'menu' ? backdrop : null),
     worldAnchors: () => worldAnchors(),
+    solarSpin: () => (solar ? solar.spin() : null),
     // The progress the store holds now -- what a clear actually banked.
     progress: () => (store ? JSON.parse(JSON.stringify(store.get())) : null),
     coinsTaken: () => (pickupState ? pickupState.coins : null),

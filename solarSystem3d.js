@@ -84,16 +84,33 @@ export function buildSolarSystem(worlds, tracked = []) {
 
     const outer = ORBIT0 + (worlds.length - 1) * ORBIT_STEP + SIZES[0] * 2;
 
+    // SPINNING. The player can turn the whole system about the sun by
+    // dragging (menus.js): every planet moves round its orbit by the same
+    // angle, so their spacing -- and their labels' -- never changes. Let go
+    // mid-drag and it coasts to a stop.
+    let spin = 0, spinV = 0, held = false, lastT = null;
+
     return {
         group,
         radius: outer,
         tick(seconds) {
+            const dt = lastT === null ? 0 : Math.min(0.1, Math.max(0, seconds - lastT));
+            lastT = seconds;
+            if (!held && spinV) {
+                spin += spinV * dt;
+                spinV *= Math.exp(-dt * 2.5);
+                if (Math.abs(spinV) < 0.01) spinV = 0;
+            }
             for (const p of planets) {
-                const a = p.place + Math.sin(seconds * p.speed) * DRIFT;
+                const a = p.place + spin + Math.sin(seconds * p.speed) * DRIFT;
                 p.holder.position.set(Math.cos(a) * p.orbit, 0, Math.sin(a) * p.orbit);
                 p.mesh.rotation.y = seconds * 0.3;
             }
         },
+        // Drag: turn by `d` radians now. Release: coast at `v` radians/s.
+        spinBy(d) { held = true; spinV = 0; spin += d; },
+        release(v) { held = false; spinV = Math.max(-4, Math.min(4, v || 0)); },
+        spin: () => spin,
         select(n) { for (const p of planets) p.ring.visible = p.n === n; },
         // Which world's planet a ray hits, or null.
         pick(raycaster) {
