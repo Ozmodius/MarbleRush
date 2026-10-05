@@ -1,0 +1,47 @@
+Copyright (c) 2026 Ponotech LLC. All Rights Reserved.
+
+Marble Rush -- including its source code, game design, artwork, text, audio
+and all other original materials in this repository -- is the proprietary and
+confidential property of Ponotech LLC, a limited liability company established
+in Hawaii, United States.
+
+NO LICENCE IS GRANTED.
+
+No part of this software may be copied, reproduced, modified, adapted, merged,
+published, distributed, sublicensed, sold, or used to create derivative works,
+in whole or in part, by any means or in any form, without the prior written
+permission of Ponotech LLC. Unauthorised copying, distribution, or use of this
+software, via any medium, is strictly prohibited.
+
+Access to this repository or its contents -- whether granted for review,
+evaluation, contracting, employment, app-store submission, or any other purpose
+-- confers no ownership and no licence beyond the specific purpose for which it
+was expressly granted in writing.
+
+PLAYERS
+
+Use of the Marble Rush game by players is governed by the terms of the platform it is
+played on and any Terms of Service and Privacy Policy published with the game.
+Those terms grant a limited, personal, non-exclusive, non-transferable
+licence to play the game. They grant no rights of any kind in this source code
+or in the materials described above.
+
+THIRD-PARTY COMPONENTS
+
+This repository incorporates third-party material that is NOT covered by the
+notice above. Nothing in this file restricts, or purports to restrict, the
+rights that material carries. This includes at least:
+
+  - Dependencies installed from npm and declared in package.json (including
+    three.js and cannon-es), each under its own licence.
+
+NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Licensing enquiries: ballsmack@ponotechhi.com

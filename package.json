@@ -1,0 +1,15 @@
+{
+  "name": "marble-rush",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Marble Rush: a tilt-controlled marble maze for CrazyGames.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "test": "node test_maze_levels.js && node test_maze_hazards.js && node test_maze_tilt.js",
+    "levels": "node scripts/generateMazeLevels.js"
+  },
+  "dependencies": {
+    "cannon-es": "^0.20.0",
+    "three": "0.180.0"
+  }
+}
