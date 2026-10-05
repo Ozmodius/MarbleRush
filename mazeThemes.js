@@ -40,8 +40,8 @@ export const MAZE_THEMES = {
         backdropColor: '#0d0916'
     },
     // The first theme built on shape and surface rather than colour alone:
-    // rock walls (mazeWalls3d.js) and procedural basalt with lava seams
-    // (mazeSurface3d.js). Holes are lava pools, so the brightest thing on the
+    // craggy black rock walls (mazeWalls3d.js) and procedural basalt with lava
+    // seams (mazeSurface3d.js). Holes are lava pools, so the brightest thing on the
     // board is the thing that ends your run; the seams glow far dimmer so they
     // never read as a hazard. The goal is cold blue, the one cool colour here.
     'lava': {
@@ -50,8 +50,11 @@ export const MAZE_THEMES = {
         rarity: 'epic',
         floorColor: '#4a3730', floorColor2: '#1a1311', floorRoughness: 0.9, floorMetalness: 0.0,
         floorPattern: 'lavaCracks', floorGlow: 0.9,
-        wallColor: '#56463f', wallColor2: '#201815', wallRoughness: 0.92, wallMetalness: 0.0,
-        wallStyle: 'rock', wallPattern: 'emberRock', wallGlow: 1.1,
+        // Cooled lava: near-black basalt, no glow. A little sheen (roughness
+        // under 1) so the crags' facets catch the light -- matte black would
+        // read as a hole in the screen rather than as rock.
+        wallColor: '#1a1817', wallColor2: '#070606', wallRoughness: 0.7, wallMetalness: 0.0,
+        wallStyle: 'rock', wallPattern: 'rock', wallGlow: 0, wallJag: 0.14,
         glowColor: '#e0340a',
         marbleColor: '#eef1f5', marbleRoughness: 0.14, marbleMetalness: 0.1,
         holeColor: '#ff7a1f',

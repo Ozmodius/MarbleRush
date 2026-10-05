@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // WALL GEOMETRY -- what a wall LOOKS like, built from the rects the physics
 // collides with. The single place a wall spec ({ x, z, w, d }) becomes triangles.
@@ -33,7 +32,7 @@ export const SIDE_INSET = 0.02;
 export const WALL_STYLES = ['box', 'rock'];
 
 // Rock defaults, used when a theme names the style but not the numbers.
-const ROCK = { bevel: 0.07, jag: 0.06, step: 0.12, roundSteps: 2 };
+const ROCK = { bevel: 0.05, jag: 0.14, step: 0.11, roundSteps: 2 };
 
 // Deterministic value noise on a world position. The wall a player sees on
 // level 7 must be the same rock every time they load it, and the same rock on
@@ -61,6 +60,14 @@ function valueNoise(x, y, z, seed) {
 function rockNoise(x, y, z, seed) {
     return (valueNoise(x * 4.1, y * 4.1, z * 4.1, seed) * 0.66
         + valueNoise(x * 11.3, y * 11.3, z * 11.3, seed + 17) * 0.34);
+}
+
+// Ridged noise, in [0, 1]: sharp peaks where smooth noise crosses its middle.
+// This is what makes a crest read as broken rock rather than as rolling hills.
+function cragNoise(x, z, seed) {
+    const a = 1 - Math.abs(valueNoise(x * 3.3, 0, z * 3.3, seed) * 2 - 1);
+    const b = 1 - Math.abs(valueNoise(x * 8.7, 0, z * 8.7, seed + 31) * 2 - 1);
+    return Math.min(1, a * a * 0.7 + b * b * 0.45);
 }
 
 function smoothstep(a, b, x) {
@@ -168,12 +175,21 @@ export function buildWallGeometry(specs, opts = {}) {
                 // SIDE_INSET; above it the crest may drop by up to `jag` more.
                 const wx = s.x + px, wy = floorY + py, wz = s.z + pz;
                 const crest = smoothstep(reach + 0.02, height, py);
-                const sink = rockNoise(wx, wy, wz, seed) * (shape.inset + crest * shape.jag * 0.5);
+                const sink = rockNoise(wx, wy, wz, seed) * (shape.inset + crest * shape.jag * 0.9);
                 px -= nx * sink; py -= ny * sink; pz -= nz * sink;
-                // The crest also heaves up and down: a jagged skyline is what
-                // stops a rock wall reading as a rounded plank. Upward is free
-                // (there is no ceiling); downward never reaches `reach`.
-                py += crest * shape.jag * (rockNoise(wx * 0.6, 0, wz * 0.6, seed + 5) - 0.5) * 2;
+                // The crest heaves into crags: a jagged skyline is what stops
+                // a rock wall reading as a rounded plank. Mostly UP -- there is
+                // no ceiling -- and never down past `reach`, or the marble
+                // would look taller than the wall it is held by.
+                py += crest * shape.jag * (cragNoise(wx, wz, seed + 5) * 1.35 - 0.35);
+                // ...and shears sideways along its faces, so peaks lean and
+                // overhang rather than all standing straight up. Clamped back
+                // into the footprint: crags never reach into a corridor.
+                px += crest * shape.jag * 0.6 * (valueNoise(wx * 9.1, wy * 9.1, wz * 9.1, seed + 11) - 0.5);
+                pz += crest * shape.jag * 0.6 * (valueNoise(wx * 9.1, wy * 9.1, wz * 9.1, seed + 13) - 0.5);
+                px = Math.max(-hx, Math.min(hx, px));
+                pz = Math.max(-hz, Math.min(hz, pz));
+                if (crest > 0) py = Math.max(py, reach + 0.02);
                 py += lift * crest;
             }
             const x = s.x + px, y = floorY + py, z = s.z + pz;
@@ -213,15 +229,13 @@ export function buildWallGeometry(specs, opts = {}) {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geo.setIndex(indices);
     if (shape.style !== 'box') {
-        // Weld the seams between faces so the normals run smoothly over the
-        // rounded crest. Faces were built from the same positions, so their
-        // edge vertices deformed identically and weld cleanly -- no cracks.
-        // UVs differ across a seam, so they are dropped for the weld and the
-        // rock is shaded procedurally (mazeTheme3d.js) rather than by texture.
-        geo.deleteAttribute('uv');
-        geo = mergeVertices(geo, 1e-5);
-        const n = geo.getAttribute('position').count;
-        geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
+        // Un-index for FLAT normals: each facet lit on its own is what reads
+        // as broken, cooled rock; smooth normals over the same shape read as
+        // moulded clay. Neighbouring faces were built from the same positions,
+        // so their shared edges deformed identically -- no cracks. UVs are
+        // re-derived per facet, since a crag's facets face every which way.
+        geo = geo.toNonIndexed();
+        geo.computeVertexNormals();
         fillPlanarUvs(geo, uvPerUnit);
     }
     geo.computeVertexNormals();
@@ -230,11 +244,10 @@ export function buildWallGeometry(specs, opts = {}) {
     return geo;
 }
 
-// After a weld, re-derive UVs from position by the dominant normal axis. Not
+// Re-derive UVs from position by each facet's dominant normal axis. Not
 // seamless at the crest, but a texture on a rock wall would rather have a seam
 // than stretch.
 function fillPlanarUvs(geo, k) {
-    geo.computeVertexNormals();
     const p = geo.getAttribute('position'), n = geo.getAttribute('normal'), uv = geo.getAttribute('uv');
     for (let i = 0; i < p.count; i++) {
         const ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i)), az = Math.abs(n.getZ(i));
