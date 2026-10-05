@@ -25,23 +25,47 @@
 
 <div id="bootMsg" class="boot">LOADING…</div>
 
-<!-- LEVEL SELECT -->
+<!-- HOME: the current world turns behind this (planet3d.js) -->
+<section id="homeView" class="home" style="display:none">
+  <header class="home-hud">
+    <div class="home-hudrow">
+      <div class="home-level">
+        <span id="homeLevelNum" class="home-levelnum"></span>
+        <span id="homeLevelName" class="home-levelname"></span>
+      </div>
+      <div class="home-currency">
+        <span class="hud-pill hud-coins" title="Coins"><span class="coin-dot"></span><span id="homeWallet">0</span></span>
+        <span class="hud-pill hud-medals" title="Medals: gold, silver, bronze">
+          <span class="medal medal-gold"></span><span id="homeMedal_gold">0</span>
+          <span class="medal medal-silver"></span><span id="homeMedal_silver">0</span>
+          <span class="medal medal-bronze"></span><span id="homeMedal_bronze">0</span>
+        </span>
+      </div>
+    </div>
+    <div class="home-world">
+      <span id="homeWorld" class="home-worldname"></span>
+      <span class="home-worldtrack"><span id="homeWorldBar" class="home-worldbar"></span></span>
+      <span id="homeWorldDone" class="home-worlddone"></span>
+    </div>
+  </header>
+  <div class="home-play">
+    <p id="homeGoal" class="home-goal"></p>
+    <button id="homePlayBtn" class="maze-btn maze-btn-big home-playbtn" type="button">PLAY</button>
+  </div>
+</section>
+
+<!-- WORLDS: the level list -->
 <section id="mazeSelect" class="maze-select" style="display:none">
   <header class="maze-selecthead">
-    <h1>MARBLE RUSH</h1>
+    <h1>WORLDS</h1>
     <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="mazeWallet">0</span></span>
   </header>
-  <nav class="maze-selectnav">
-    <button id="openProfileBtn" class="maze-btn" type="button">PROFILE</button>
-    <button id="openStoreBtn" class="maze-btn" type="button">STORE</button>
-  </nav>
   <div id="mazeSelectList" class="maze-selectlist"></div>
 </section>
 
 <!-- STORE -->
 <section id="storeView" class="maze-select" style="display:none">
   <header class="maze-selecthead">
-    <button id="storeBackBtn" class="maze-btn maze-btn-small" type="button" aria-label="Back to levels">◀</button>
     <h1>STORE</h1>
     <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="storeWallet">0</span></span>
   </header>
@@ -52,8 +76,7 @@
 <!-- PROFILE -->
 <section id="profileView" class="maze-select" style="display:none">
   <header class="maze-selecthead">
-    <button id="profileBackBtn" class="maze-btn maze-btn-small" type="button" aria-label="Back to levels">◀</button>
-    <h1>PROFILE</h1>
+    <h1>GEAR</h1>
     <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="profileWallet">0</span></span>
   </header>
   <p id="profileMsg" class="shop-msg" role="status"></p>
@@ -69,6 +92,26 @@
     <div id="profileInventory" class="profile-inventory"></div>
   </div>
 </section>
+
+<!-- TAB BAR: every menu screen; hidden during a level -->
+<nav id="tabBar" class="tabbar" style="display:none" aria-label="Menu">
+  <button id="tab_home" class="tab" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h4.5v-6h4v6h4.5V10"/></svg>
+    <span>HOME</span>
+  </button>
+  <button id="tab_gear" class="tab" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M8.5 9.5a4 4 0 0 1 3-2.5"/></svg>
+    <span>GEAR</span>
+  </button>
+  <button id="tab_worlds" class="tab" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z"/><path d="M9 4v13.5M15 6.5V20"/></svg>
+    <span>WORLDS</span>
+  </button>
+  <button id="tab_store" class="tab" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>
+    <span>STORE</span>
+  </button>
+</nav>
 
 <!-- IN-LEVEL HUD -->
 <section id="mazeHud" class="maze-hud" style="display:none">

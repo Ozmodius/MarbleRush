@@ -12,6 +12,8 @@ import { buildLevelProps } from './mazeProps3d.js';
 import { sfx as uiSfx } from './sfx.js';
 import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
 import { ballSetup, PRIZES } from './shopCatalog.js';
+import { worldName } from './worlds.js';
+import { buildPlanet } from './planet3d.js';
 import { tierForMs, isUnlocked, basePayout as payoutFor, goldBonus as goldBonusFor } from './progressStore.js';
 import { setGameplayActive, features, showMidgameAd, happytime, reportGameCompleted } from './platform.js';
 
@@ -666,6 +668,12 @@ function screenAngle() {
 function step() {
     // onFrame is append-only -- there is no offFrame -- so this callback lives
     // for the life of the page and MUST bail whenever the maze isn't up.
+    if (active && phase === 'menu' && planet) {
+        const t = performance.now() / 1000;
+        tickSurfaces(t);
+        planet.tick(t);
+        return;
+    }
     if (!active || !world || !ballBody) return;
 
     const now = performance.now();
@@ -1075,7 +1083,7 @@ function renderLevelSelect() {
         wrap.className = 'maze-world';
         const head = document.createElement('p');
         head.className = 'maze-worldname';
-        head.textContent = 'WORLD ' + w.world;
+        head.textContent = 'WORLD ' + w.world + '  ·  ' + worldName(w.world).toUpperCase();
         wrap.appendChild(head);
 
         for (const lv of w.levels) {
@@ -1118,14 +1126,77 @@ function renderLevelSelect() {
     }
 }
 
-function showLevelSelect() {
+// THE MENUS' BACKDROP. Outside a run the screen shows the world of the
+// player's NEXT level as a planet, with their chosen marble orbiting it as a
+// moon (planet3d.js). The menu screens themselves (home, gear, worlds, store)
+// are DOM drawn over it by menus.js.
+let menuHandler = null;
+let planet = null;
+
+// The level the home screen offers: the first one not yet cleared, or the
+// last level once everything is.
+export function nextLevel() {
+    if (!allLevels.length) return null;
+    const idx = (progressNow().highestIndex || 0) + 1;
+    return allLevels.find(l => l.index === idx) || allLevels[allLevels.length - 1];
+}
+
+let planetThemeOverride = null;   // test seam: __mazeDebug.planetTheme
+function buildShowcase() {
     teardownLevel();
-    phase = 'idle';
-    showEl('mazeHud', false);
-    showEl('mazeSelect', true);
-    renderLevelSelect();
+    const lv = nextLevel();
+    if (!lv || !scene) return;
+    const prog = progressNow();
+    ballSpec = ballSetup(prog.marble, prog.upgrades);
+    const theme = resolveMazeTheme(planetThemeOverride || lv.theme);
+    // Space, tinted by the world: its backdrop colour, much darker.
+    scene.background = new THREE.Color(theme.backdropColor).multiplyScalar(0.45);
+    const tracked = [];
+    planet = buildPlanet(theme, ballSpec.look, tracked);
+    tracked.forEach(track);
+    mazeGroup = planet.group;
+    scene.add(mazeGroup);
+    planet.tick(performance.now() / 1000);
+}
+
+// Leave whatever is on screen for the menus, and show `tab` (menus.js).
+function enterMenus(tab) {
+    if (phase !== 'menu') {
+        buildShowcase();
+        phase = 'menu';
+        showEl('mazeHud', false);
+    }
+    if (menuHandler) menuHandler(tab || 'home');
     requestRender();
 }
+
+// Rebuild the backdrop after the marble or progress changed (menus.js).
+export function refreshShowcase() {
+    if (phase !== 'menu') return;
+    buildShowcase();
+    requestRender();
+}
+
+// The camera for the planet: square on, slightly above its equator, far
+// enough that the moon's whole orbit stays on screen on a phone-shaped
+// display (fitted to whichever axis binds).
+function computeMenuPose() {
+    const camera = getCamera();
+    const fov = ((camera && camera.fov) || 48) * Math.PI / 180;
+    const aspect = (camera && camera.aspect) || (768 / 1180);
+    const r = planet ? planet.radius : 5.3;
+    const dist = Math.max(r / (Math.tan(fov / 2) * aspect), r / Math.tan(fov / 2));
+    _camPos.set(0, dist * 0.18, dist);
+    return { pos: _camPos, lookAt: MENU_LOOKAT };
+}
+const MENU_LOOKAT = new THREE.Vector3(0, -0.2, 0);
+
+// The menus ask mazeGame for screens through these.
+export function setMenuHandler(fn) { menuHandler = fn; }
+export function showMenus(tab) { enterMenus(tab); }
+export function playLevel(id) { startLevel(id || (nextLevel() && nextLevel().id)); }
+
+function showLevelSelect() { enterMenus('worlds'); }
 
 // Build and enter one level. Everything from the previous level is disposed
 // first -- levels are rebuilt per run, unlike the game board which is built
@@ -1139,6 +1210,8 @@ function startLevel(levelId) {
     const prog = progressNow();
     ballSpec = ballSetup(prog.marble, prog.upgrades);
     prizeOn = {};
+    // Out of the menus: their screens come down and the HUD goes up.
+    if (menuHandler) menuHandler(null);
     const theme = resolveMazeTheme(lv.theme);
     scene.background = new THREE.Color(theme.backdropColor);
 
@@ -1185,6 +1258,7 @@ function teardownLevel() {
     winStar = null;
     winStarMs = 0;
     props = null;
+    planet = null;
     pickupState = null;
     floorBody = null;
     solidMaterial = null;
@@ -1199,7 +1273,7 @@ function nextLevelAfter(lv) {
 
 const exclusive = {
     isActive: () => active,
-    getPose: () => (active && level ? computeCameraPose() : null)
+    getPose: () => (!active ? null : phase === 'menu' ? computeMenuPose() : (level ? computeCameraPose() : null))
 };
 
 export function isMazeActive() { return active; }
@@ -1313,6 +1387,10 @@ window.__mazeDebug = {
     // level's minMs would be a test clocked on a throttled sandbox's rAF.
     // Grants nothing the store does not still check.
     ageRun: (ms) => { if (phase === 'running') runStartedAt -= ms; return phase === 'running'; },
+    // Show the home planet in another theme (screenshots of worlds not built
+    // yet). Display only.
+    planetTheme: (id) => { planetThemeOverride = id || null; refreshShowcase(); return phase === 'menu'; },
+    menuPhase: () => phase === 'menu' && !!planet,
     // The progress the store holds now -- what a clear actually banked.
     progress: () => (store ? JSON.parse(JSON.stringify(store.get())) : null),
     coinsTaken: () => (pickupState ? pickupState.coins : null),
@@ -1357,7 +1435,7 @@ export async function enterMaze(progressStore) {
     // Entering lands on LEVEL SELECT, never straight into a run: which level
     // you are playing should always be something you chose.
     reportMazeCompletion();
-    showLevelSelect();
+    enterMenus('home');
     requestRender();
     return true;
 }
@@ -1441,8 +1519,8 @@ export function initMazeControls() {
     bindTap('mazeStartBtn', () => { startRun(); });
     // EXIT from a level goes back to the level list; there is no other screen
     // to leave to yet.
-    bindTap('mazeExitBtn', () => { showLevelSelect(); });
-    bindTap('mazeWinExitBtn', () => { showLevelSelect(); });
+    bindTap('mazeExitBtn', () => { enterMenus('home'); });
+    bindTap('mazeWinExitBtn', () => { enterMenus('home'); });
     // CrazyGames: moving on from a CLEARED level is a natural break, so it may
     // carry a break ad first (platform.js throttles it; on the web it resolves
     // false at once). Never after a fall: that is mid-attempt, not a break.

@@ -58,17 +58,28 @@ const check = (c, m) => { if (!c) failures.push(m); };
         page.on('console', m => { if (m.type() === 'error' && !foreign(m.text() + JSON.stringify(m.location()))) errors.push(m.text()); });
         const dbg = (fn, ...args) => page.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
 
-        // --- boot -> level select ----------------------------------------
+        // --- boot -> home ------------------------------------------------
         await page.goto(base);
-        await page.waitForSelector('#mazeSelect', { state: 'visible', timeout: 30000 });
+        await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
         check(await page.isHidden('#bootMsg'), 'the boot message must clear once the game is up');
+        check(await page.isVisible('#tabBar'), 'the tab bar shows on the home screen');
+        check(await page.evaluate(() => window.__mazeDebug.menuPhase()), 'the home planet is built behind the home screen');
+        check((await page.textContent('#homeLevelNum')).trim() === 'LEVEL 1' && (await page.textContent('#homeLevelName')).trim() === levels[0].name,
+            `home offers level 1 on a fresh save, shows "${await page.textContent('#homeLevelNum')} ${await page.textContent('#homeLevelName')}"`);
+        check((await page.textContent('#homeWallet')).trim() === '0', 'home shows the coin balance');
+        // --- the worlds tab lists the ladder ------------------------------
+        await page.tap('#tab_worlds');
+        await page.waitForSelector('#mazeSelect', { state: 'visible' });
+        check(await page.isHidden('#homeView'), 'one tab at a time');
         const rows = await page.$$eval('.maze-levelrow', els => els.map(e => ({ next: e.classList.contains('is-next'), locked: e.disabled })));
         check(rows.length === levels.length, `level select should list all ${levels.length} levels, got ${rows.length}`);
         check(rows[0] && rows[0].next && !rows[0].locked, 'on a fresh save, level 1 is the highlighted next level');
         check(rows.slice(1).every(r => r.locked), 'on a fresh save, every other level is locked');
 
-        // --- a run: tap level 1, tap START --------------------------------
-        await page.tap('.maze-levelrow.is-next');
+        // --- a run: back home, tap PLAY, tap START -------------------------
+        await page.tap('#tab_home');
+        await page.tap('#homePlayBtn');
+        check(await page.isHidden('#tabBar'), 'the tab bar hides during a level');
         await page.waitForSelector('#mazeStartBtn', { state: 'visible' });
         await page.tap('#mazeStartBtn');
         await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
@@ -115,6 +126,15 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(prog.wallet === 120 + 1, `a first clear with one coin pays 121, wallet is ${prog.wallet}`);
         check(/CLEARED/.test(await page.textContent('#mazeStatus')), 'the status line reports the clear');
         await page.waitForSelector('#mazeNextBtn', { state: 'visible' });
+        await page.tap('#mazeLevelsBtn');
+        await page.waitForSelector('#mazeSelect', { state: 'visible' });
+        check(await page.isVisible('#tabBar') && await page.isHidden('#mazeHud'), 'LEVELS after a clear opens the worlds tab with the tab bar');
+        await page.tap('#tab_home');
+        await page.tap('#homePlayBtn');
+        await page.waitForSelector('#mazeExitBtn', { state: 'visible' });
+        await page.tap('#mazeExitBtn');
+        await page.waitForSelector('#homeView', { state: 'visible' });
+        check(await page.evaluate(() => window.__mazeDebug.menuPhase()), 'the back button in a level returns home, planet and all');
 
         // --- conveyors move the ball on their own -------------------------
         const lv10 = levels.find(l => (l.conveyors || []).length);
@@ -132,7 +152,9 @@ const check = (c, m) => { if (!c) failures.push(m); };
 
         // --- progress survives a reload ----------------------------------
         await page.reload();
-        await page.waitForSelector('#mazeSelect', { state: 'visible', timeout: 30000 });
+        await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+        check((await page.textContent('#homeLevelNum')).trim() === 'LEVEL 2', 'after a clear and a reload, home offers level 2');
+        await page.tap('#tab_worlds');
         const after = await page.$$eval('.maze-levelrow', els => els.map(e => ({ cleared: e.classList.contains('is-cleared'), next: e.classList.contains('is-next'), locked: e.disabled })));
         check(after[0].cleared, 'after a reload, level 1 shows as cleared');
         check(after[1].next && !after[1].locked, 'after a reload, level 2 is unlocked and next');
@@ -150,8 +172,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
         shop.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
         const sdbg = (fn, ...args) => shop.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
         await shop.goto(base);
-        await shop.waitForSelector('#mazeSelect', { state: 'visible', timeout: 30000 });
-        await shop.tap('#openStoreBtn');
+        await shop.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+        await shop.tap('#tab_store');
         await shop.waitForSelector('#storeView', { state: 'visible' });
         const rowBuy = (title) => shop.locator('.shop-row', { has: shop.locator('.shop-rowtitle', { hasText: new RegExp('^' + title + '$') }) }).locator('.shop-buy');
         await rowBuy('Air Brake').tap();
@@ -160,17 +182,16 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(sp.upgrades.brakes === 1 && sp.charges.shield === 1 && sp.wallet === 2000 - 200 - 80,
             `buying Air Brake and a Shield is saved and charged: ${JSON.stringify({ u: sp.upgrades, c: sp.charges, w: sp.wallet })}`);
         check((await shop.textContent('#storeWallet')).trim() === '1,720', 'the store wallet updates after buying');
-        await shop.tap('#storeBackBtn');
-        await shop.tap('#openProfileBtn');
+        await shop.tap('#tab_gear');
         await shop.waitForSelector('#profileView', { state: 'visible' });
         await shop.locator('.marble-card', { has: shop.locator('.marble-name', { hasText: 'Rubber' }) }).locator('.marble-action').tap();
         sp = await sdbg('progress');
         check(sp.marble === 'rubber' && sp.marbles.includes('rubber') && sp.wallet === 1720 - 900, `buying Rubber selects it: ${sp.marble}, wallet ${sp.wallet}`);
         check((await shop.textContent('#profileMarbleName')).trim() === 'Rubber', 'the profile shows Rubber as the next marble');
-        await shop.tap('#profileBackBtn');
+        await shop.tap('#tab_home');
 
         // The next game uses it all.
-        await shop.tap('.maze-levelrow.is-next');
+        await shop.tap('#homePlayBtn');
         await shop.tap('#mazeStartBtn');
         await shop.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         await sdbg('advanceFrames', 1);
@@ -187,7 +208,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await sdbg('phase') === 'running', 'the bought shield saves the ball from the hole');
         check(!(await sdbg('progress')).charges.shield, 'the shield is spent from the inventory once it saves you');
         await shop.reload();
-        await shop.waitForSelector('#mazeSelect', { state: 'visible', timeout: 30000 });
+        await shop.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
         check((await sdbg('progress')).marble === 'rubber', 'the marble choice survives a reload');
         await shopCtx.close();
 
@@ -201,6 +222,6 @@ const check = (c, m) => { if (!c) failures.push(m); };
         console.error('FAIL: maze boot\n - ' + failures.join('\n - '));
         process.exitCode = 1;
     } else {
-        console.log('PASS: maze boot -- the page boots to level select with only level 1 open, a run steers the right way on keys, collects coins, falls and restarts, conveyors carry the ball, a clear is banked by the progress store, the store and profile buy and select, bought power-ups and the marble reach the run, and it all survives a reload');
+        console.log('PASS: maze boot -- the page boots to home with level 1 offered, the tab bar switches screens, a run steers the right way on keys, collects coins, falls and restarts, conveyors carry the ball, a clear is banked by the progress store, the store and profile buy and select, bought power-ups and the marble reach the run, and it all survives a reload');
     }
 })().catch(e => { console.error(e); process.exitCode = 1; });

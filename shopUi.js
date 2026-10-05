@@ -10,8 +10,9 @@ import { sfx } from './sfx.js';
 //   PROFILE  pick the marble for the next game (buy the ones not owned),
 //            what you hold, how far you have got
 //
-// initShopUi({ store, levels, onBack }) wires the buttons once; onBack returns
-// to the level list.
+// initShopUi({ store, getLevels, onChange }) once; menus.js calls renderStore /
+// renderProfile when their tab opens. onChange fires after anything that
+// changes what the home screen shows (a marble picked, coins spent).
 
 let ctx = null;
 
@@ -25,17 +26,11 @@ function h(tag, cls, text) {
     return e;
 }
 
-function show(id) {
-    for (const v of ['mazeSelect', 'storeView', 'profileView']) {
-        const e = $(v);
-        if (e) e.style.display = v === id ? '' : 'none';
-    }
-}
-
 function renderWallets() {
     const w = fmt(ctx.store.get().wallet);
-    for (const id of ['mazeWallet', 'storeWallet', 'profileWallet']) { const e = $(id); if (e) e.textContent = w; }
+    for (const id of ['mazeWallet', 'storeWallet', 'profileWallet', 'homeWallet']) { const e = $(id); if (e) e.textContent = w; }
 }
+const changed = () => { if (ctx.onChange) ctx.onChange(); };
 
 // A one-line answer to the last tap, in place of a dialog (no browser dialogs:
 // CLAUDE.md).
@@ -87,10 +82,10 @@ function row(title, blurb, side, lead) {
     return r;
 }
 
-function builtWorlds() { return new Set(ctx.levels.map(l => l.world)); }
+function builtWorlds() { return new Set(ctx.getLevels().map(l => l.world)); }
 
 // --- STORE --------------------------------------------------------------
-function renderStore() {
+export function renderStore() {
     const p = ctx.store.get();
     const list = $('storeList');
     list.innerHTML = '';
@@ -164,7 +159,7 @@ function swatch(id, big) {
     return s;
 }
 
-function renderProfile() {
+export function renderProfile() {
     const p = ctx.store.get();
     const cur = p.marble;
     $('profileMarble').innerHTML = '';
@@ -198,10 +193,11 @@ function renderProfile() {
         card.append(bars);
         let btn;
         if (selected) { btn = buyButton(0, 0, () => {}, 'SELECTED'); btn.disabled = true; }
-        else if (owned) btn = buyButton(0, 0, () => { ctx.store.selectMarble(id); say('profileMsg', `${m.name} is ready for the next game`, true); renderProfile(); }, 'SELECT');
+        else if (owned) btn = buyButton(0, 0, () => { ctx.store.selectMarble(id); say('profileMsg', `${m.name} is ready for the next game`, true); renderProfile(); changed(); }, 'SELECT');
         else btn = buyButton(m.price, p.wallet, () => {
             buyResult('profileMsg', ctx.store.buyMarble(id), `${m.name} bought and selected`);
             renderProfile();
+            changed();
         });
         btn.classList.add('marble-action');
         card.append(btn);
@@ -209,13 +205,13 @@ function renderProfile() {
     }
 
     // How far you have got, and what you are carrying.
-    const ids = new Set(ctx.levels.map(l => l.id));
+    const ids = new Set(ctx.getLevels().map(l => l.id));
     const cleared = Object.keys(p.cleared).filter(id => ids.has(id)).length;
     const coins = Object.values(p.cleared).reduce((n, c) => n + (c.coins || 0), 0);
     const stats = $('profileStats');
     stats.innerHTML = '';
     for (const [label, value] of [
-        ['Levels cleared', `${cleared} / ${ctx.levels.length}`],
+        ['Levels cleared', `${cleared} / ${ctx.getLevels().length}`],
         ['Gold medals', String(p.goldClaimed.filter(id => ids.has(id)).length)],
         ['Coins found', fmt(coins)]
     ]) {
@@ -239,14 +235,8 @@ function renderProfile() {
     renderWallets();
 }
 
-export function openStore() { say('storeMsg', '', true); renderStore(); show('storeView'); }
-export function openProfile() { say('profileMsg', '', true); renderProfile(); show('profileView'); }
+export function clearShopMessages() { say('storeMsg', '', true); say('profileMsg', '', true); }
 
-export function initShopUi({ store, levels, onBack }) {
-    ctx = { store, levels: levels || [], onBack };
-    const tap = (id, fn) => { const e = $(id); if (e) e.addEventListener('click', (ev) => { ev.preventDefault(); fn(); }); };
-    tap('openStoreBtn', openStore);
-    tap('openProfileBtn', openProfile);
-    tap('storeBackBtn', () => { show('mazeSelect'); onBack(); });
-    tap('profileBackBtn', () => { show('mazeSelect'); onBack(); });
+export function initShopUi({ store, getLevels, onChange }) {
+    ctx = { store, getLevels: getLevels || (() => []), onChange: onChange || null };
 }

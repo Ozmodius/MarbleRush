@@ -34,6 +34,7 @@ uniform vec3 mrGlowColor;
 uniform float mrGlow;
 uniform float mrScale;
 uniform float mrBump;
+uniform float mrGritAmt;
 
 float mrHash(vec3 p) {
     p = fract(p * 0.3183099 + 0.1);
@@ -82,7 +83,7 @@ float mrCrack(vec2 p) {
 // footprint: at the full-board distance this detail is finer than a pixel and
 // would only shimmer as the board leans, so it is drawn only where it reads.
 vec2 mrGrit(vec3 p) {
-    float fade = 1.0 - smoothstep(0.035, 0.09, length(fwidth(p)));
+    float fade = (1.0 - smoothstep(0.035, 0.09, length(fwidth(p)))) * mrGritAmt;
     if (fade <= 0.0) return vec2(0.0);
     float g = mrFbm(p * 26.0);
     float pit = smoothstep(0.66, 0.78, mrNoise(p * 38.0 + 7.1));
@@ -111,6 +112,22 @@ const PATTERN_GLSL = {
         float mrN = mrFbm(mrP * 2.0);
         vec2 mrQ = mrP.xz * 1.05 + (vec2(mrN, mrFbm(mrP * 2.0 + 4.3)) - 0.5) * 1.1;
         float mrE = mrCrack(mrQ);
+        float mrSeam = 1.0 - smoothstep(0.0, 0.06, mrE);
+        float mrTone = clamp(smoothstep(0.0, 0.5, mrE) * 0.7 + mrN * 0.5, 0.0, 1.0);
+        float mrH = smoothstep(0.0, 0.25, mrE) * 0.6 + mrFbm(mrP * 8.0) * 0.4;
+        float mrHot = mrSeam * (0.65 + 0.35 * mrN);
+    `,
+    // The same seams wrapped round a SPHERE (planet3d.js, the home screen).
+    // The floor version reads the ground plane (x, z) only, which on a sphere
+    // streaks into stripes at the equator; this projects the cracks from all
+    // three axes and blends by which way the surface faces.
+    lavaPlanet: /* glsl */`
+        vec3 mrP = vMrPos * mrScale;
+        float mrN = mrFbm(mrP * 2.0);
+        vec2 mrWarp = (vec2(mrN, mrFbm(mrP * 2.0 + 4.3)) - 0.5) * 1.1;
+        vec3 mrW = pow(abs(normalize(vMrPos)), vec3(4.0));
+        mrW /= dot(mrW, vec3(1.0));
+        float mrE = mrW.x * mrCrack(mrP.yz * 1.05 + mrWarp) + mrW.y * mrCrack(mrP.xz * 1.05 + mrWarp) + mrW.z * mrCrack(mrP.xy * 1.05 + mrWarp);
         float mrSeam = 1.0 - smoothstep(0.0, 0.06, mrE);
         float mrTone = clamp(smoothstep(0.0, 0.5, mrE) * 0.7 + mrN * 0.5, 0.0, 1.0);
         float mrH = smoothstep(0.0, 0.25, mrE) * 0.6 + mrFbm(mrP * 8.0) * 0.4;
@@ -159,7 +176,10 @@ export function applySurface(mat, opts) {
         mrGlowColor: { value: new THREE.Color(opts.glowColor) },
         mrGlow: { value: Number.isFinite(opts.glow) ? opts.glow : 0 },
         mrScale: { value: Number.isFinite(opts.scale) ? opts.scale : 1 },
-        mrBump: { value: Number.isFinite(opts.bump) ? opts.bump : 1 }
+        mrBump: { value: Number.isFinite(opts.bump) ? opts.bump : 1 },
+        // Fine grit (mrGrit) on or off: on for level walls seen up close, off
+        // for the home planet, where it is finer than a pixel and only speckles.
+        mrGritAmt: { value: Number.isFinite(opts.grit) ? opts.grit : 1 }
     };
     mat.userData.surfaceUniforms = uniforms;
     mat.onBeforeCompile = (shader) => {
