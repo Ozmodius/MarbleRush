@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { MAZE_THEMES } from './mazeThemes.js';
 import { applyPbrMaps } from './pbrTextures.js';
+import { applySurface } from './mazeSurface3d.js';
+import { buildWallGeometry } from './mazeWalls3d.js';
 
 // MAZE THEME -> THREE.js MATERIALS. The single place a mazeTheme cosmetic turns
 // into something renderable.
@@ -38,7 +40,26 @@ const HARD_DEFAULTS = {
     // it is an unexplained loss of control, and an author tuning a dark floor
     // would otherwise have to discover that for themselves.
     iceColor: '#bfe6f5',
-    gateColor: '#b5542f'
+    gateColor: '#b5542f',
+    // SHAPE AND SURFACE. Every default is the original look -- sharp boxes,
+    // flat colour -- so a theme opts in to rock rather than discovering it.
+    //   wallStyle      'box' | 'rock' (mazeWalls3d.js): rounded, jagged crests
+    //   wallBevel      crest rounding radius for 'rock', world units
+    //   wallJag        how far a 'rock' crest heaves up and down
+    //   floorPattern   'plain' | 'rock' | 'lavaCracks' (mazeSurface3d.js)
+    //   wallPattern    'plain' | 'rock' | 'emberRock'
+    //   floorColor2,
+    //   wallColor2     the second colour a pattern mixes toward; '' derives a
+    //                  darker shade of the main colour
+    //   glowColor      what the hot parts of a pattern glow
+    //   floorGlow,
+    //   wallGlow       glow strength; 0 turns it off
+    //   patternScale   rock features per world unit (bigger = finer)
+    wallStyle: 'box', wallBevel: 0.07, wallJag: 0.06,
+    floorPattern: 'plain', wallPattern: 'plain',
+    floorColor2: '', wallColor2: '',
+    glowColor: '#ff5a14', floorGlow: 0, wallGlow: 0,
+    patternScale: 1
 };
 
 // Accepts either a theme ID (the game: a level names its theme) or a raw
@@ -85,6 +106,13 @@ function forceMapScalars(material, textures) {
     if (textures.metalnessMap) material.metalness = 1.0;
 }
 
+// The second colour a pattern mixes toward. Unset means "a darker shade of the
+// main colour", so a theme can turn on rock with one field and still look like
+// itself.
+function secondColor(main, second) {
+    return second ? new THREE.Color(second) : new THREE.Color(main).multiplyScalar(0.55);
+}
+
 export function makeFloorMaterial(theme, extentUnits = 10) {
     const mat = new THREE.MeshStandardMaterial({
         color: new THREE.Color(theme.floorColor),
@@ -95,20 +123,41 @@ export function makeFloorMaterial(theme, extentUnits = 10) {
         applyPbrMaps(mat, theme.floorTextures, tileRepeat(theme.floorTextureTile, extentUnits));
         forceMapScalars(mat, theme.floorTextures);
     }
-    return mat;
+    return applySurface(mat, {
+        pattern: theme.floorPattern, color2: secondColor(theme.floorColor, theme.floorColor2),
+        glowColor: theme.glowColor, glow: theme.floorGlow, scale: theme.patternScale, bump: 1
+    });
 }
 
-export function makeWallMaterial(theme, extentUnits = 10) {
+// Wall geometry carries its own texture coordinates, laid out per world unit
+// (mazeWalls3d.js), so a wall texture keeps its scale on a short stub and a
+// long run alike. The repeat therefore lives in the geometry, and the maps
+// here are sampled at 1.
+export function makeWallMaterial(theme, color = theme.wallColor) {
     const mat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(theme.wallColor),
+        color: new THREE.Color(color),
         roughness: theme.wallRoughness,
         metalness: theme.wallMetalness
     });
     if (theme.wallTextures) {
-        applyPbrMaps(mat, theme.wallTextures, tileRepeat(theme.wallTextureTile, extentUnits));
+        applyPbrMaps(mat, theme.wallTextures, 1);
         forceMapScalars(mat, theme.wallTextures);
     }
-    return mat;
+    return applySurface(mat, {
+        pattern: theme.wallPattern, color2: secondColor(color, theme.wallColor2 && color === theme.wallColor ? theme.wallColor2 : ''),
+        glowColor: theme.glowColor, glow: theme.wallGlow, scale: theme.patternScale, bump: 1.4
+    });
+}
+
+// Wall geometry in the theme's style, for a list of { x, z, w, d } rects.
+// `reach` is the tallest point the marble can touch (its radius): the builder
+// keeps every face true to its collider below it.
+export function makeWallGeometry(theme, specs, { height, floorY = 0, reach, seed = 0 } = {}) {
+    return buildWallGeometry(specs, {
+        height, floorY, reach, seed,
+        style: theme.wallStyle, bevel: theme.wallBevel, jag: theme.wallJag,
+        uvPerUnit: (Number.isFinite(theme.wallTextureTile) ? theme.wallTextureTile : 4) / 10
+    });
 }
 
 export function makeBallMaterial(theme) {
@@ -149,11 +198,7 @@ export function makeIceMaterial(theme) {
 // move. Getting that wrong is not a cosmetic problem: a gate that looks exactly
 // like a wall reads as the level cheating when it shifts.
 export function makeGateMaterial(theme) {
-    return new THREE.MeshStandardMaterial({
-        color: new THREE.Color(theme.gateColor),
-        roughness: theme.wallRoughness,
-        metalness: theme.wallMetalness
-    });
+    return makeWallMaterial(theme, theme.gateColor);
 }
 
 // A miniature maze for the admin cosmetics editor: floor, a couple of walls, a
@@ -170,15 +215,15 @@ export function buildPreviewMaze(def) {
     const group = new THREE.Group();
     const W = 5, D = 5, WALL_H = 0.42, T = 0.3;
 
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), makeFloorMaterial(theme, Math.max(W, D)));
-    floor.rotation.x = -Math.PI / 2;
+    // Rotation baked into the geometry, not the mesh: a floor pattern is drawn
+    // in the mesh's local space, which must be level space (mazeSurface3d.js).
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D).rotateX(-Math.PI / 2), makeFloorMaterial(theme, Math.max(W, D)));
     floor.receiveShadow = true;
     group.add(floor);
 
     // Two interior walls plus the four boundary rails, so the author sees both
     // a lit face and a shadowed one.
-    const wallMat = makeWallMaterial(theme, D);
-    const wallGeo = new THREE.BoxGeometry(1, 1, 1);
+    const wallMat = makeWallMaterial(theme);
     const walls = [
         { x: -0.7, z: -1.1, w: 3.4, d: T },
         { x: 0.9, z: 0.7, w: 3.0, d: T },
@@ -187,19 +232,9 @@ export function buildPreviewMaze(def) {
         { x: -W / 2 - T / 2, z: 0, w: T, d: D },
         { x: W / 2 + T / 2, z: 0, w: T, d: D }
     ];
-    const wallMesh = new THREE.InstancedMesh(wallGeo, wallMat, walls.length);
+    const wallMesh = new THREE.Mesh(makeWallGeometry(theme, walls, { height: WALL_H, reach: 0.34 }), wallMat);
     wallMesh.castShadow = true;
     wallMesh.receiveShadow = true;
-    const m = new THREE.Matrix4();
-    walls.forEach((w, i) => {
-        m.compose(
-            new THREE.Vector3(w.x, WALL_H / 2, w.z),
-            new THREE.Quaternion(),
-            new THREE.Vector3(w.w, WALL_H, w.d)
-        );
-        wallMesh.setMatrixAt(i, m);
-    });
-    wallMesh.instanceMatrix.needsUpdate = true;
     group.add(wallMesh);
 
     // An ice patch and a gate bar. Both are here for one reason: the editor
@@ -214,8 +249,8 @@ export function buildPreviewMaze(def) {
     // Drawn at its OPEN extreme, tucked against the wall it slides out of --
     // the same position the verifier solves levels against, so an author's
     // mental model of "where a gate rests" matches the one the checker uses.
-    const gate = new THREE.Mesh(new THREE.BoxGeometry(1.4, WALL_H, T), makeGateMaterial(theme));
-    gate.position.set(1.3, WALL_H / 2, -1.1);
+    const gate = new THREE.Mesh(makeWallGeometry(theme, [{ x: 0, z: 0, w: 1.4, d: T }], { height: WALL_H, reach: 0.34 }), makeGateMaterial(theme));
+    gate.position.set(1.3, 0, -1.1);
     gate.castShadow = true;
     gate.receiveShadow = true;
     group.add(gate);

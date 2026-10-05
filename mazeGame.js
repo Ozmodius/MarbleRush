@@ -5,8 +5,9 @@ import { socket } from './socket.js';
 import { getScene, getCamera, onFrame, setExclusiveMode, requestRender } from './scene3d.js';
 import { gateFraction, gateVelocity, gateSpecAt, isOnIce, ICE_FRICTION } from './mazeHazards.js';
 import { makeIceMaterial, makeGateMaterial } from './mazeTheme3d.js';
-import { resolveMazeTheme, makeFloorMaterial, makeWallMaterial, makeBallMaterial,
+import { resolveMazeTheme, makeFloorMaterial, makeWallMaterial, makeWallGeometry, makeBallMaterial,
          makeHoleMaterial, makeGoalMaterial } from './mazeTheme3d.js';
+import { tickSurfaces } from './mazeSurface3d.js';
 import { COSMETICS } from './cosmetics.js';
 import { bindTap } from './inputTap.js';
 import { uiSfx } from './uiSfx.js';
@@ -288,33 +289,21 @@ function disposeAll() {
 // Building them here instead would mean an author tuning a theme against a
 // render only they ever see -- a preview that lies is worse than no preview.
 //
-// Every wall in ONE InstancedMesh -- the authored walls plus the four boundary
-// rails. A maze meshed one box at a time would blow past the draw-call budget
-// the 3D scene is held to (test_r3d_environment.js caps the game scene at 100),
-// and this is a phone.
+// Every wall in ONE mesh -- the authored walls plus the four boundary rails,
+// merged into a single geometry at their real sizes. A maze meshed one box at a
+// time would blow past the draw-call budget the 3D scene is held to
+// (test_r3d_environment.js caps the game scene at 100), and this is a phone.
+// Merged rather than instanced from a stretched unit box, because a stretched
+// box stretches its texture and any bevel with it (mazeWalls3d.js); the
+// theme's wallStyle decides whether the walls are sharp boxes or rock.
 function buildWalls(lv, group, theme) {
     const rails = boundaryRails(lv);
     const all = lv.walls.concat(rails);
-    const geo = track(new THREE.BoxGeometry(1, 1, 1));
-    // Walls are instanced from a UNIT box scaled per instance, so every wall
-    // shares this one material and therefore one texture repeat. Scaled off the
-    // level's depth as a representative extent -- true per-wall texel density
-    // would need a material per wall, which is the draw-call budget this
-    // instancing exists to protect.
-    const mat = track(makeWallMaterial(theme, lv.size.d));
-    const mesh = new THREE.InstancedMesh(geo, mat, all.length);
+    const geo = track(makeWallGeometry(theme, all, { height: WALL_HEIGHT, floorY: FLOOR_Y, reach: lv.ballRadius }));
+    const mat = track(makeWallMaterial(theme));
+    const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    const m = new THREE.Matrix4();
-    all.forEach((w, i) => {
-        m.compose(
-            new THREE.Vector3(w.x, FLOOR_Y + WALL_HEIGHT / 2, w.z),
-            new THREE.Quaternion(),
-            new THREE.Vector3(w.w, WALL_HEIGHT, w.d)
-        );
-        mesh.setMatrixAt(i, m);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
     group.add(mesh);
     return all;
 }
@@ -378,14 +367,18 @@ function buildGates(lv, group, theme) {
     const specs = Array.isArray(lv.gates) ? lv.gates : [];
     if (!specs.length) return [];
     const mat = track(makeGateMaterial(theme));
-    return specs.map(spec => {
-        const geo = track(new THREE.BoxGeometry(spec.w, WALL_HEIGHT, spec.d));
+    return specs.map((spec, i) => {
+        // Built around its own origin with its foot at y=0, so the mesh's
+        // position is the gate's centre on the floor. The seed keeps two gates
+        // from wearing identical rock.
+        const geo = track(makeWallGeometry(theme, [{ x: 0, z: 0, w: spec.w, d: spec.d }],
+            { height: WALL_HEIGHT, reach: lv.ballRadius, seed: i + 1 }));
         const mesh = new THREE.Mesh(geo, mat);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         // Placed at its open extreme, matching what the verifier solved.
         const at = gateSpecAt(spec, 0);
-        mesh.position.set(at.x, FLOOR_Y + WALL_HEIGHT / 2, at.z);
+        mesh.position.set(at.x, FLOOR_Y, at.z);
         group.add(mesh);
         return { spec, mesh, body: null };
     });
@@ -462,10 +455,12 @@ function buildWinStar(group) {
 function buildLevelMeshes(lv, theme) {
     const group = new THREE.Group();
 
-    const floorGeo = track(new THREE.PlaneGeometry(lv.size.w, lv.size.d));
+    // Laid flat in the geometry rather than by rotating the mesh: a floor
+    // pattern is drawn in local space, which has to be level space
+    // (mazeSurface3d.js).
+    const floorGeo = track(new THREE.PlaneGeometry(lv.size.w, lv.size.d).rotateX(-Math.PI / 2));
     const floorMat = track(makeFloorMaterial(theme, Math.max(lv.size.w, lv.size.d)));
     const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
     floor.position.y = FLOOR_Y;
     floor.receiveShadow = true;
     group.add(floor);
@@ -651,6 +646,9 @@ function step() {
     const now = performance.now();
     const elapsedMs = lastStepTime ? (now - lastStepTime) : (1000 / 60);
     lastStepTime = now;
+    // Lava pulses on the page clock, not the run clock: it is scenery, and it
+    // should keep breathing on the ready screen and after a fall.
+    tickSurfaces(now / 1000);
     advance(elapsedMs);
 }
 
@@ -728,7 +726,7 @@ function updateGates() {
             g.body.position.set(at.x, FLOOR_Y + WALL_HEIGHT / 2, at.z);
             g.body.velocity.set(alongX ? v : 0, 0, alongX ? 0 : v);
         }
-        if (g.mesh) g.mesh.position.set(at.x, FLOOR_Y + WALL_HEIGHT / 2, at.z);
+        if (g.mesh) g.mesh.position.set(at.x, FLOOR_Y, at.z);
     }
 }
 

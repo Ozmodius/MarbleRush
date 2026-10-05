@@ -38,5 +38,25 @@ export const MAZE_THEMES = {
         holeColor: '#07050c',
         goalColor: '#ff5fc8',
         backdropColor: '#0d0916'
+    },
+    // The first theme built on shape and surface rather than colour alone:
+    // rock walls (mazeWalls3d.js) and procedural basalt with lava seams
+    // (mazeSurface3d.js). Holes are lava pools, so the brightest thing on the
+    // board is the thing that ends your run; the seams glow far dimmer so they
+    // never read as a hazard. The goal is cold blue, the one cool colour here.
+    'lava': {
+        id: 'lava',
+        name: 'Magma Works',
+        rarity: 'epic',
+        floorColor: '#4a3730', floorColor2: '#1a1311', floorRoughness: 0.9, floorMetalness: 0.0,
+        floorPattern: 'lavaCracks', floorGlow: 0.9,
+        wallColor: '#56463f', wallColor2: '#201815', wallRoughness: 0.92, wallMetalness: 0.0,
+        wallStyle: 'rock', wallPattern: 'emberRock', wallGlow: 1.1,
+        glowColor: '#e0340a',
+        marbleColor: '#eef1f5', marbleRoughness: 0.14, marbleMetalness: 0.1,
+        holeColor: '#ff7a1f',
+        goalColor: '#3fd0ff',
+        gateColor: '#8a5a3c',
+        backdropColor: '#140604'
     }
 };

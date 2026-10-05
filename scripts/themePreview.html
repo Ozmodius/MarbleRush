@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maze Theme Preview</title>
+<!--
+  DEV TOOL, not part of the game bundle. Renders a real level in any theme so a
+  look can be judged (and screenshotted) before Phase 0's scene host exists.
+  Serve the repo root and open:
+      /scripts/themePreview.html?level=w4_01&theme=lava
+  Walls, floor and gates come from the same builders mazeGame.js uses
+  (mazeTheme3d.js); the LIGHTS are a stand-in for Ball Smack's scene3d.js, so
+  judge materials here, not final brightness.
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "../node_modules/three/build/three.module.js",
+    "three/examples/jsm/": "../node_modules/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { resolveMazeTheme, makeFloorMaterial, makeWallMaterial, makeWallGeometry, makeGateMaterial,
+         makeHoleMaterial, makeGoalMaterial, makeBallMaterial, makeIceMaterial } from '../mazeTheme3d.js';
+import { tickSurfaces } from '../mazeSurface3d.js';
+import { gateSpecAt } from '../mazeHazards.js';
+
+const q = new URLSearchParams(location.search);
+const data = await (await fetch('../mazeLevels.json')).json();
+const levels = Array.isArray(data) ? data : data.levels;
+const lv = levels.find(l => l.id === q.get('level')) || levels[levels.length - 1];
+const theme = resolveMazeTheme(q.get('theme') || lv.theme);
+const WALL_HEIGHT = 0.55;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(theme.backdropColor);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 1.2));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.position.set(-4, 12, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 30 });
+sun.shadow.bias = -0.0005;
+scene.add(sun);
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(lv.size.w, lv.size.d).rotateX(-Math.PI / 2),
+    makeFloorMaterial(theme, Math.max(lv.size.w, lv.size.d)));
+floor.receiveShadow = true;
+scene.add(floor);
+
+const hd = lv.size.d / 2, hw = lv.size.w / 2, t = 0.4;
+const rails = [
+    { x: 0, z: -hd - t / 2, w: lv.size.w + t * 2, d: t }, { x: 0, z: hd + t / 2, w: lv.size.w + t * 2, d: t },
+    { x: -hw - t / 2, z: 0, w: t, d: lv.size.d }, { x: hw + t / 2, z: 0, w: t, d: lv.size.d }
+];
+const walls = new THREE.Mesh(makeWallGeometry(theme, lv.walls.concat(rails), { height: WALL_HEIGHT, reach: lv.ballRadius }),
+    makeWallMaterial(theme));
+walls.castShadow = walls.receiveShadow = true;
+scene.add(walls);
+
+const gateMat = makeGateMaterial(theme);
+(lv.gates || []).forEach((g, i) => {
+    const m = new THREE.Mesh(makeWallGeometry(theme, [{ x: 0, z: 0, w: g.w, d: g.d }],
+        { height: WALL_HEIGHT, reach: lv.ballRadius, seed: i + 1 }), gateMat);
+    const at = gateSpecAt(g, 0);
+    m.position.set(at.x, 0, at.z);
+    m.castShadow = m.receiveShadow = true;
+    scene.add(m);
+});
+
+for (const r of (lv.ice || [])) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(r.w, r.d), makeIceMaterial(theme));
+    m.rotation.x = -Math.PI / 2; m.position.set(r.x, 0.006, r.z); scene.add(m);
+}
+const holeMat = makeHoleMaterial(theme);
+for (const h of lv.holes) {
+    const m = new THREE.Mesh(new THREE.CircleGeometry(h.r, 28), holeMat);
+    m.rotation.x = -Math.PI / 2; m.position.set(h.x, 0.012, h.z); scene.add(m);
+}
+const goal = new THREE.Mesh(new THREE.RingGeometry(lv.goal.r * 0.62, lv.goal.r, 32), makeGoalMaterial(theme));
+goal.rotation.x = -Math.PI / 2; goal.position.set(lv.goal.x, 0.015, lv.goal.z); scene.add(goal);
+const ball = new THREE.Mesh(new THREE.SphereGeometry(lv.ballRadius, 32, 24), makeBallMaterial(theme));
+ball.position.set(lv.start.x, lv.ballRadius, lv.start.z); ball.castShadow = true; scene.add(ball);
+
+// ?zoom=1 frames a close-up near the start, to judge rock up close.
+const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.1, 100);
+if (q.get('zoom')) {
+    camera.position.set(lv.start.x + 1.2, 3.2, lv.start.z + 3.0);
+    camera.lookAt(lv.start.x, 0, lv.start.z);
+} else {
+    const tilt = 10 * Math.PI / 180;
+    const fitD = (lv.size.d / 2 + 1.1) / Math.tan(24 * Math.PI / 180);
+    const fitW = (lv.size.w / 2 + 1.1) / Math.tan(24 * Math.PI / 180) / camera.aspect;
+    const dist = Math.max(fitD, fitW);
+    camera.position.set(0, Math.cos(tilt) * dist, 0.2 + Math.sin(tilt) * dist);
+    camera.lookAt(0, 0, 0.2);
+}
+
+let frames = 0;
+renderer.setAnimationLoop((ms) => {
+    tickSurfaces(ms / 1000);
+    renderer.render(scene, camera);
+    if (++frames === 3) window.__previewReady = true;
+});
+</script>
+</body>
+</html>
