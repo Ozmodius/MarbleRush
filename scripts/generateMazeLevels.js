@@ -26,6 +26,9 @@
 //         blocks in that file are preserved verbatim)
 
 const fs = require('fs');
+// Wind and icicle timing rules live in the GAME's module; the generator reads
+// them rather than keeping a copy (loaded in main()).
+let H = null;
 const path = require('path');
 
 const OUT_PATH = path.join(__dirname, '..', 'mazeLevels.json');
@@ -54,6 +57,14 @@ const BOARD_W = 9.0, BOARD_D = 14.0;
 //
 // Holes are deliberately NOT obstacles in this test -- see fits().
 const FIT_MARGIN_R = 0.5;
+
+// The grid every reachability search here runs on: THE VERIFIER'S. These
+// searches are filters and the verifier is the authority, so a coarser grid
+// here only means accepting placements the verifier then rejects -- which is
+// what happened: at 0.06 a sample point landed in the sliver exactly between a
+// goal disc and the boundary rail, the generator thought the floor past the
+// exit was reachable, and the 0.05 verifier (rightly) said it was not.
+const SEARCH_GRID = 0.05;
 
 // Deterministic RNG. Levels must regenerate identically -- a level file that
 // reshuffled itself on every run would make every diff unreadable and would
@@ -246,7 +257,7 @@ function clip(rect) {
 // try another. The shipping guarantee stays entirely with the test -- if these
 // two ever disagree, the test is right and the generator has a bug.
 function solvable(lv) {
-    const R = lv.ballRadius, GRID = 0.06;
+    const R = lv.ballRadius, GRID = SEARCH_GRID;
     const hw = lv.size.w / 2, hd = lv.size.d / 2;
     const solids = lv.walls.concat((lv.gates || []).map(g => ({ x: g.x, z: g.z, w: g.w, d: g.d })));
     const blocked = (x, z) =>
@@ -290,9 +301,24 @@ const r2 = v => Math.round(v * 100) / 100;
 // it, or the maze has a wall pretending to be a hazard. Sized from the corridor
 // the ball actually has, then pushed off-centre so there is a definite line
 // rather than two equal slivers.
+// THE PASSING SIDE MUST BE A REAL LANE. A hole sits off to one side of its
+// corridor, and the side the ball passes on has to admit the ball with
+// HOLE_PASS_MARGIN to spare. The first version sized the hole as if it sat
+// centred and then pushed it off-centre anyway, which left a lane only a
+// hundredth wider than the ball: the generator's old 0.06 grid found it, the
+// verifier's finer 0.05 grid did not, and the level shipped with floor cut off
+// behind a hole (world 1 got lucky; world 2's corridors did not).
+const HOLE_PASS_MARGIN = 0.18;
+const HOLE_WALL_GAP = 0.02;
 function holeRadiusFor(cfg, g) {
     const free = Math.min(g.px, g.pz) - g.t;      // corridor width
-    return Math.max(0.16, r2(free / 2 - cfg.ball - 0.12));
+    return Math.max(0.16, r2((free - HOLE_WALL_GAP - 2 * cfg.ball - HOLE_PASS_MARGIN) / 2));
+}
+// How far off the corridor's centre a hole of radius r sits: against one
+// wall, leaving the other side as the lane.
+function holeOffsetFor(cfg, g, r) {
+    const free = Math.min(g.px, g.pz) - g.t;
+    return Math.max(0, free / 2 - HOLE_WALL_GAP - r);
 }
 
 // Holes go where a WRONG DECISION is punished: on the branches leading off the
@@ -378,7 +404,7 @@ function placeHoles(open, cfg, g, path, rand, count, gates = [], ice = []) {
     // Offset within the cell so the ball has a side to pass on, alternating so a
     // player cannot learn one lane and hold it.
     return chosen.map(([i, j], n) => {
-        const off = (n % 2 === 0 ? 1 : -1) * (Math.min(g.px, g.pz) - g.t) * 0.16;
+        const off = (n % 2 === 0 ? 1 : -1) * holeOffsetFor(cfg, g, r);
         return { x: r2(g.cx(i) + off), z: r2(g.cz(j)), r: r };
     }).filter(h => clearOfGates(h.x, h.z) && clearOfIce(h.x, h.z));
 }
@@ -404,7 +430,7 @@ function placeHoles(open, cfg, g, path, rand, count, gates = [], ice = []) {
 //     levels along with the bad. Reachability past holes stays solvable()'s
 //     job.
 function fits(lv) {
-    const R = lv.ballRadius * (1 + FIT_MARGIN_R), GRID = 0.06;
+    const R = lv.ballRadius * (1 + FIT_MARGIN_R), GRID = SEARCH_GRID;
     const hw = lv.size.w / 2, hd = lv.size.d / 2;
     const solids = lv.walls.concat((lv.gates || []).map(g => ({ x: g.x, z: g.z, w: g.w, d: g.d })));
     const blocked = (x, z) =>
@@ -502,7 +528,7 @@ function facesShutBy(bar, open, cfg, g, ball, walls) {
 // a gate is only a doorway if closing it takes reachable floor away, and a hole
 // is only fair if it does not take any away permanently.
 function reachable(lv, gateSpecs) {
-    const R = lv.ballRadius, GRID = 0.06;
+    const R = lv.ballRadius, GRID = SEARCH_GRID;
     const hw = lv.size.w / 2, hd = lv.size.d / 2;
     const solids = lv.walls.concat(gateSpecs);
     const solid = (x, z) => Math.abs(x) > hw - R || Math.abs(z) > hd - R
@@ -773,7 +799,7 @@ function placeCollectibles(open, cfg, g, path, rand, lv, coinCount, pickupKinds)
     shuffle(deadEnds, rand); shuffle(offPath, rand); shuffle(route, rand);
     const R = lv.ballRadius;
     const { seen } = reachable(lv, (lv.gates || []).map(gt => ({ x: gt.x, z: gt.z, w: gt.w, d: gt.d })));
-    const standable = (x, z) => seen.has(Math.round((x + lv.size.w / 2) / 0.06) + '_' + Math.round((z + lv.size.d / 2) / 0.06));
+    const standable = (x, z) => seen.has(Math.round((x + lv.size.w / 2) / SEARCH_GRID) + '_' + Math.round((z + lv.size.d / 2) / SEARCH_GRID));
     const sweeps = (lv.gates || []).map(gt => {
         const a = gt.x, b = gt.x + (gt.axis === 'x' ? gt.travel : 0);
         const c = gt.z, e = gt.z + (gt.axis === 'z' ? gt.travel : 0);
@@ -808,6 +834,59 @@ function placeCollectibles(open, cfg, g, path, rand, lv, coinCount, pickupKinds)
         coins.push(at);
     }
     return { coins, pickups };
+}
+
+// WIND FANS blow ACROSS a corridor the route runs along: a crosswind that
+// shoves the ball toward one side while the player is trying to go straight.
+// The fan sits on the wall it blows away from, so only cells whose upwind side
+// is a real wall qualify. The zone is the cell's floor. Strength is capped
+// below full tilt (mazeHazards.js), so a fan never closes a corridor.
+function placeFans(open, cfg, g, path, rand, count) {
+    const cands = [];
+    for (let n = 2; n < path.length - 2; n++) {
+        const [pi, pj] = path[n - 1], [i, j] = path[n], [ni, nj] = path[n + 1];
+        const din = (i - pi) + ',' + (j - pj), dout = (ni - i) + ',' + (nj - j);
+        if (din !== dout) continue;                       // straight cells only
+        const alongX = i !== pi;
+        // Crosswind: blows along the other axis, away from a closed face.
+        const faces = alongX ? [['N', '+z'], ['S', '-z']] : [['W', '+x'], ['E', '-x']];
+        for (const [face, dir] of faces) if (!open[j][i][face]) cands.push({ i, j, dir });
+    }
+    shuffle(cands, rand);
+    const out = [], used = new Set();
+    for (const c of cands) {
+        if (out.length >= count) break;
+        if (used.has(c.i + ',' + c.j)) continue;
+        used.add(c.i + ',' + c.j);
+        out.push({
+            x: r2(g.cx(c.i)), z: r2(g.cz(c.j)),
+            w: r2(g.px - g.t), d: r2(g.pz - g.t),
+            dir: c.dir,
+            periodMs: 2800 + Math.round(rand() * 8) * 100,
+            phase: r2(rand())
+        });
+    }
+    return out;
+}
+
+// ICICLES hang over cells the route crosses -- they are timed, so the player
+// can always wait one out, and a timing test is only a test where you must
+// pass. Never next to the start or the goal, and each one's first fall comes
+// late enough into a run that the player has read the board first.
+function placeIcicles(open, cfg, g, path, rand, count) {
+    const cells = path.slice(3, -2);
+    shuffle(cells, rand);
+    const out = [];
+    const r = r2(Math.min(0.42, (Math.min(g.px, g.pz) - g.t) * 0.34));
+    for (const [i, j] of cells) {
+        if (out.length >= count) break;
+        if (out.some(o => Math.hypot(o.x - g.cx(i), o.z - g.cz(j)) < Math.min(g.px, g.pz) * 1.5)) continue;
+        const ic = { x: r2(g.cx(i)), z: r2(g.cz(j)), r, periodMs: 2600 + Math.round(rand() * 8) * 100, phase: r2(rand()) };
+        for (let k = 0; k < 20 && H.firstImpactMs(ic) < 1800; k++) ic.phase = r2((ic.phase + 0.13) % 1);
+        if (H.firstImpactMs(ic) < 1800) continue;
+        out.push(ic);
+    }
+    return out;
 }
 
 // Gates go on a DOORWAY the solution path crosses -- the boundary between two
@@ -927,6 +1006,32 @@ const WORLDS = [
             { cols: 5, rows: 8, holes: 5, gates: 1, conveyors: 2, coins: 12, route: 0.5 }
         ],
         prize: 'rubberCoat'
+    },
+    {
+        // THE GLACIER. Snowy rock at the treeline turning to clear blue ice as
+        // the world goes on (blend snowfield -> glacier). New here: ICE (L1),
+        // WIND FANS (L4), FALLING ICICLES (L10). Holes and gates come back as
+        // review -- the player already knows them from world 1.
+        world: 2, theme: 'snowfield', themeTo: 'glacier', ball: 0.3, wall: 0.32, braid: 0.28,
+        names: ['First Frost', 'Black Ice', 'Slip Road', 'Crosswind', 'Whiteout',
+                'Gale Force', 'Snow Blind', 'Deep Freeze', 'Avalanche Run', 'Icicle Hall'],
+        teaches: ['ICE: no grip, so speed carried in is speed you cannot shed.', 'More ice.', 'Ice and a gate.',
+                  'WIND FANS: gusts that shove you sideways, then fall calm.', 'Wind and ice.', 'Two fans.',
+                  'Wind, ice and a gate.', 'A finer grid.', 'The finest grid this ball fits.',
+                  'FALLING ICICLES: watch the shadow grow, then go -- or wait.'],
+        levels: [
+            { cols: 5, rows: 8, holes: 3, gates: 0, conveyors: 0, ice: 1, fans: 0, icicles: 0, coins: 6,  route: 0.35 },
+            { cols: 5, rows: 8, holes: 4, gates: 0, conveyors: 0, ice: 2, fans: 0, icicles: 0, coins: 7,  route: 0.45 },
+            { cols: 5, rows: 8, holes: 4, gates: 1, conveyors: 0, ice: 2, fans: 0, icicles: 0, coins: 8,  route: 0.5 },
+            { cols: 5, rows: 8, holes: 4, gates: 0, conveyors: 0, ice: 1, fans: 1, icicles: 0, coins: 8,  route: 0.4 },
+            { cols: 6, rows: 8, holes: 5, gates: 1, conveyors: 0, ice: 2, fans: 1, icicles: 0, coins: 9,  route: 0.45 },
+            { cols: 6, rows: 9, holes: 5, gates: 0, conveyors: 0, ice: 2, fans: 2, icicles: 0, coins: 9,  route: 0.45 },
+            { cols: 6, rows: 9, holes: 6, gates: 1, conveyors: 0, ice: 2, fans: 2, icicles: 0, coins: 10, route: 0.5 },
+            { cols: 6, rows: 9, holes: 6, gates: 0, conveyors: 0, ice: 3, fans: 2, icicles: 0, coins: 10, route: 0.5 },
+            { cols: 6, rows: 9, holes: 7, gates: 1, conveyors: 0, ice: 3, fans: 2, icicles: 0, coins: 11, route: 0.55 },
+            { cols: 6, rows: 9, holes: 5, gates: 0, conveyors: 0, ice: 2, fans: 1, icicles: 3, coins: 12, route: 0.5 }
+        ],
+        prize: 'heatShield'
     }
 ];
 
@@ -1008,6 +1113,14 @@ function buildLevel(cfg, n, index, seed) {
     // solvability filter of its own -- it changes how hard the ball is to
     // control, never where it can go.
     const ice = cfg.ice ? placeIce(open, cfg, g, path, rand, cfg.ice) : [];
+    // Wind before holes for the reason belts are: a hole inside a gust zone
+    // would be one the wind can blow you into with no floor to recover on.
+    const fanRects = r => ({ x: r.x, z: r.z, w: r.w, d: r.d });
+    const fans = (cfg.fans ? placeFans(open, cfg, g, path, rand, cfg.fans * 3) : [])
+        .filter(f => ice.every(r => Math.abs(f.x - r.x) >= (f.w + r.w) / 2 || Math.abs(f.z - r.z) >= (f.d + r.d) / 2))
+        .slice(0, cfg.fans || 0);
+    const icicles = cfg.icicles ? placeIcicles(open, cfg, g, path, rand, cfg.icicles) : [];
+    const icicleRects = icicles.map(ic => ({ x: ic.x, z: ic.z, w: ic.r * 2, d: ic.r * 2 }));
 
     // Belts after gates (a bar must not slide across a belt -- the ball would
     // be shoved by both at once) and before holes (a hole must not sit on a
@@ -1026,7 +1139,7 @@ function buildLevel(cfg, n, index, seed) {
 
     const holes = [];
     const openSpecs = base.gates.map(gt => ({ x: gt.x, z: gt.z, w: gt.w, d: gt.d }));
-    for (const h of placeHoles(open, cfg, g, path, rand, cfg.holes * 3, gates, ice.concat(conveyors), cfg)) {
+    for (const h of placeHoles(open, cfg, g, path, rand, cfg.holes * 3, gates, ice.concat(conveyors, fans.map(fanRects), icicleRects), cfg)) {
         if (holes.length >= cfg.holes) break;
         base.holes.push(h);
         // Solvable is not enough -- see orphanArea(). A hole that seals a branch
@@ -1068,6 +1181,8 @@ function buildLevel(cfg, n, index, seed) {
     if (ice.length) lv.ice = ice;
     if (gates.length) lv.gates = gates;
     if (conveyors.length) lv.conveyors = conveyors;
+    if (fans.length) lv.fans = fans;
+    if (icicles.length) lv.icicles = icicles;
     lv.coins = coins;
     if (pickups.length) lv.pickups = pickups;
     return lv;
@@ -1133,6 +1248,8 @@ function buildAll() {
                     && (built.gates || []).length === cfg.gates
                     && (built.ice || []).length === cfg.ice
                     && (built.conveyors || []).length === cfg.conveyors
+                    && (built.fans || []).length === (cfg.fans || 0)
+                    && (built.icicles || []).length === (cfg.icicles || 0)
                     && built.coins.length === cfg.coins) { lv = built; break; }
             }
             if (!lv) lv = fallback;
@@ -1159,7 +1276,8 @@ function buildAll() {
 module.exports.buildAll = buildAll;
 module.exports.WORLDS = WORLDS;
 
-if (require.main === module) {
+if (require.main === module) (async () => {
+    H = await import('../mazeHazards.js');
     const levels = buildAll();
     const src = fs.readFileSync(OUT_PATH, 'utf8');
     const head = src.slice(0, src.indexOf('  "levels": ['));
@@ -1167,7 +1285,7 @@ if (require.main === module) {
     fs.writeFileSync(OUT_PATH, head + '  "levels": [\n' + body + '\n  ]\n}\n');
     const cells = levels.reduce((n, l) => n + l.walls.length, 0);
     console.log(`Wrote ${levels.length} levels (${cells} wall segments). Now run: node test_maze_levels.js`);
-}
+})().catch(e => { console.error(e); process.exit(1); });
 
 // Formatting matches the file's own rule: one wall/hole/gate per line. A
 // JSON.stringify round-trip turns one level into 150 lines and makes the diff
@@ -1203,6 +1321,8 @@ function renderLevel(lv) {
         ['ice', lv.ice, ['x', 'z', 'w', 'd']],
         ['gates', lv.gates, ['x', 'z', 'w', 'd', 'axis', 'travel', 'periodMs', 'phase']],
         ['conveyors', lv.conveyors, ['x', 'z', 'w', 'd', 'dir', 'speed']],
+        ['fans', lv.fans, ['x', 'z', 'w', 'd', 'dir', 'periodMs', 'phase']],
+        ['icicles', lv.icicles, ['x', 'z', 'r', 'periodMs', 'phase']],
         ['coins', lv.coins, ['x', 'z']],
         ['pickups', lv.pickups, ['x', 'z', 'kind']]
     ].filter(([, arr]) => arr);

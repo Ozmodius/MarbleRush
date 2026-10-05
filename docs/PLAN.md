@@ -70,7 +70,7 @@ the next world. Worlds 1-5 ship at launch.
 | # | World | Trap on L1 | Trap on L4 | Trap on L10 | Prize |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Workshop (wood) growing into a forest, level by level | holes | moving gates | conveyor belts | Rubber Coat: grips on ice |
-| 2 | Glacier | ice | wind fans | falling icicles | Heat Shield: survives one lava flare |
+| 2 | Glacier (snowy rock at the treeline turning to blue ice) | ice | wind fans | falling icicles | Heat Shield: survives one lava flare |
 | 3 | Magma Works (`lava` theme) | flaring lava seams | molten gates | geysers | Obsidian Core: bumpers push half as hard |
 | 4 | Toy Box (plastic) | bumpers | spring pads | spinning arms | Plastic Ball: ignores magnets |
 | 5 | Foundry (metal) | magnets | crushers | electric rails | Chrome Polish: slides through mud |

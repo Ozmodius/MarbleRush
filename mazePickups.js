@@ -16,7 +16,7 @@
 // bought before the level (a CHARGE the player fires with a tap; a bought
 // shield is simply armed from the start).
 
-import { gateSweptSpec, distanceToRect, conveyorAt } from './mazeHazards.js';
+import { gateSweptSpec, distanceToRect, conveyorAt, windAt } from './mazeHazards.js';
 
 export const COIN_RADIUS = 0.15;
 export const PICKUP_RADIUS = 0.22;
@@ -118,6 +118,10 @@ export function isSafeSpot(level, x, z, r) {
     if (!(level.holes || []).every(h => Math.hypot(x - h.x, z - h.z) >= h.r + r * SAFE_CLEARANCE_R)) return false;
     if ((level.gates || []).some(g => distanceToRect(gateSweptSpec(g), x, z) < r * 1.1)) return false;
     if (conveyorAt(level.conveyors, x, z)) return false;
+    // Nor in a gust, nor under an icicle: back on that spot, the next gust or
+    // fall would undo the save before the player could act.
+    if (windAt(level.fans, x, z)) return false;
+    if ((level.icicles || []).some(ic => Math.hypot(x - ic.x, z - ic.z) < ic.r + r)) return false;
     return true;
 }
 

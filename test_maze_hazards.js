@@ -152,10 +152,68 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
     }
     check(z <= -2 && t < 2.5, `full tilt against a belt must cross it upstream (4 units) in under 2.5s, took ${t.toFixed(2)}s`);
 
+    // --- wind fans ----------------------------------------------------------
+    check(H.WIND_MAX_ACCEL <= 0.5 * tiltAccel,
+        `wind (${H.WIND_MAX_ACCEL}) must be at most half of full tilt (${tiltAccel.toFixed(2)}): the conveyor's soundness argument`);
+    const fan = { x: 0, z: 0, w: 1, d: 3, dir: '-z', periodMs: 3000, phase: 0.2 };
+    let calm = 0, peak = 0, prev = H.windStrength(fan, 0), jump = 0;
+    for (let t = 0; t <= 6000; t += 10) {
+        const s = H.windStrength(fan, t);
+        check(s >= 0 && s <= 1 + 1e-9, `gust strength out of range at ${t}: ${s}`);
+        if (s === 0) calm++;
+        peak = Math.max(peak, s);
+        jump = Math.max(jump, Math.abs(s - prev));
+        prev = s;
+    }
+    check(calm / 601 >= H.WIND_CALM - 0.02, `a fan must be dead calm for ${H.WIND_CALM * 100}% of each period -- the lull a player waits for`);
+    check(peak > 0.99, 'a gust reaches full strength');
+    check(jump < 0.05, `a gust rises and falls smoothly (largest step ${jump.toFixed(3)} per 10ms)`);
+    check(H.windAt([fan], 0.4, 1.4) === fan && H.windAt([fan], 0.6, 0) === null, 'the wind zone is its rect');
+    for (let t = 0; t < 3000; t += 37) {
+        const a = H.windAccel(fan, t);
+        check(Math.abs(a.ax) < 1e-12 && a.az <= 0 && -a.az <= H.WIND_MAX_ACCEL + 1e-9, 'wind blows only along its dir, never past the cap');
+    }
+    // Full tilt into the strongest gust still crosses a 3-unit zone.
+    let wz = -1.5, wv = 0, wt = 0;
+    while (wz < 1.5 && wt < 10) {
+        wv += (tiltAccel - H.WIND_MAX_ACCEL) / 60; wz += wv / 60; wt += 1 / 60;
+    }
+    check(wz >= 1.5 && wt < 2.5, `full tilt against the strongest gust crosses a 3-unit zone in under 2.5s (took ${wt.toFixed(2)}s)`);
+
+    // --- falling icicles ----------------------------------------------------
+    const ic = { x: 0, z: 0, r: 0.35, periodMs: 3000, phase: 0.1 };
+    const seen = new Set();
+    let impactMs = 0, shakeMs = 0;
+    for (let t = 0; t < 3000; t++) {
+        const st = H.icicleState(ic, t);
+        seen.add(st.state);
+        check(st.k >= -1e-9 && st.k <= 1 + 1e-9, `icicle progress out of range at ${t}`);
+        if (st.state === 'impact') impactMs++;
+        if (st.state === 'shake') shakeMs++;
+    }
+    check(['grow', 'hang', 'shake', 'impact'].every(x => seen.has(x)), 'an icicle goes through all four states every period');
+    check(Math.abs(impactMs - H.ICICLE_IMPACT_MS) <= 1, `the impact window is ${H.ICICLE_IMPACT_MS}ms, got ${impactMs}`);
+    check(Math.abs(shakeMs - H.ICICLE_WARN_MS) <= 1, `the shake telegraph lasts ${H.ICICLE_WARN_MS}ms, got ${shakeMs}`);
+    check(H.ICICLE_WARN_MS >= 700 && H.ICICLE_IMPACT_MS <= 400, 'warning long enough to read, impact short enough to dodge');
+    // Every impact is preceded by a full shake.
+    for (let t = 1; t < 9000; t++) {
+        if (H.icicleState(ic, t).state === 'impact' && H.icicleState(ic, t - 1).state !== 'impact') {
+            check(H.icicleState(ic, t - H.ICICLE_WARN_MS).state === 'shake' || H.icicleState(ic, t - H.ICICLE_WARN_MS).state === 'hang',
+                `the impact at ${t}ms was not telegraphed for ${H.ICICLE_WARN_MS}ms`);
+        }
+    }
+    const fi = H.firstImpactMs(ic);
+    check(H.icicleState(ic, fi).state === 'impact' && H.icicleState(ic, fi - 1).state !== 'impact', `firstImpactMs (${fi}) is the first impact`);
+    for (let t = 0; t < 3000; t += 7) {
+        const hit = H.icicleHits([ic], t, 0.1, 0.1);
+        check(!!hit === (H.icicleState(ic, t).state === 'impact'), 'an icicle hits only during its impact window');
+    }
+    check(!H.icicleHits([ic], fi + 10, 0.5, 0), 'an icicle hits only within its radius');
+
     if (failures.length) {
         console.error('FAIL: maze hazard math\n - ' + failures.join('\n - '));
         process.exitCode = 1;
     } else {
-        console.log('PASS: maze hazard math -- gates reopen exactly every period, never leave their authored travel, carry a velocity that is the true derivative of their motion (so cannon pushes the ball rather than ejecting it), ice is a control change with no effect on reachability, and conveyors are always weaker than the player');
+        console.log('PASS: maze hazard math -- gates reopen exactly every period, never leave their authored travel, carry a velocity that is the true derivative of their motion (so cannon pushes the ball rather than ejecting it), ice is a control change with no effect on reachability, conveyors and wind are always weaker than the player, and icicles always telegraph and only strike briefly');
     }
 })().catch(e => { console.error(e); process.exitCode = 1; });

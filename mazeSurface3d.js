@@ -18,8 +18,10 @@ import * as THREE from 'three';
 // Only shading changes here. Shape -- rounded crests, jagged tops -- is real
 // geometry from mazeWalls3d.js, so shadows and silhouettes agree with it.
 
-export const FLOOR_PATTERNS = ['plain', 'rock', 'lavaCracks', 'woodToDirt'];
-export const WALL_PATTERNS = ['plain', 'rock', 'emberRock', 'molten', 'planks', 'bark', 'leaves'];
+export const FLOOR_PATTERNS = ['plain', 'rock', 'lavaCracks', 'woodToDirt', 'snow'];
+export const WALL_PATTERNS = ['plain', 'rock', 'emberRock', 'molten', 'planks', 'bark', 'leaves', 'iceRock'];
+// Not chosen by themes: the ice HAZARD patches always wear this (mazeTheme3d.js).
+export const ICE_PATTERN = 'iceSheet';
 
 // A 1x1 stand-in for patterns given no path mask (see woodToDirt).
 const NO_MASK = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
@@ -256,6 +258,62 @@ const PATTERN_GLSL = {
         float mrH = mix(mrWoodH, mrGroundH, mrDirt);
         float mrHot = 0.0;
     `,
+    // WORLD 2's FLOOR: packed snow carved into ripples by the wind (sastrugi),
+    // blue in the hollows, with a few glints. Uses the theme's two floor
+    // colours (white, and the blue of snow in shadow).
+    snow: /* glsl */`
+        vec3 mrP = vMrPos * mrScale;
+        float mrN = mrFbm(mrP * 1.4);
+        float mrRip = sin(dot(mrP.xz, vec2(0.8, 0.6)) * 7.0 + mrFbm(mrP * 0.9) * 7.0) * 0.5 + 0.5;
+        float mrDrift = mrFbm(mrP * 0.5);
+        float mrTone = clamp((1.0 - mrRip) * 0.45 + (1.0 - mrDrift) * 0.5 - 0.15, 0.0, 1.0);
+        float mrH = mrRip * 0.5 + mrN * 0.5 + mrFbm(mrP * 9.0) * 0.25;
+        // Glints: rare cells, only up close (sub-pixel ones would just flicker).
+        vec2 mrSc = mrP.xz * 22.0;
+        vec2 mrSo = mrHash2(floor(mrSc));
+        float mrSpark = step(0.93, mrSo.x) * (1.0 - smoothstep(0.05, 0.12, length(fract(mrSc) - mrSo)))
+                      * (1.0 - smoothstep(0.02, 0.05, length(fwidth(mrP.xz))));
+        diffuseColor.rgb += vec3(0.5, 0.55, 0.6) * mrSpark;
+        float mrHot = 0.0;
+    `,
+    // WORLD 2's WALLS: craggy rock under snow turning, as mrBlend rises, into
+    // glacier ice -- blue (the theme colours shift with the blend), glossy
+    // (so does the roughness), crossed by pale fracture lines. Whatever faces
+    // up is capped with snow, more of it at the treeline than deep in the ice.
+    iceRock: /* glsl */`
+        vec3 mrP = vMrPos * mrScale;
+        float mrN = mrFbm(mrP * 2.2);
+        vec2 mrG = mrGrit(mrP);
+        float mrRockness = 1.0 - mrBlend;
+        float mrTone = clamp(smoothstep(0.25, 0.8, mrN) + mrG.y * mrRockness, 0.0, 1.0);
+        float mrH = mrN + 0.35 * mrFbm(mrP * 7.0) + mrG.x * mrRockness;
+        vec3 mrBase = mix(diffuseColor.rgb, mrColor2, mrTone);
+        float mrFr = 1.0 - smoothstep(0.0, 0.05, mrCrack(vec2(mrP.x + mrP.z, mrP.y * 1.7) * 3.2 + mrN));
+        mrBase += vec3(0.55, 0.75, 0.95) * mrFr * 0.45 * mrBlend;
+        vec3 mrUpV = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+        float mrUp = dot(normalize(vNormal), mrUpV);
+        float mrSnowCap = smoothstep(0.35, 0.7, mrUp + (mrFbm(mrP * 5.0) - 0.5) * 0.4) * mix(1.0, 0.55, mrBlend);
+        diffuseColor.rgb = mix(mrBase, vec3(0.93, 0.96, 1.0), mrSnowCap);
+        mrH = mix(mrH, mrFbm(mrP * 6.0) * 0.4, mrSnowCap);
+        mrTone = 0.0;
+        float mrHot = 0.0;
+    `,
+    // THE ICE HAZARD: a glassy sheet in the theme's iceColor, deeper blue in
+    // the depths, scored with pale skid lines and a few white cracks, so on
+    // any floor it reads at a glance as THE SLIPPERY BIT.
+    iceSheet: /* glsl */`
+        vec3 mrP = vMrPos * mrScale;
+        float mrN = mrFbm(mrP * 1.8);
+        float mrDeep = smoothstep(0.35, 0.75, mrFbm(mrP * 0.9 + 2.0));
+        float mrSkid = smoothstep(0.92, 1.0, sin(dot(mrP.xz, vec2(0.97, 0.26)) * 34.0 + mrFbm(mrP * 3.0) * 9.0)) * smoothstep(0.4, 0.7, mrFbm(mrP * 1.3 + 5.0));
+        float mrCrk = 1.0 - smoothstep(0.0, 0.035, mrCrack(mrP.xz * 2.4 + mrN));
+        vec3 mrIce = diffuseColor.rgb * mix(1.15, 0.6, mrDeep);
+        mrIce = mix(mrIce, vec3(0.92, 0.97, 1.0), mrSkid * 0.5 + mrCrk * 0.65);
+        diffuseColor.rgb = mrIce;
+        float mrTone = 0.0;
+        float mrH = mrN * 0.3 - mrCrk * 0.4;
+        float mrHot = 0.0;
+    `,
     // Rock still molten: glowing everywhere except where a thin dark crust has
     // floated on top. The inverse of lavaCracks, and in 3D rather than on the
     // ground plane, so it wraps an upright surface without streaking. Made for
@@ -302,7 +360,14 @@ export function applySurface(mat, opts) {
         Object.assign(shader.uniforms, uniforms);
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>', '#include <common>\nvarying vec3 vMrPos;')
-            .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMrPos = position;');
+            .replace('#include <begin_vertex>', `#include <begin_vertex>
+                // Instanced meshes (ice patches): the instance's own transform
+                // takes the unit quad to where it lies in the level.
+                #ifdef USE_INSTANCING
+                    vMrPos = (instanceMatrix * vec4(position, 1.0)).xyz;
+                #else
+                    vMrPos = position;
+                #endif`);
         shader.fragmentShader = shader.fragmentShader
             .replace('#include <common>', '#include <common>\n' + NOISE_GLSL)
             .replace('#include <color_fragment>', `#include <color_fragment>

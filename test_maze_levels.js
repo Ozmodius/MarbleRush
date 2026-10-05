@@ -309,11 +309,6 @@ function checkExtras(lv, H, P) {
         check(live, `${ctag} is UNREACHABLE -- decoration, not a trap`);
     });
 
-    // COINS AND PICKUPS. Every one must be collectible by a ball standing on
-    // reachable floor, without that ball being over a hole, and must not sit
-    // where a gate sweeps (a coin you can only take by being crushed is a
-    // trap pretending to be a reward). Start and goal stay clear: a coin on
-    // the goal would be collected by winning, which is no decision at all.
     const reachableAt = (x, z, reach) => {
         const ci = Math.round((x + a.hw) / GRID), cj = Math.round((z + a.hd) / GRID);
         const span = Math.ceil(reach / GRID);
@@ -324,6 +319,43 @@ function checkExtras(lv, H, P) {
         }
         return false;
     };
+
+    // WIND FANS -- pushing, like belts: capped below full tilt (hazard test),
+    // so what is checked here is placement.
+    (Array.isArray(lv.fans) ? lv.fans : []).forEach((f, n) => {
+        const ftag = `${tag}: fan ${n} at (${f.x},${f.z})`;
+        check(Number.isFinite(f.w) && f.w > 0 && Number.isFinite(f.d) && f.d > 0, `${ftag} needs positive w and d`);
+        check(!!H.conveyorDir(f), `${ftag} needs dir '+x', '-x', '+z' or '-z', got ${JSON.stringify(f.dir)}`);
+        check(Number.isFinite(f.periodMs) && f.periodMs >= 1500, `${ftag} needs a periodMs of at least 1500 -- a gust the player can read`);
+        check(Math.abs(f.x) + f.w / 2 <= a.hw + 1e-6 && Math.abs(f.z) + f.d / 2 <= a.hd + 1e-6, `${ftag} extends outside the level bounds`);
+        check(H.distanceToRect(f, lv.start.x, lv.start.z) > a.R, `${ftag} covers the START`);
+        check(H.distanceToRect(f, lv.goal.x, lv.goal.z) > lv.goal.r, `${ftag} touches the GOAL`);
+        for (const h of lv.holes) check(H.distanceToRect(f, h.x, h.z) > a.R, `${ftag} has the hole at (${h.x},${h.z}) inside its gust -- wind may blow you toward a hole, never over one`);
+        (lv.conveyors || []).forEach((c, k) => check(!overlap(f, c), `${ftag} overlaps conveyor ${k}`));
+        const live = [...rf.seen].some(k => { const [i, j] = k.split('_').map(Number); return H.windAt([f], rf.px(i), rf.pz(j)) === f; });
+        check(live, `${ftag} is UNREACHABLE -- decoration, not a trap`);
+    });
+
+    // ICICLES -- timed, like gates: dangerous only in a short window, so the
+    // verifier's clear-floor solve stands. Checked: they warn before the first
+    // fall, they are not stacked on other hazards, and they are reachable.
+    (Array.isArray(lv.icicles) ? lv.icicles : []).forEach((ic, n) => {
+        const itag = `${tag}: icicle ${n} at (${ic.x},${ic.z})`;
+        check(Number.isFinite(ic.r) && ic.r > 0 && ic.r <= 0.6, `${itag} needs a radius in (0, 0.6]`);
+        check(Number.isFinite(ic.periodMs) && ic.periodMs >= H.ICICLE_MIN_PERIOD, `${itag} needs a periodMs of at least ${H.ICICLE_MIN_PERIOD}`);
+        check(H.firstImpactMs(ic) >= 1500, `${itag} first falls ${H.firstImpactMs(ic)}ms into a run -- before the player has read the board`);
+        check(Math.hypot(ic.x - lv.start.x, ic.z - lv.start.z) > ic.r + a.R * 2, `${itag} hangs over the START`);
+        check(Math.hypot(ic.x - lv.goal.x, ic.z - lv.goal.z) > ic.r + lv.goal.r, `${itag} hangs over the GOAL`);
+        for (const h of lv.holes) check(Math.hypot(ic.x - h.x, ic.z - h.z) > ic.r + h.r, `${itag} hangs over the hole at (${h.x},${h.z})`);
+        sweeps.forEach(sw => check(H.distanceToRect(sw, ic.x, ic.z) > ic.r, `${itag} hangs over a gate's sweep`));
+        check(reachableAt(ic.x, ic.z, ic.r), `${itag} is UNREACHABLE -- nothing can ever be under it`);
+    });
+
+    // COINS AND PICKUPS. Every one must be collectible by a ball standing on
+    // reachable floor, without that ball being over a hole, and must not sit
+    // where a gate sweeps (a coin you can only take by being crushed is a
+    // trap pretending to be a reward). Start and goal stay clear: a coin on
+    // the goal would be collected by winning, which is no decision at all.
     const items = [
         ...(lv.coins || []).map((c, n) => ({ ...c, what: `coin ${n}`, reach: a.R + P.COIN_RADIUS })),
         ...(lv.pickups || []).map((p, n) => ({ ...p, what: `pickup ${n} (${p.kind})`, reach: a.R + P.PICKUP_RADIUS }))
@@ -603,12 +635,16 @@ async function run() {
     // a new trap kind only on its levels 1, 4 and 10 (docs/PLAN.md). A trap
     // first met on level 6 is a trap nobody taught.
     const INTRO_SLOTS = [1, 4, 10];
+    // Kinds the player met in an EARLIER world may come back anywhere as
+    // review; the rule is about what is new to the player.
     const TRAP_KINDS = { holes: l => l.holes.length, gates: l => (l.gates || []).length,
-        ice: l => (l.ice || []).length, conveyors: l => (l.conveyors || []).length };
-    for (const w of Object.keys(worldRanges)) {
+        ice: l => (l.ice || []).length, conveyors: l => (l.conveyors || []).length,
+        fans: l => (l.fans || []).length, icicles: l => (l.icicles || []).length };
+    const metBefore = new Set();
+    for (const w of Object.keys(worldRanges).sort((a, b) => a - b)) {
         const lvls = DATA.levels.filter(l => String(l.world) === w);
         check(lvls.length <= 10, `world ${w} has ${lvls.length} levels; a world is at most 10`);
-        const known = new Set();
+        const known = new Set(metBefore);
         lvls.forEach((lv, n) => {
             const slot = n + 1;
             check(lv.id === `w${w}_${String(slot).padStart(2, '0')}`, `${lv.id}: id should be w${w}_${String(slot).padStart(2, '0')} (world ${w}, level ${slot})`);
@@ -620,6 +656,7 @@ async function run() {
                 }
             }
         });
+        known.forEach(k => metBefore.add(k));
         const last = lvls[lvls.length - 1];
         if (lvls.length === 10) check(typeof last.prize === 'string' && last.prize, `world ${w}: its 10th level must carry the world's prize`);
         lvls.slice(0, -1).forEach(l => check(!l.prize, `${l.id}: only a world's last level carries a prize`));

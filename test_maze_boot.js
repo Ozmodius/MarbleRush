@@ -74,7 +74,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await page.evaluate(() => window.__mazeDebug.backdrop()) === 'system', 'the worlds tab shows the solar system');
         check((await page.textContent('#worldSheetName')).trim() === 'Workshop', 'the sheet opens on the world of the next level');
         await page.locator('#worldLabel_2').click({ force: true });   // labels drift with their planets
-        check((await page.textContent('#worldSheetName')).trim() === 'Glacier' && await page.locator('.level-node').count() === 0
+        check((await page.textContent('#worldSheetName')).trim() === 'Glacier' && await page.locator('.level-node').count() === levels.filter(l => l.world === 2).length
+            && /Clear World 1/.test(await page.textContent('#worldSheetNote')), 'a built but locked world shows its levels, locked, and says what opens it');
+        await page.locator('#worldLabel_3').click({ force: true });
+        check((await page.textContent('#worldSheetName')).trim() === 'Magma Works' && await page.locator('.level-node').count() === 0
             && /Coming/.test(await page.textContent('#worldSheetNote')), 'tapping a world not built yet says it is coming, with no levels');
         // A tap on the planet itself (just above its label) picks it too.
         const anchor = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
@@ -82,7 +85,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check((await page.textContent('#worldSheetName')).trim() === 'Toy Box', 'tapping a planet on the canvas selects its world');
         await page.locator('#worldLabel_1').click({ force: true });
         const rows = await page.$$eval('.level-node', els => els.map(e => ({ next: e.classList.contains('is-next'), locked: e.disabled })));
-        check(rows.length === levels.length, `level select should list all ${levels.length} levels, got ${rows.length}`);
+        const world1 = levels.filter(l => l.world === 1);
+        check(rows.length === world1.length, `the worlds sheet should list world 1's ${world1.length} levels, got ${rows.length}`);
         check(rows[0] && rows[0].next && !rows[0].locked, 'on a fresh save, level 1 is the highlighted next level');
         check(rows.slice(1).every(r => r.locked), 'on a fresh save, every other level is locked');
 
@@ -172,6 +176,48 @@ const check = (c, m) => { if (!c) failures.push(m); };
             }
         }
 
+        // --- world 2: wind and icicles -------------------------------------
+        const H = await import('./mazeHazards.js');
+        const lvWind = levels.find(l => (l.fans || []).length);
+        if (lvWind) {
+            check(await dbg('startLevelForTest', lvWind.id), `can build ${lvWind.id}`);
+            await page.tap('#mazeStartBtn');
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const fan = lvWind.fans[0];
+            let peak = 0, peakT = 0, calmT = null;
+            for (let t = 0; t < fan.periodMs; t += 10) {
+                const st = H.windStrength(fan, t);
+                if (st > peak) { peak = st; peakT = t; }
+                if (st === 0 && calmT === null) calmT = t;
+            }
+            const along = (p, q) => fan.dir[1] === 'x' ? (q.x - p.x) * (fan.dir[0] === '+' ? 1 : -1) : (q.z - p.z) * (fan.dir[0] === '+' ? 1 : -1);
+            await dbg('setRunClock', peakT - 150);
+            let p0 = await dbg('placeBall', fan.x, fan.z);
+            let p1 = await dbg('advanceFrames', 12);
+            check(along(p0, p1) > 0.02, `a gust pushes the ball along ${fan.dir} (moved ${along(p0, p1).toFixed(3)})`);
+            await dbg('setRunClock', calmT + 20);
+            p0 = await dbg('placeBall', fan.x, fan.z);
+            p1 = await dbg('advanceFrames', 12);
+            check(Math.abs(along(p0, p1)) < 0.01, `in the calm the fan does not push (moved ${along(p0, p1).toFixed(3)})`);
+        }
+        const lvIce = levels.find(l => (l.icicles || []).length);
+        if (lvIce) {
+            check(await dbg('startLevelForTest', lvIce.id), `can build ${lvIce.id}`);
+            await page.tap('#mazeStartBtn');
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const ic = lvIce.icicles[0];
+            const t0 = H.firstImpactMs(ic);
+            await dbg('setRunClock', t0 - 1200);
+            await dbg('placeBall', ic.x, ic.z);
+            await dbg('advanceFrames', 3);
+            check(await dbg('phase') === 'running', 'standing under an icicle between falls is safe');
+            await dbg('setRunClock', t0 - 20);
+            await dbg('placeBall', ic.x, ic.z);
+            await dbg('advanceFrames', 4);
+            check(await dbg('phase') === 'falling' && /ICICLE/.test(await page.textContent('#mazeStatus')),
+                `an icicle landing on the ball knocks it out (phase ${await dbg('phase')}, status "${await page.textContent('#mazeStatus')}")`);
+        }
+
         // --- progress survives a reload ----------------------------------
         await page.reload();
         await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
@@ -188,7 +234,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await shopCtx.addInitScript(() => {
             if (sessionStorage.getItem('seeded')) return;
             sessionStorage.setItem('seeded', '1');
-            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 2000, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: [], charges: { slowmo: 1 } }));
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 2000, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: ['rubberCoat'], prizeUses: { rubberCoat: 3 }, charges: { slowmo: 1 } }));
         });
         const shop = await shopCtx.newPage();
         shop.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
@@ -229,6 +275,19 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await sdbg('advanceFrames', 2);
         check(await sdbg('phase') === 'running', 'the bought shield saves the ball from the hole');
         check(!(await sdbg('progress')).charges.shield, 'the shield is spent from the inventory once it saves you');
+        // World 1's prize on world 2's ice: grips like floor, one use per level.
+        const iceLv = levels.find(l => (l.ice || []).length);
+        if (iceLv) {
+            check(await sdbg('startLevelForTest', iceLv.id), `can build ${iceLv.id}`);
+            await shop.tap('#mazeStartBtn');
+            await shop.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const r = iceLv.ice[0];
+            await sdbg('placeBall', r.x, r.z);
+            const hz = await sdbg('hazards');
+            check(hz.onIce && !hz.floorIsIce, 'with the Rubber Coat, ice grips like floor');
+            await sdbg('placeBall', r.x, r.z);
+            check((await sdbg('progress')).prizeUses.rubberCoat === 2, 'the Rubber Coat spends one use for the level, not one per touch');
+        }
         await shop.reload();
         await shop.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
         check((await sdbg('progress')).marble === 'rubber', 'the marble choice survives a reload');

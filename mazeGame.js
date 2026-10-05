@@ -7,7 +7,7 @@ import { buildFloorAndWalls } from './levelDressing3d.js';
 import { resolveMazeTheme, resolveLevelTheme, makeWallGeometry, makeBallMaterial,
          makeHoleMaterial, makeGoalMaterial } from './mazeTheme3d.js';
 import { tickSurfaces } from './mazeSurface3d.js';
-import { conveyorAt, conveyorAccel } from './mazeHazards.js';
+import { conveyorAt, conveyorAccel, windAt, windAccel, icicleHits, icicleState, windStrength } from './mazeHazards.js';
 import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from './mazePickups.js';
 import { buildLevelProps } from './mazeProps3d.js';
 import { sfx as uiSfx } from './sfx.js';
@@ -725,6 +725,7 @@ function advance(elapsedMs) {
         runClockMs += elapsedMs * timeScale(pickupState);
         updateGates();
         updateFloorSurface();
+        if (props) props.tickRun(runClockMs);
     } else if (phase === 'won') {
         winStarMs += elapsedMs;
         updateWinStar();
@@ -736,7 +737,7 @@ function advance(elapsedMs) {
     const simMs = phase === 'running' ? elapsedMs * timeScale(pickupState) : elapsedMs;
     const steps = Math.min(Math.max(1, Math.round((simMs / 1000) / FIXED_STEP)), MAX_CATCHUP_STEPS);
     for (let i = 0; i < steps; i++) {
-        if (phase === 'running') applyConveyor(FIXED_STEP);
+        if (phase === 'running') { applyConveyor(FIXED_STEP); applyWind(FIXED_STEP); }
         world.step(FIXED_STEP);
     }
 
@@ -810,6 +811,19 @@ function applyConveyor(dt) {
     v.z += a.az * dt;
 }
 
+// A gust over the ball's centre pushes it along the fan's direction, once per
+// substep, on the run clock -- the same gust every attempt. Capped below full
+// tilt (mazeHazards.js), like a belt, so the verifier can ignore it.
+function applyWind(dt) {
+    if (!level || !level.fans || !ballBody) return;
+    const p = ballBody.position;
+    const fan = windAt(level.fans, p.x, p.z);
+    if (!fan) return;
+    const a = windAccel(fan, runClockMs);
+    ballBody.velocity.x += a.ax * dt;
+    ballBody.velocity.z += a.az * dt;
+}
+
 // Spin the star, and pop it in on arrival. The pop overshoots past full size
 // before settling, because a scale that eases straight to 1.0 reads as the
 // object fading in rather than as it landing.
@@ -844,26 +858,10 @@ function checkOutcomes() {
 
     for (const h of level.holes) {
         const dx = p.x - h.x, dz = p.z - h.z;
-        if (dx * dx + dz * dz <= h.r * h.r) {
-            // A shield spends itself instead of the run: the ball is put back,
-            // stopped, on the last safe spot it rolled over (mazePickups.js).
-            const back = absorbFall(pickupState);
-            if (back) {
-                // A bought shield is spent from the purchase, so a restart does
-                // not re-arm it; a shield picked up in the maze comes back
-                // with the maze.
-                if (pickupState.boughtShield && store) { store.useCharge('shield'); pickupState.boughtShield = false; }
-                ballBody.position.set(back.x, FLOOR_Y + level.ballRadius + 0.02, back.z);
-                ballBody.velocity.setZero();
-                ballBody.angularVelocity.setZero();
-                setStatus('SHIELD SAVED YOU');
-                renderPowerups();
-                return;
-            }
-            fall();
-            return;
-        }
+        if (dx * dx + dz * dz <= h.r * h.r) { knockOut('DOWN THE HOLE'); return; }
     }
+    // An icicle striking the spot the ball is on ends the run like a hole does.
+    if (level.icicles && icicleHits(level.icicles, runClockMs, p.x, p.z)) { knockOut('HIT BY AN ICICLE'); return; }
 
     // Coins and pickups, after the hole check so a ball going down a hole
     // does not also bank the coin on its lip.
@@ -885,7 +883,26 @@ function checkOutcomes() {
     if (p.y < -25) restart();
 }
 
-function fall() {
+// Something just ended the run -- a hole, an icicle. A shield spends itself
+// instead of the run: the ball is put back, stopped, on the last safe spot it
+// rolled over (mazePickups.js). Otherwise it falls.
+function knockOut(message) {
+    const back = absorbFall(pickupState);
+    if (back) {
+        // A bought shield is spent from the purchase, so a restart does not
+        // re-arm it; a shield picked up in the maze comes back with the maze.
+        if (pickupState.boughtShield && store) { store.useCharge('shield'); pickupState.boughtShield = false; }
+        ballBody.position.set(back.x, FLOOR_Y + level.ballRadius + 0.02, back.z);
+        ballBody.velocity.setZero();
+        ballBody.angularVelocity.setZero();
+        setStatus('SHIELD SAVED YOU');
+        renderPowerups();
+        return;
+    }
+    fall(message);
+}
+
+function fall(message) {
     phase = 'falling';
     fallStartedAt = performance.now();
     // Drop through the floor rather than teleporting: the player needs to see
@@ -894,7 +911,7 @@ function fall() {
     ballBody.collisionResponse = false;
     renderPowerups();   // the run is over: hide the tap-to-fire buttons
     try { uiSfx.close(); } catch (e) { /* ignore */ }
-    setStatus('DOWN THE HOLE');
+    setStatus(message || 'DOWN THE HOLE');
 }
 
 function win() {
@@ -942,6 +959,7 @@ function restart() {
     // bought charges still unspent.
     const owned = store ? store.get().charges : {};
     pickupState = createRunPickups(level, owned, ballSpec);
+    if (props) props.tickRun(0);
     pickupState.boughtShield = pickupState.shield;
     if (props) props.reset();
     renderCoins();
@@ -1360,6 +1378,15 @@ window.__mazeDebug = {
     // level's minMs would be a test clocked on a throttled sandbox's rAF.
     // Grants nothing the store does not still check.
     ageRun: (ms) => { if (phase === 'running') runStartedAt -= ms; return phase === 'running'; },
+    // World 2's timed hazards, for a test: jump the run clock, and read the
+    // wind and icicles where the ball is.
+    setRunClock: (ms) => { runClockMs = ms; updateGates(); if (props) props.tickRun(ms); return runClockMs; },
+    world2: () => (level ? {
+        fans: (level.fans || []).length,
+        icicles: (level.icicles || []).length,
+        windHere: ballBody && level.fans ? (() => { const f = windAt(level.fans, ballBody.position.x, ballBody.position.z); return f ? windStrength(f, runClockMs) : null; })() : null,
+        icicleStates: (level.icicles || []).map(ic => icicleState(ic, runClockMs).state)
+    } : null),
     // Show the home planet in another theme (screenshots of worlds not built
     // yet). Display only.
     planetTheme: (id) => { planetThemeOverride = id || null; refreshShowcase(); return phase === 'menu'; },

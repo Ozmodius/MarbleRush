@@ -39,6 +39,41 @@ export const MAZE_THEMES = {
         backdropColor: '#0e1a0d',
         floorPattern: 'woodToDirt', wallPattern: 'planks'
     },
+    // WORLD 2, THE GLACIER: levels say theme 'snowfield', themeTo 'glacier'
+    // and a blend, so snowy rock at the treeline turns to clear blue ice as
+    // the world goes on (mazeTheme3d.js resolveLevelTheme). The floor is snow
+    // throughout, so an ICE patch -- the hazard -- always reads as different
+    // ground: glassy, blue and dark against white.
+    'snowfield': {
+        id: 'snowfield',
+        name: 'Snowfield',
+        rarity: 'rare',
+        floorColor: '#e9eef4', floorColor2: '#c5d3e2', floorRoughness: 0.85, floorMetalness: 0.0,
+        wallColor: '#6f7882', wallColor2: '#3d444d', wallRoughness: 0.85, wallMetalness: 0.0,
+        wallStyle: 'rock', wallJag: 0.1,
+        floorPattern: 'snow', wallPattern: 'iceRock',
+        marbleColor: '#2b3a55', marbleRoughness: 0.2, marbleMetalness: 0.2,
+        holeColor: '#0b1622',
+        goalColor: '#ff6a3d',
+        iceColor: '#5fb6e6',
+        gateColor: '#b8572f',
+        backdropColor: '#1c2733'
+    },
+    'glacier': {
+        id: 'glacier',
+        name: 'The Glacier',
+        rarity: 'epic',
+        floorColor: '#eaf2fa', floorColor2: '#bcd2e8', floorRoughness: 0.75, floorMetalness: 0.0,
+        wallColor: '#7fc4ec', wallColor2: '#2f6f9e', wallRoughness: 0.25, wallMetalness: 0.05,
+        wallStyle: 'rock', wallJag: 0.12,
+        floorPattern: 'snow', wallPattern: 'iceRock',
+        marbleColor: '#2b3a55', marbleRoughness: 0.2, marbleMetalness: 0.2,
+        holeColor: '#06101a',
+        goalColor: '#ff6a3d',
+        iceColor: '#4aa6dc',
+        gateColor: '#b8572f',
+        backdropColor: '#0d1824'
+    },
     'slate': {
         id: 'slate',
         name: 'Cold Storage',

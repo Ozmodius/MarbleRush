@@ -201,3 +201,86 @@ export function conveyorAccel(belt, vx, vz) {
     const a = Math.max(-CONVEYOR_MAX_ACCEL, Math.min(CONVEYOR_MAX_ACCEL, (speed - along) * CONVEYOR_GRIP));
     return { ax: a * d[0], az: a * d[1] };
 }
+
+// ---------------------------------------------------------------------------
+// WIND FANS -- world 2. A PUSHING trap, held to the conveyor's soundness
+// argument: never stronger than half of full tilt (test_maze_hazards.js), so
+// the player can always drive against it and reachability is unchanged.
+// ---------------------------------------------------------------------------
+//
+// A fan is a zone { x, z, w, d, dir, periodMs, phase } blowing along `dir`
+// ('+x' | '-x' | '+z' | '-z'). It blows in GUSTS on the run clock: a calm,
+// a swell to full strength, and back -- the same every attempt, like a gate.
+// While the ball's centre is in the zone it is pushed along dir with an
+// acceleration of WIND_MAX_ACCEL x the gust strength, whatever its speed:
+// wind does not care how fast you are already going, which is what makes it
+// feel different from a belt.
+export const WIND_MAX_ACCEL = 4.0;          // world units / s^2
+export const WIND_CALM = 0.3;               // fraction of each period that is dead calm
+
+// Gust strength 0..1 at run time tMs. Smooth rise and fall, then calm.
+export function windStrength(fan, tMs) {
+    const period = Math.max(1, Number(fan.periodMs) || 3000);
+    const u = ((tMs / period + (Number(fan.phase) || 0)) % 1 + 1) % 1;
+    const live = 1 - WIND_CALM;
+    if (u >= live) return 0;
+    return Math.sin(Math.PI * u / live) ** 2;
+}
+
+export function windAt(fans, x, z) {
+    if (!fans || !fans.length) return null;
+    for (const f of fans) if (Math.abs(x - f.x) <= f.w / 2 && Math.abs(z - f.z) <= f.d / 2) return f;
+    return null;
+}
+
+export function windAccel(fan, tMs) {
+    const d = conveyorDir(fan);
+    if (!d) return { ax: 0, az: 0 };
+    const a = WIND_MAX_ACCEL * windStrength(fan, tMs);
+    return { ax: a * d[0], az: a * d[1] };
+}
+
+// ---------------------------------------------------------------------------
+// FALLING ICICLES -- world 2. A TIMED trap, held to the gate's soundness
+// argument: dangerous only in a short window each period, so waiting always
+// gets you through and the verifier can solve with the floor clear.
+// ---------------------------------------------------------------------------
+//
+// An icicle { x, z, r, periodMs, phase } hangs over a spot of floor. Each
+// period it regrows, hangs, SHAKES for ICICLE_WARN_MS (its shadow growing on
+// the floor -- the telegraph), then falls; for ICICLE_IMPACT_MS a ball whose
+// centre is within r of the spot is knocked out, like a fall. Then it is
+// shards, and it regrows.
+export const ICICLE_WARN_MS = 900;
+export const ICICLE_IMPACT_MS = 280;
+export const ICICLE_MIN_PERIOD = 2400;
+
+// Where in its cycle an icicle is: { state, k } with state one of
+// 'grow' | 'hang' | 'shake' | 'impact' and k its 0..1 progress through it.
+export function icicleState(ic, tMs) {
+    const P = Math.max(ICICLE_MIN_PERIOD, Number(ic.periodMs) || ICICLE_MIN_PERIOD);
+    const local = (((tMs / P + (Number(ic.phase) || 0)) % 1 + 1) % 1) * P;
+    const fall = P - ICICLE_IMPACT_MS, warn = fall - ICICLE_WARN_MS, grown = warn * 0.45;
+    if (local >= fall) return { state: 'impact', k: (local - fall) / ICICLE_IMPACT_MS };
+    if (local >= warn) return { state: 'shake', k: (local - warn) / ICICLE_WARN_MS };
+    if (local >= grown) return { state: 'hang', k: (local - grown) / (warn - grown) };
+    return { state: 'grow', k: local / grown };
+}
+
+// Run time of an icicle's first impact.
+export function firstImpactMs(ic) {
+    const P = Math.max(ICICLE_MIN_PERIOD, Number(ic.periodMs) || ICICLE_MIN_PERIOD);
+    const local0 = (((Number(ic.phase) || 0) % 1) + 1) % 1 * P;
+    const fall = P - ICICLE_IMPACT_MS;
+    // Rounded up to the whole millisecond so floating point cannot put the
+    // answer a hair before the window opens.
+    return Math.ceil((local0 <= fall ? fall - local0 : P - local0 + fall) - 1e-6);
+}
+
+// Is the ball (centre x, z) being struck right now?
+export function icicleHits(icicles, tMs, x, z) {
+    for (const ic of icicles || []) {
+        if (icicleState(ic, tMs).state === 'impact' && Math.hypot(x - ic.x, z - ic.z) <= ic.r) return ic;
+    }
+    return null;
+}

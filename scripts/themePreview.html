@@ -83,9 +83,10 @@ const gateMat = makeGateMaterial(theme);
     scene.add(m);
 });
 
+// Ice baked into level space, as the game's instanced quads are, so the ice
+// pattern lands the same way.
 for (const r of (lv.ice || [])) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(r.w, r.d), makeIceMaterial(theme));
-    m.rotation.x = -Math.PI / 2; m.position.set(r.x, 0.006, r.z); scene.add(m);
+    scene.add(new THREE.Mesh(new THREE.PlaneGeometry(r.w, r.d).rotateX(-Math.PI / 2).translate(r.x, 0.006, r.z), makeIceMaterial(theme)));
 }
 const props = buildLevelProps(lv);
 scene.add(props.group);
@@ -122,6 +123,9 @@ let frames = 0;
 renderer.setAnimationLoop((ms) => {
     tickSurfaces(ms / 1000);
     props.tick(ms / 1000);
+    // Fans and icicles on page time here; ?t=ms freezes their clock there,
+    // to photograph a gust or a fall.
+    props.tickRun(q.has('t') ? Number(q.get('t')) : ms);
     // ?ball=x,z puts the marble somewhere, to see a canopy fade over it.
     if (built.forest) built.forest.tick(ball.position.x, ball.position.z, 16);
     renderer.render(scene, camera);

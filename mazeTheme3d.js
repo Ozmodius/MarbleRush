@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { MAZE_THEMES } from './mazeThemes.js';
 import { applyPbrMaps } from './pbrTextures.js';
-import { applySurface } from './mazeSurface3d.js';
+import { applySurface, ICE_PATTERN } from './mazeSurface3d.js';
 import { buildWallGeometry } from './mazeWalls3d.js';
 
 // MAZE THEME -> THREE.js MATERIALS. The single place a mazeTheme cosmetic turns
@@ -181,6 +181,7 @@ export function makeWallMaterial(theme, color = theme.wallColor, pattern = theme
         forceMapScalars(mat, theme.wallTextures);
     }
     return applySurface(mat, {
+        blend: theme.blend || 0,
         pattern, color2: secondColor(color, theme.wallColor2 && color === theme.wallColor ? theme.wallColor2 : ''),
         glowColor: theme.glowColor, glow, scale: theme.patternScale, bump: 1.4
     });
@@ -231,14 +232,14 @@ export function makeGoalMaterial(theme) {
 // quad a hair above the floor, so `depthWrite: false` keeps it from z-fighting
 // with the floor it is lying on.
 export function makeIceMaterial(theme) {
-    return new THREE.MeshStandardMaterial({
+    return applySurface(new THREE.MeshStandardMaterial({
         color: new THREE.Color(theme.iceColor),
         roughness: 0.06,
         metalness: 0.0,
         transparent: true,
         opacity: 0.72,
         depthWrite: false
-    });
+    }), { pattern: ICE_PATTERN, bump: 1.2, grit: 0 });
 }
 
 // A gate is a wall that moves, so it is built from the wall's own PBR settings

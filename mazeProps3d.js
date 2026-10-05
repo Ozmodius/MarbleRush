@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { conveyorDir } from './mazeHazards.js';
+import { conveyorDir, windStrength, icicleState, ICICLE_IMPACT_MS } from './mazeHazards.js';
 import { COIN_RADIUS, PICKUP_RADIUS } from './mazePickups.js';
 
 // LEVEL PROPS -- conveyor belts, coins and power-up pickups as meshes. Shared
@@ -156,16 +156,188 @@ export function buildPickups(pickups, tracked = []) {
     };
 }
 
-// All three at once, for a level. One tick, one reset.
+// WIND FANS (world 2): a fan housing on the wall the wind blows away from,
+// blades spinning with the gust, and snow streaks blowing across the zone.
+// Driven by the RUN clock (tickRun), so what you see is the gust that is
+// pushing you -- calm when it is calm.
+export function buildFans(fans, tracked = []) {
+    const group = new THREE.Group();
+    const housingGeo = new THREE.CylinderGeometry(0.3, 0.34, 0.2, 24, 1, true);
+    const frameGeo = new THREE.TorusGeometry(0.33, 0.045, 8, 28).rotateX(Math.PI / 2);
+    const hubGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.22, 12);
+    const bladeGeo = new THREE.BoxGeometry(0.04, 0.5, 0.08);
+    const metal = new THREE.MeshStandardMaterial({ color: 0x9aa6b2, metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0xff8a2b, metalness: 0.2, roughness: 0.5, emissive: 0x6a2a00, emissiveIntensity: 0.4 });
+    tracked.push(frameGeo, frameMat);
+    const blade = new THREE.MeshStandardMaterial({ color: 0xdfe6ee, metalness: 0.4, roughness: 0.4 });
+    tracked.push(housingGeo, hubGeo, bladeGeo, metal, blade);
+    const STREAKS = 26;
+    const units = (fans || []).map((f) => {
+        const d = conveyorDir(f);
+        if (!d) return null;
+        const alongX = d[0] !== 0;
+        const len = alongX ? f.w : f.d, span = alongX ? f.d : f.w;
+        // The housing sits at the upwind edge, its axis along the wind.
+        const unit = new THREE.Group();
+        unit.position.set(f.x - d[0] * len / 2, 0.36, f.z - d[1] * len / 2);
+        unit.rotation.set(alongX ? 0 : Math.PI / 2, 0, alongX ? Math.PI / 2 : 0);
+        unit.add(new THREE.Mesh(housingGeo, metal));
+        unit.add(new THREE.Mesh(frameGeo, frameMat));
+        const rotor = new THREE.Group();
+        rotor.add(new THREE.Mesh(hubGeo, metal));
+        for (let k = 0; k < 4; k++) {
+            const b = new THREE.Mesh(bladeGeo, blade);
+            b.rotation.y = k * Math.PI / 2;
+            b.position.set(Math.cos(k * Math.PI / 2) * 0.14, 0, Math.sin(k * Math.PI / 2) * 0.14);
+            rotor.add(b);
+        }
+        unit.add(rotor);
+        group.add(unit);
+        // Snow streaks: points that ride the wind across the zone and wrap.
+        const pos = new Float32Array(STREAKS * 3);
+        const seeds = [];
+        for (let i = 0; i < STREAKS; i++) seeds.push({ u: Math.random(), v: Math.random() - 0.5, y: 0.08 + Math.random() * 0.4 });
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.07, transparent: true, opacity: 0, depthWrite: false });
+        tracked.push(geo, mat);
+        group.add(new THREE.Points(geo, mat));
+        return { f, d, alongX, len, span, rotor, seeds, pos, geo, mat, spin: 0, lastMs: null };
+    }).filter(Boolean);
+    return {
+        group,
+        tickRun(runMs) {
+            for (const u of units) {
+                const s = windStrength(u.f, runMs);
+                const dt = u.lastMs === null ? 0 : Math.max(0, Math.min(100, runMs - u.lastMs)) / 1000;
+                u.lastMs = runMs;
+                u.spin += dt * (2 + 26 * s);
+                u.rotor.rotation.y = u.spin;
+                u.mat.opacity = 0.85 * s;
+                u.seeds.forEach((sd, i) => {
+                    sd.u = (sd.u + dt * (0.4 + 2.6 * s) / u.len) % 1;
+                    const a = (sd.u - 0.5) * u.len, b = sd.v * u.span * 0.9;
+                    u.pos[i * 3] = u.f.x + (u.alongX ? a * u.d[0] : b);
+                    u.pos[i * 3 + 1] = sd.y;
+                    u.pos[i * 3 + 2] = u.f.z + (u.alongX ? b : a * u.d[1]);
+                });
+                u.geo.attributes.position.needsUpdate = true;
+            }
+        },
+        reset() { for (const u of units) u.lastMs = null; }
+    };
+}
+
+// ICICLES (world 2): a cluster of ice spikes hanging high over their spot,
+// regrowing, shaking while their shadow darkens on the floor (the telegraph),
+// falling to strike just as the impact window opens, then bursting into
+// shards. Driven by the run clock, so the fall you see is the fall that hits.
+const ICICLE_HANG_Y = 2.4;
+const FALL_MS = 260;
+export function buildIcicles(icicles, tracked = []) {
+    const group = new THREE.Group();
+    const coneGeo = new THREE.ConeGeometry(0.12, 0.75, 8).rotateX(Math.PI);   // point down
+    const ringGeo = new THREE.RingGeometry(0.86, 1, 40).rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xbfe7ff, transparent: true, opacity: 0.55, depthWrite: false });
+    tracked.push(ringGeo, ringMat);
+    const shardGeo = new THREE.TetrahedronGeometry(0.05);
+    const shadowGeo = new THREE.CircleGeometry(1, 32).rotateX(-Math.PI / 2);
+    const ice = new THREE.MeshStandardMaterial({ color: 0xd9f1ff, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.92, emissive: 0x3a6c8c, emissiveIntensity: 0.25 });
+    tracked.push(coneGeo, shardGeo, shadowGeo, ice);
+    const units = (icicles || []).map((ic, n) => {
+        const spikes = new THREE.Group();
+        const k = 4 + (n % 2);
+        for (let i = 0; i < k; i++) {
+            const m = new THREE.Mesh(coneGeo, ice);
+            const a = i / k * Math.PI * 2 + n;
+            const rr = i === 0 ? 0 : ic.r * 0.35;
+            m.position.set(Math.cos(a) * rr, 0, Math.sin(a) * rr);
+            m.scale.set(1, 0.7 + ((i * 37 + n * 11) % 10) / 20, 1);
+            m.castShadow = false;
+            spikes.add(m);
+        }
+        spikes.position.set(ic.x, ICICLE_HANG_Y, ic.z);
+        group.add(spikes);
+        // The telegraph: the spot lights up FROSTY BLUE as the fall nears --
+        // never dark. A darkening disc read as a hole, and a player must never
+        // mistake one hazard for another.
+        const shMat = new THREE.MeshBasicMaterial({ color: 0x6fc3ff, transparent: true, opacity: 0, depthWrite: false });
+        const shadow = new THREE.Mesh(shadowGeo, shMat);
+        shadow.position.set(ic.x, 0.011, ic.z);
+        shadow.scale.setScalar(ic.r);
+        group.add(shadow);
+        // The danger spot, marked always: a frosty ring where it lands. A
+        // trap the player can only learn by being hit is not a fair one.
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.position.set(ic.x, 0.012, ic.z);
+        ring.scale.setScalar(ic.r);
+        group.add(ring);
+        const shards = [];
+        for (let i = 0; i < 10; i++) {
+            const m = new THREE.Mesh(shardGeo, ice);
+            m.visible = false;
+            group.add(m);
+            const a = i / 10 * Math.PI * 2;
+            shards.push({ m, vx: Math.cos(a) * (0.6 + (i % 3) * 0.3), vz: Math.sin(a) * (0.6 + (i % 3) * 0.3), vy: 0.8 + (i % 4) * 0.25 });
+        }
+        tracked.push(shMat);
+        return { ic, spikes, shadow, shMat, shards };
+    });
+    return {
+        group,
+        tickRun(runMs) {
+            for (const u of units) {
+                const st = icicleState(u.ic, runMs);
+                // Where the next impact is in time, to start the visible fall
+                // FALL_MS before the impact window opens.
+                const ahead = icicleState(u.ic, runMs + FALL_MS);
+                const falling = st.state === 'shake' && ahead.state === 'impact';
+                let y = ICICLE_HANG_Y, scaleY = 1, jx = 0, jz = 0, show = true;
+                if (st.state === 'grow') scaleY = Math.max(0.05, st.k);
+                else if (st.state === 'shake') {
+                    const amp = 0.025 * st.k;
+                    jx = Math.sin(runMs * 0.09) * amp; jz = Math.cos(runMs * 0.11) * amp;
+                }
+                if (falling) {
+                    // Time left until the impact window opens, as 0..1 of the fall.
+                    const untilImpact = FALL_MS - ahead.k * ICICLE_IMPACT_MS;
+                    const fall = Math.max(0, Math.min(1, 1 - untilImpact / FALL_MS));
+                    y = ICICLE_HANG_Y + (0.25 - ICICLE_HANG_Y) * fall * fall;   // accelerating drop
+                }
+                if (st.state === 'impact') show = false;
+                u.spikes.visible = show;
+                u.spikes.position.set(u.ic.x + jx, y, u.ic.z + jz);
+                u.spikes.scale.set(1, scaleY, 1);
+                // Faint while it hangs; through the shake it brightens and
+                // pulses faster and faster; it flashes on impact.
+                u.shMat.opacity = st.state === 'shake'
+                    ? 0.2 + 0.35 * st.k + 0.15 * Math.sin(runMs * (0.012 + 0.03 * st.k))
+                    : st.state === 'impact' ? 0.7 * (1 - st.k) : st.state === 'hang' ? 0.1 : 0.04;
+                // Shards fly out during the impact window.
+                const t = st.state === 'impact' ? st.k * ICICLE_IMPACT_MS / 1000 * 2.2 : -1;
+                for (const sh of u.shards) {
+                    sh.m.visible = t >= 0;
+                    if (t >= 0) sh.m.position.set(u.ic.x + sh.vx * t * 0.5, Math.max(0.03, 0.1 + sh.vy * t - 4 * t * t), u.ic.z + sh.vz * t * 0.5);
+                }
+            }
+        }
+    };
+}
+
+// All of them at once, for a level. tick(seconds) runs on the page clock
+// (coins spin, belts scroll); tickRun(runMs) on the run clock (fans, icicles).
 export function buildLevelProps(lv, tracked = []) {
     const belts = buildConveyors(lv.conveyors, tracked);
     const coins = buildCoins(lv.coins, tracked);
     const pickups = buildPickups(lv.pickups, tracked);
+    const fans = buildFans(lv.fans, tracked);
+    const icicles = buildIcicles(lv.icicles, tracked);
     const group = new THREE.Group();
-    group.add(belts.group, coins.group, pickups.group);
+    group.add(belts.group, coins.group, pickups.group, fans.group, icicles.group);
     return {
         group,
         tick(seconds) { belts.tick(seconds); coins.tick(seconds); pickups.tick(seconds); },
+        tickRun(runMs) { fans.tickRun(runMs); icicles.tickRun(runMs); },
         takeCoin: i => coins.take(i),
         takePickup: i => pickups.take(i),
         reset() { coins.reset(); pickups.reset(); }

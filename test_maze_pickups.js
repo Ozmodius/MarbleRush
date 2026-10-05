@@ -76,6 +76,11 @@ const check = (c, m) => { if (!c) failures.push(m); };
     for (const [x, z] of [[2.5, 0], [-3, 0.5], [0, 4]]) check(!P.isSafeSpot(level, x, z, R), `(${x},${z}) must not count as safe`);
     check(P.isSafeSpot(level, 0, 0, R), 'open floor away from everything is safe');
 
+    // 4b. nor in a gust, nor under an icicle (world 2)
+    const lv2 = { ...level, fans: [{ x: 5, z: 5, w: 1, d: 1, dir: '+x', periodMs: 3000, phase: 0 }], icicles: [{ x: -5, z: 5, r: 0.4, periodMs: 3000, phase: 0 }] };
+    check(!P.isSafeSpot(lv2, 5, 5, R), 'a spot in a wind zone is not safe');
+    check(!P.isSafeSpot(lv2, -5, 5.5, R), 'a spot under an icicle is not safe');
+
     // 5. bought charges
     s = P.createRunPickups(level, { shield: 1, slowmo: 2 });
     check(s.shield, 'a bought shield is armed from the start');
