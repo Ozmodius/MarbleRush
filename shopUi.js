@@ -152,6 +152,7 @@ function renderStore() {
 // rather than claim absolute units.
 const STAT_BARS = [
     { key: 'grip', label: 'Grip', lo: 0.2, hi: 0.65 },
+    { key: 'bounce', label: 'Bounce', lo: 0.0, hi: 0.15 },
     { key: 'damping', label: 'Stopping', lo: 0.0, hi: 0.2 },
     { key: 'response', label: 'Response', lo: 0.8, hi: 1.4 }
 ];
