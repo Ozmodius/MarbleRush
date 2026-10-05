@@ -134,9 +134,15 @@ async function run() {
     check(near(rotStill.gravity.x, 0) && near(rotStill.gravity.z, 0),
         `a rotated screen must not create movement from a still device, got ${JSON.stringify(rotStill.gravity)}`);
 
-    // The sensitivity slider's clamp (Ball Smack's settings.js) is not part of
-    // Marble Rush yet; when the game gets its own settings module, pin its
-    // clamp to T.MIN_SENSITIVITY / T.MAX_SENSITIVITY here.
+    // --- settings.js bounds agree with mazeTilt.js ----------------------------
+    // settings.js deliberately imports nothing, so its clamp is a pair of
+    // literals. If they drift from mazeTilt's constants the slider would offer
+    // values the physics then silently rejects.
+    const settingsSrc = fs.readFileSync(path.join(__dirname, 'settings.js'), 'utf8');
+    const clampLines = settingsSrc.match(/Math\.max\(0\.5,\s*Math\.min\(2\.0,\s*(n|Number\(v\) \|\| 1)\)\)/g) || [];
+    check(clampLines.length === 2, 'settings.js getMazeSensitivity and setMazeSensitivity must both clamp to [0.5, 2.0]');
+    check(T.MIN_SENSITIVITY === 0.5 && T.MAX_SENSITIVITY === 2.0,
+        `mazeTilt sensitivity bounds must match settings.js's literals, got [${T.MIN_SENSITIVITY}, ${T.MAX_SENSITIVITY}]`);
 
     if (failures.length) {
         console.error('FAIL: maze tilt math\n - ' + failures.join('\n - '));

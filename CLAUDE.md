@@ -10,12 +10,27 @@ side game). The two repos now evolve separately. A fix to the shared physics,
 hazards, tilt math or generator should be ported to the other repo too; say so
 in the PR when one applies.
 
-Still coupled to Ball Smack, and Phase 0's job to cut: `mazeGame.js` imports
-`state.js`, `socket.js`, `scene3d.js`, `cosmetics.js`, `inputTap.js`,
-`uiSfx.js`, `diagnostics.js` and `settings.js`, none of which exist here. The
-plan replaces them with two seams: a **scene host** (`getScene`, `getCamera`,
-`onFrame`, `setExclusiveMode`, `requestRender`, owning its own renderer) and a
-**progress store** (`load`, `recordClear`, `spend`).
+Phase 0 cut the Ball Smack coupling with two seams, both keeping the function
+names `mazeGame.js` already called:
+
+- **`sceneHost.js`** replaces `scene3d.js`: `getScene`, `getCamera`, `onFrame`,
+  `setExclusiveMode`, `requestRender`. It draws continuously only while the
+  exclusive mode says it is active, so the maze MUST clear it on exit
+  (`test_standalone_boot.js` checks the renderer idles on the home screen).
+- **`progressStore.js`** replaces the server's maze ledger. `applyClear` is pure
+  and keeps the server's rules (ladder, minMs, pay once, gold once);
+  `test_progress_store.js` pins them. Saves go through `platform.js`'s
+  `readSave`/`writeSave`: the CrazyGames SDK data module there, localStorage on
+  the web.
+
+## The bundle and the import map
+
+`index.html`'s import map uses FLAT names (`./three.module.js`,
+`./RoomEnvironment.js`, `./cannon-es.js`). `scripts/vendor.js` maps each to its
+file in `node_modules`; `scripts/serve.js` serves them in development and
+`scripts/build.js` copies them into the bundle. A new third-party module goes
+in `vendor.js` and the import map together, or one of the two breaks.
+`test_crazygames_build.js` builds the bundle and plays it against a stub SDK.
 
 ## Rules that carry over from Ball Smack
 

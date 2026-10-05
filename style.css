@@ -1,0 +1,167 @@
+/* Marble Rush styles. The maze surfaces (HUD, win panel, level select) are
+   Ball Smack's own rules, copied from its style.css; the rest is this game's. */
+:root {
+    --marble-green: #2a9d5f;
+    --board-gold:   #d9b877;
+    --ink-faint:    #a08b5f;
+    --bg:           #241a10;
+}
+* { box-sizing: border-box; }
+html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: #f3e6cf;
+    font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
+}
+#gameCanvas {
+    position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block;
+    /* Drag steers the marble, so the browser must not scroll or zoom on it. */
+    touch-action: none;
+}
+button { font: inherit; }
+
+/* ---- HOME ---- */
+.screen {
+    position: fixed; inset: 0; z-index: 700;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    background: radial-gradient(ellipse at 50% 35%, rgba(60,42,22,.55), rgba(18,12,7,.92));
+    padding: 16px;
+}
+.home-title {
+    margin: 0; text-align: center; line-height: .95;
+    font-weight: 900; font-size: clamp(44px, 12vw, 88px); letter-spacing: 2px;
+    color: #fff3dc; text-shadow: 0 4px 0 #8a6a44, 0 10px 24px rgba(0,0,0,.6);
+}
+.home-coins { margin: 0; font-weight: 900; letter-spacing: .6px; color: var(--board-gold); }
+#playBtn { min-width: 220px; font-size: 22px; }
+.build-stamp { position: absolute; bottom: 8px; right: 12px; margin: 0; font-size: 10px; color: var(--ink-faint); }
+
+.toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 900;
+    max-width: calc(100vw - 32px); padding: 10px 16px; border-radius: 10px;
+    background: rgba(120,30,30,.92); color: #fff; font-weight: 700; font-size: 13px; text-align: center;
+}
+
+/* ---- MAZE SURFACES (from Ball Smack) ---- */
+#mazeHud {
+    position: absolute; inset: 0; z-index: 650;
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    pointer-events: none;
+}
+#mazeHud .maze-topbar { display: flex; justify-content: space-between; gap: 8px; }
+#mazeHud .maze-actions { display: flex; justify-content: center; gap: 10px; }
+#mazeHud button { pointer-events: auto; }
+
+/* ---- WIN PANEL ---- */
+/* Sits directly beneath the spinning 3D star. Deliberately NOT pinned to the
+   bottom of the screen with the START row: the star is the thing the player is
+   looking at, and controls parked at the far edge of a tall phone read as
+   belonging to the HUD rather than to the celebration. */
+#mazeWinPanel {
+    align-self: center; display: flex; flex-direction: column; align-items: center;
+    gap: 10px; margin-top: 4vh; pointer-events: none;
+}
+.maze-winpanel-hero { display: flex; flex-direction: column; gap: 10px; align-items: stretch; min-width: 62vw; max-width: 320px; }
+.maze-winpanel-sub { display: flex; justify-content: center; gap: 10px; }
+/* The two buttons the moment is actually about. Big tap targets (56px clears
+   the 44px minimum comfortably) because this is a one-handed, phone-in-both-
+   hands mode and the player has just been tilting rather than aiming a thumb. */
+.maze-btn-hero {
+    font-size: 17px; font-weight: 900; letter-spacing: 1px;
+    padding: 16px 26px; min-height: 56px;
+    background: var(--marble-green); color: #fff;
+    border-radius: 14px;
+    box-shadow: 0 5px 18px rgba(0,0,0,.45);
+}
+/* EXIT is the same size as NEXT MAZE -- it is an equally legitimate thing to
+   want -- but visually quieter, so the eye lands on continuing first. */
+.maze-btn-hero-quiet {
+    background: rgba(20,14,8,.78); color: #f3e6cf;
+}
+
+.maze-btn {
+    font-family: 'DM Sans', sans-serif; font-weight: 900; letter-spacing: .5px;
+    border-radius: 10px; border: 2px solid rgba(0,0,0,.25); cursor: pointer;
+    box-shadow: 0 3px 10px rgba(0,0,0,.35);
+}
+/* Quiet controls (EXIT / RECENTER) are translucent so they read as chrome over
+   the board rather than competing with it. */
+.maze-btn-quiet {
+    background: rgba(20,14,8,.62); color: #f3e6cf;
+    font-size: 11px; padding: 7px 11px; min-height: 0;
+}
+.maze-btn-go {
+    background: var(--marble-green); color: #fff;
+    font-size: 15px; padding: 12px 30px;
+}
+/* Centered status line. Full-width and pointer-events:none so a long message
+   can never sit on top of a button and swallow the tap that dismisses it. */
+.maze-status {
+    align-self: center; text-align: center; pointer-events: none;
+    max-width: 78%; padding: 8px 14px; border-radius: 10px;
+    font-family: 'DM Sans', sans-serif; font-weight: 900; font-size: 13px;
+    letter-spacing: .6px; color: #fff8ec; text-shadow: 0 2px 6px rgba(0,0,0,.7);
+}
+.maze-status:not(:empty) { background: rgba(20,14,8,.6); }
+
+/* Current level's name, between EXIT and RECENTER. pointer-events:none so a
+   long name never intercepts a tap meant for either button. */
+.maze-levelname {
+    align-self: center; pointer-events: none; text-align: center; flex: 1;
+    font-family: 'DM Sans', sans-serif; font-weight: 900; font-size: 11px;
+    letter-spacing: .6px; color: #f3e6cf; text-shadow: 0 2px 5px rgba(0,0,0,.75);
+}
+
+/* ---- LEVEL SELECT ---- */
+/* Same full-bleed overlay treatment as the HUD, but this one DOES take taps:
+   it is the screen, not an overlay on a live game. */
+#mazeSelect {
+    position: absolute; inset: 0; z-index: 660;
+    display: flex; flex-direction: column;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: rgba(18,12,7,.92);
+}
+#mazeSelect .maze-topbar { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.maze-selecttitle {
+    font-family: 'DM Sans', sans-serif; font-weight: 900; font-size: 13px;
+    letter-spacing: 1px; color: #f3e6cf;
+}
+/* Keeps the title centred opposite the EXIT button without a wrapper. */
+.maze-btn-spacer { display: inline-block; width: 62px; }
+/* The balance readout does that job now on the level select. min-width holds
+   the title centred as the number grows, and text-align keeps it hard against
+   the right edge instead of drifting with its own width. */
+.maze-wallet {
+    min-width: 62px; text-align: right;
+    font-family: 'DM Sans', sans-serif; font-weight: 900; font-size: 12px;
+    letter-spacing: .4px; color: var(--board-gold, #d9b877);
+}
+
+.maze-selectlist { flex: 1; overflow-y: auto; margin-top: 10px; -webkit-overflow-scrolling: touch; }
+.maze-world { margin-bottom: 14px; }
+.maze-worldname {
+    font-family: 'DM Sans', sans-serif; font-weight: 900; font-size: 10px;
+    letter-spacing: 1.2px; color: var(--ink-faint); margin: 0 0 6px 2px;
+}
+.maze-levelrow {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 10px 12px; margin-bottom: 6px; border-radius: 10px;
+    background: rgba(255,248,236,.94); border: 2px solid rgba(0,0,0,.25);
+    font-family: 'DM Sans', sans-serif; cursor: pointer; text-align: left;
+}
+/* A locked level is SHOWN, not hidden -- the point of a ladder is seeing what
+   is next. It just cannot be tapped. */
+.maze-levelrow.is-locked { opacity: .42; cursor: default; }
+.maze-levelrow.is-next { border-color: var(--marble-green); box-shadow: 0 0 0 2px rgba(42,157,95,.3); }
+.maze-levelidx {
+    flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(120,90,45,.16); color: var(--ink-faint);
+    font-weight: 900; font-size: 11px;
+}
+.maze-levelrow.is-cleared .maze-levelidx { background: var(--marble-green); color: #fff; }
+.maze-levelmain { flex: 1; min-width: 0; }
+.maze-levellabel { font-weight: 900; font-size: 12px; color: #3d2b16; }
+.maze-levelmeta { font-size: 10px; color: var(--ink-faint); margin-top: 1px; }
+.maze-leveltier { flex-shrink: 0; font-size: 14px; }

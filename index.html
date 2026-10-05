@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <title>Marble Rush</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="style.css">
+    <!-- Flat on purpose: CrazyGames' drag-and-drop upload can lose folders, so
+         every shipped file sits at the root. scripts/serve.js maps these names
+         to node_modules in development; scripts/build.js copies them in. -->
+    <script type="importmap">
+    { "imports": {
+        "three": "./three.module.js",
+        "three/addons/environments/RoomEnvironment.js": "./RoomEnvironment.js",
+        "cannon-es": "./cannon-es.js"
+    } }
+    </script>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="home" class="screen" style="display:none;">
+        <h1 class="home-title">MARBLE<br>RUSH</h1>
+        <p id="homeCoins" class="home-coins"></p>
+        <button id="playBtn" class="maze-btn maze-btn-hero" type="button">PLAY</button>
+        <p id="buildStamp" class="build-stamp"></p>
+    </div>
+
+    <!-- IN-RUN HUD. Static markup so mazeGame.js can bind its controls once. -->
+    <div id="mazeHud" class="maze-surface" style="display:none;">
+        <div class="maze-topbar">
+            <button id="mazeExitBtn" class="maze-btn maze-btn-quiet" type="button">&#8592; HOME</button>
+            <span id="mazeLevelName" class="maze-levelname"></span>
+            <button id="mazeRecenterBtn" class="maze-btn maze-btn-quiet" type="button">&#9678; RECENTER</button>
+        </div>
+        <div id="mazeStatus" class="maze-status"></div>
+        <!-- Sits under the spinning 3D star, so the two read as one celebration. -->
+        <div id="mazeWinPanel" class="maze-winpanel" style="display:none;">
+            <div class="maze-winpanel-hero">
+                <button id="mazeNextBtn" class="maze-btn maze-btn-hero" type="button">NEXT MAZE &#8250;</button>
+                <button id="mazeWinExitBtn" class="maze-btn maze-btn-hero maze-btn-hero-quiet" type="button">HOME</button>
+            </div>
+            <div class="maze-winpanel-sub">
+                <button id="mazeReplayBtn" class="maze-btn maze-btn-quiet" type="button" style="display:none;">RETRY</button>
+                <button id="mazeLevelsBtn" class="maze-btn maze-btn-quiet" type="button" style="display:none;">LEVELS</button>
+            </div>
+        </div>
+        <div class="maze-actions">
+            <button id="mazeStartBtn" class="maze-btn maze-btn-go" type="button">START</button>
+        </div>
+    </div>
+
+    <!-- LEVEL SELECT. Locked levels render but cannot be tapped. -->
+    <div id="mazeSelect" class="maze-surface" style="display:none;">
+        <div class="maze-topbar">
+            <button id="mazeSelectExitBtn" class="maze-btn maze-btn-quiet" type="button">&#8592; HOME</button>
+            <span class="maze-selecttitle">MARBLE RUSH</span>
+            <span id="mazeWallet" class="maze-wallet"></span>
+        </div>
+        <div id="mazeSelectList" class="maze-selectlist"></div>
+    </div>
+
+    <div id="toast" class="toast" style="display:none;"></div>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>

@@ -405,3 +405,31 @@ export async function showPlatformLogin() {
     try { return !!(await sdk.user.showAuthPrompt()); }
     catch (_) { return false; }   // cancelled, or a prompt already open
 }
+
+// ---------------------------------------------------------------------------
+// Save data (Marble Rush: progressStore.js)
+// ---------------------------------------------------------------------------
+// Marble Rush has no server, so a player's progress is one JSON string kept by
+// the platform. On CrazyGames that is the SDK's data module, which mirrors the
+// localStorage API and follows a signed-in player across devices (and keeps a
+// guest's progress locally until they sign in). On the web, and on CrazyGames if
+// the data module is missing, it is plain localStorage. Every read and write is
+// guarded: a private window or blocked storage must never stop a level loading.
+function dataStore() {
+    if (isCrazyGames && sdk && sdk.data && typeof sdk.data.getItem === 'function') return sdk.data;
+    try { if (typeof localStorage !== 'undefined') return localStorage; } catch (_) { /* blocked */ }
+    return null;
+}
+
+export async function readSave(key) {
+    await initPlatform();
+    const s = dataStore();
+    if (!s) return null;
+    try { return s.getItem(key); } catch (e) { console.warn('[platform] save read failed:', e && e.message); return null; }
+}
+
+export function writeSave(key, value) {
+    const s = dataStore();
+    if (!s) return false;
+    try { s.setItem(key, value); return true; } catch (e) { console.warn('[platform] save write failed:', e && e.message); return false; }
+}
