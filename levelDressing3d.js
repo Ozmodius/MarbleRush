@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { makeFloorMaterial, makeWallMaterial, makeWallGeometry } from './mazeTheme3d.js';
 import { forestFor } from './forestDressing.js';
 import { buildForest, buildPathMask } from './forest3d.js';
+import { buildBrickWallGeometry, makeBrickMaterial } from './toyWalls3d.js';
 
 // A level's FLOOR and WALLS as meshes: the one place they are built, shared
 // by mazeGame.js and scripts/themePreview.html so the preview cannot drift
@@ -33,9 +34,13 @@ export function buildFloorAndWalls(lv, walls, theme, { height, floorY = 0 }, tra
     const dressing = theme.themeTo === 'forest' && theme.blend > 0 ? forestFor(lv, walls, theme.blend) : null;
     const planks = dressing ? walls.filter((w, i) => dressing.kinds[i] === 'plank') : walls;
     if (planks.length) {
+        // World 4's walls are toy bricks (toyWalls3d.js); every other theme's
+        // come from the wall builder in its style.
+        const bricks = theme.wallStyle === 'bricks';
         const mesh = new THREE.Mesh(
-            keep(makeWallGeometry(theme, planks, { height, floorY, reach: lv.ballRadius })),
-            keep(makeWallMaterial(theme)));
+            keep(bricks ? buildBrickWallGeometry(planks, { height, floorY, sat: theme.brickSat })
+                : makeWallGeometry(theme, planks, { height, floorY, reach: lv.ballRadius })),
+            keep(bricks ? makeBrickMaterial(theme) : makeWallMaterial(theme)));
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         group.add(mesh);

@@ -18,7 +18,7 @@ import * as THREE from 'three';
 // Only shading changes here. Shape -- rounded crests, jagged tops -- is real
 // geometry from mazeWalls3d.js, so shadows and silhouettes agree with it.
 
-export const FLOOR_PATTERNS = ['plain', 'rock', 'lavaCracks', 'woodToDirt', 'snow'];
+export const FLOOR_PATTERNS = ['plain', 'rock', 'lavaCracks', 'woodToDirt', 'snow', 'foamMat'];
 export const WALL_PATTERNS = ['plain', 'rock', 'emberRock', 'molten', 'planks', 'bark', 'leaves', 'iceRock'];
 // Not chosen by themes: the ice HAZARD patches always wear this (mazeTheme3d.js).
 export const ICE_PATTERN = 'iceSheet';
@@ -85,6 +85,42 @@ float mrCrack(vec2 p) {
         if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) { d2 = d; }
     }
     return sqrt(d2) - sqrt(d1);
+}
+// WORLD 4's foam mat, tiles one unit square. Every edge between two tiles
+// has a jigsaw tab: a disc of radius FOAM_TAB_R centred FOAM_TAB_OFF past the
+// edge's middle, belonging to the tile on one side (hashed from the edge, so
+// both tiles agree) and poking into the other.
+const float FOAM_TAB_R = 0.15;
+const float FOAM_TAB_OFF = 0.1;
+vec2 mrFoamDir(int e) { return e == 0 ? vec2(1.0, 0.0) : e == 1 ? vec2(-1.0, 0.0) : e == 2 ? vec2(0.0, 1.0) : vec2(0.0, -1.0); }
+// The tab on edge e of the cell: xy its centre, z +1 if cell owns it.
+vec3 mrFoamTab(vec2 cell, int e) {
+    vec2 dir = mrFoamDir(e), lo = min(cell, cell + dir), ax = abs(dir);
+    float lowOwns = step(0.5, fract(sin(dot(lo, vec2(12.9898, 78.233)) + ax.y * 31.7) * 43758.5453));
+    bool mine = (lowOwns > 0.5) == (dot(cell - lo, vec2(1.0)) < 0.5);
+    vec2 mid = cell + 0.5 + dir * 0.5;
+    return vec3(mid + dir * (mine ? FOAM_TAB_OFF : -FOAM_TAB_OFF), mine ? 1.0 : -1.0);
+}
+// x: owning tile's checker parity; y: distance to the nearest joint.
+vec2 mrFoam(vec2 t) {
+    vec2 cell = floor(t), f = t - cell;
+    vec2 owner = cell;
+    float joint = 8.0;
+    float half_ = sqrt(FOAM_TAB_R * FOAM_TAB_R - FOAM_TAB_OFF * FOAM_TAB_OFF);
+    for (int e = 0; e < 4; e++) {
+        vec2 dir = mrFoamDir(e), side = vec2(dir.y, dir.x);
+        vec3 tab = mrFoamTab(cell, e);
+        vec2 mid = cell + 0.5 + dir * 0.5;
+        float d = length(t - tab.xy);
+        if (tab.z < 0.0 && d < FOAM_TAB_R) owner = cell + dir;
+        // The straight edge, except where a tab crosses it...
+        float along = abs(dot(t - mid, side)), across = abs(dot(t - mid, dir));
+        joint = min(joint, along > half_ ? across : length(vec2(along - half_, across)));
+        // ...and the tab's outline on the side it pokes into.
+        float into = dot(t - mid, dir) * (tab.z > 0.0 ? 1.0 : -1.0);
+        if (into > 0.0) joint = min(joint, abs(d - FOAM_TAB_R));
+    }
+    return vec2(mod(owner.x + owner.y, 2.0), joint);
 }
 // Fine grain for close-up rock: a gritty high octave plus scattered gas
 // pockets (vesicles, the pits real basalt is full of). Returns x = height
@@ -312,6 +348,47 @@ const PATTERN_GLSL = {
         diffuseColor.rgb = mrIce;
         float mrTone = 0.0;
         float mrH = mrN * 0.3 - mrCrk * 0.4;
+        float mrHot = 0.0;
+    `,
+    // WORLD 4's FLOOR: interlocking foam play-mat tiles, a checker of the
+    // theme's two floor colours. Every edge between two tiles has a jigsaw
+    // tab -- a disc over the edge's middle that belongs to the tile on one
+    // side, which side hashed from the edge so both tiles agree. Grooves run
+    // along every joint, and the foam has a fine pebbled texture up close.
+    foamMat: /* glsl */`
+        vec3 mrP = vMrPos * mrScale;
+        float mrN = mrFbm(mrP * 1.3);
+        vec2 mrT = mrP.xz / 1.1;
+        vec2 mrFo = mrFoam(mrT);
+        // The groove keeps a line's width on screen: never thinner than
+        // about a pixel, so it does not shimmer at the full-board distance.
+        float mrPx = length(fwidth(mrT));
+        float mrGroove = 1.0 - smoothstep(0.008 + mrPx * 0.5, 0.016 + mrPx * 1.2, mrFo.y);
+        float mrTone = mrFo.x;
+        float mrFade = 1.0 - smoothstep(0.02, 0.06, length(fwidth(mrP.xz)));
+        float mrPeb = mrNoise(mrP * 60.0) * mrFade;
+        diffuseColor.rgb *= (1.0 - 0.06 * mrN) * (1.0 - 0.3 * mrGroove);
+        float mrH = -mrGroove * 1.2 + mrPeb * 0.18;
+        float mrHot = 0.0;
+    `,
+    // WORLD 4's PLANET (planet3d.js): a beach ball -- six bright panels
+    // meeting at white caps on the poles, with seams between them. Owns its
+    // palette.
+    beachBall: /* glsl */`
+        vec3 mrP = vMrPos * mrScale;
+        float mrN = mrFbm(mrP * 3.0);
+        vec3 mrU = normalize(vMrPos);
+        float mrA = atan(mrU.z, mrU.x) / 6.28318 + 0.5;
+        float mrPanel = floor(mrA * 6.0);
+        float mrEdge = min(fract(mrA * 6.0), 1.0 - fract(mrA * 6.0)) * sqrt(max(0.0, 1.0 - mrU.y * mrU.y));
+        vec3 mrPal = mrPanel < 1.0 ? vec3(0.88, 0.23, 0.23) : mrPanel < 2.0 ? vec3(0.97, 0.97, 0.93)
+                   : mrPanel < 3.0 ? vec3(0.18, 0.44, 0.84) : mrPanel < 4.0 ? vec3(0.95, 0.71, 0.11)
+                   : mrPanel < 5.0 ? vec3(0.18, 0.66, 0.31) : vec3(1.0, 0.48, 0.10);
+        float mrCap = smoothstep(0.86, 0.88, abs(mrU.y));
+        float mrSeamB = (1.0 - smoothstep(0.0, 0.012, mrEdge)) * (1.0 - mrCap);
+        diffuseColor.rgb = mix(mix(mrPal, vec3(0.97, 0.97, 0.93), mrCap), vec3(0.75, 0.73, 0.70), mrSeamB);
+        float mrTone = 0.0;
+        float mrH = -mrSeamB + mrN * 0.05;
         float mrHot = 0.0;
     `,
     // A FLARING SEAM's band (world 3): a crusted fissure with molten veins

@@ -380,3 +380,133 @@ export function geyserAccel(geysers, tMs, x, z) {
     }
     return { ax, az };
 }
+
+// ---------------------------------------------------------------------------
+// WORLD 4, THE TOY BOX. Bumpers are BLOCKING (posts, solved as solid) with a
+// bounded kick; spring pads are TIMED (they wind up, then fire -- cross in the
+// quiet); spinning arms are TIMED too (a blade passes, the floor is clear
+// again) and stand in rooms opened for them, never in a corridor.
+// ---------------------------------------------------------------------------
+
+// Every round post a level stands up -- bumpers and arm hubs -- as circles
+// { x, z, r }. Solid to every search (the generator's and the verifier's):
+// a ball centre within r + R of one is inside it.
+export function postSpecs(lv) {
+    return (lv.bumpers || []).map(b => ({ x: b.x, z: b.z, r: b.r }))
+        .concat((lv.arms || []).map(a => ({ x: a.x, z: a.z, r: ARM_HUB_R })));
+}
+export function inPost(posts, x, z, R) {
+    for (const p of posts) if (Math.hypot(x - p.x, z - p.z) <= p.r + R) return true;
+    return false;
+}
+
+// BUMPERS: a pinball post { x, z, r }. Touching one kicks the ball straight
+// off it at BUMPER_KICK (or bounces it back at BUMPER_BOUNCE of the speed it
+// came in with, if that is more). So a kick never returns the ball faster
+// than it arrived plus BUMPER_KICK, and no hole lies within BUMPER_HOLE_CLEAR
+// of a bumper (test_maze_levels.js): a kick costs position, never the run.
+// The Obsidian Core prize passes scale 0.5.
+export const BUMPER_KICK = 3.0;
+export const BUMPER_BOUNCE = 0.6;
+export const BUMPER_HOLE_CLEAR = 1.5;
+export const BUMPER_TOUCH = 0.03;          // contact slop: how close counts as touching
+
+// The ball's velocity after touching bumper b, or null if it is not touching
+// it (or is already leaving faster than a kick).
+export function bumperKick(b, x, z, vx, vz, R, scale = 1) {
+    const dx = x - b.x, dz = z - b.z, d = Math.hypot(dx, dz);
+    if (d > b.r + R + BUMPER_TOUCH) return null;
+    const nx = d > 1e-6 ? dx / d : 0, nz = d > 1e-6 ? dz / d : 1;
+    const vn = vx * nx + vz * nz;
+    const kick = BUMPER_KICK * scale;
+    if (vn >= kick) return null;
+    const out = Math.max(kick, -vn * BUMPER_BOUNCE);
+    return { vx: vx + (out - vn) * nx, vz: vz + (out - vn) * nz };
+}
+
+// SPRING PADS: a floor plate { x, z, w, d, dir, periodMs, phase } that winds
+// down for SPRING_WARN_MS (the telegraph), then FIRES for SPRING_FIRE_MS: a
+// ball on it then is launched along dir at SPRING_SPEED. Between shots it is
+// floor. Its launch lane -- from the pad along dir to the first wall -- is
+// kept clear of holes (test_maze_levels.js), so a launch costs position (or
+// gains it), never the run.
+export const SPRING_WARN_MS = 900;
+export const SPRING_FIRE_MS = 140;
+export const SPRING_MIN_PERIOD = 2600;
+export const SPRING_SPEED = 3.4;
+export const SPRING_LANE_CLEAR = 0.3;      // extra room between a launch lane and a hole
+export function springState(p, tMs) {
+    const c = cycle(p, tMs, SPRING_MIN_PERIOD, SPRING_WARN_MS, SPRING_FIRE_MS);
+    return { state: c.state === 'live' ? 'fire' : c.state === 'warn' ? 'wind' : 'rest', k: c.k };
+}
+export function firstFireMs(p) { return firstLive(p, SPRING_MIN_PERIOD, SPRING_WARN_MS, SPRING_FIRE_MS); }
+// Which shot this is (an integer that changes once per period), so the game
+// launches the ball once per shot however many physics steps the shot spans.
+export function springShot(p, tMs) {
+    const P = Math.max(SPRING_MIN_PERIOD, Number(p.periodMs) || SPRING_MIN_PERIOD);
+    return Math.floor(tMs / P + (Number(p.phase) || 0));
+}
+// The pad firing under the ball's centre (or within half a radius of it).
+export function springUnder(pads, tMs, x, z, R) {
+    for (const p of pads || []) {
+        if (springState(p, tMs).state === 'fire' && distanceToRect(p, x, z) <= R * 0.5) return p;
+    }
+    return null;
+}
+// The ball's velocity after a launch: SPRING_SPEED along dir, whatever it was
+// doing along that axis; half its sideways speed kept.
+export function springLaunch(p, vx, vz) {
+    const d = conveyorDir(p);
+    if (!d) return { vx, vz };
+    return d[0] ? { vx: d[0] * SPRING_SPEED, vz: vz * 0.5 } : { vx: vx * 0.5, vz: d[1] * SPRING_SPEED };
+}
+
+// SPINNING ARMS: a rotor { x, z, len, periodMs, phase, dir } -- a hub post
+// with a blade either side, len from the hub to each tip, turning one full
+// turn per periodMs (dir +1 or -1). Angle 0 lies along +x; the angle grows
+// from +x toward +z. A blade shoves the ball (a kinematic body, like a gate),
+// it never kills: the arm's whole sweep stays clear of walls, holes, start
+// and goal, and a ball it pushes always has somewhere to go (no pinch,
+// armEscapes) -- checked by test_maze_levels.js.
+export const ARM_HUB_R = 0.12;
+export const ARM_HALF_T = 0.05;            // half the blade's thickness
+export const ARM_MIN_PERIOD = 4000;
+export function armAngle(a, tMs) {
+    const P = Math.max(ARM_MIN_PERIOD, Number(a.periodMs) || ARM_MIN_PERIOD);
+    return (a.dir < 0 ? -1 : 1) * 2 * Math.PI * (tMs / P + (Number(a.phase) || 0));
+}
+// Radians per second, signed like armAngle.
+export function armSpin(a) {
+    const P = Math.max(ARM_MIN_PERIOD, Number(a.periodMs) || ARM_MIN_PERIOD);
+    return (a.dir < 0 ? -1 : 1) * 2 * Math.PI * 1000 / P;
+}
+// How far from the hub anything of the arm reaches.
+export function armReach(a) { return a.len + ARM_HALF_T; }
+// Is a ball (centre x, z, radius R) touching a blade at time t?
+export function armTouches(a, tMs, x, z, R) {
+    const th = armAngle(a, tMs), ux = Math.cos(th), uz = Math.sin(th);
+    const dx = x - a.x, dz = z - a.z;
+    const along = Math.max(-a.len, Math.min(a.len, dx * ux + dz * uz));
+    return Math.hypot(dx - along * ux, dz - along * uz) <= R + ARM_HALF_T;
+}
+// THE ROOM RULES, held by test_maze_levels.js. D is the distance from the hub
+// to the nearest wall (or the board's edge):
+//   - the blade never reaches a wall (reach <= D - ARM_WALL_GAP), so it never
+//     cuts through one;
+//   - lying alongside a wall, a blade leaves the ball room to sit between
+//     (D - ARM_HALF_T >= 2R + ARM_WALL_GAP), so it never crushes the ball.
+// The rooms are rectangles, and a ball the blade carries into a square corner
+// slides out along one wall (the push there runs along the other diagonal) --
+// so a ball is carried round the room, never wedged.
+export const ARM_WALL_GAP = 0.04;
+export function armWallDistance(a, walls, size) {
+    let D = size ? Math.min(size.w / 2 - Math.abs(a.x), size.d / 2 - Math.abs(a.z)) : Infinity;
+    for (const w of walls || []) D = Math.min(D, distanceToRect(w, a.x, a.z));
+    return D;
+}
+export function armRoomProblem(a, walls, size, R) {
+    const D = armWallDistance(a, walls, size);
+    if (armReach(a) > D - ARM_WALL_GAP) return `its blade reaches ${armReach(a).toFixed(2)} but a wall is ${D.toFixed(2)} away -- it would cut through it`;
+    if (D - ARM_HALF_T < 2 * R + ARM_WALL_GAP) return `a blade alongside the nearest wall leaves ${(D - ARM_HALF_T).toFixed(2)}, too little for the ball -- it would crush it`;
+    return null;
+}

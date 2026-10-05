@@ -9,7 +9,9 @@ import { resolveMazeTheme, resolveLevelTheme, makeWallGeometry, makeBallMaterial
          makeHoleMaterial, makeGoalMaterial } from './mazeTheme3d.js';
 import { tickSurfaces } from './mazeSurface3d.js';
 import { conveyorAt, conveyorAccel, windAt, windAccel, icicleHits, icicleState, windStrength,
-         flareHits, flareState, gateBurning, moltenGateHits, geyserAccel, geyserState } from './mazeHazards.js';
+         flareHits, flareState, gateBurning, moltenGateHits, geyserAccel, geyserState,
+         bumperKick, springUnder, springLaunch, springShot, springState, armAngle, armSpin, ARM_HUB_R, ARM_HALF_T } from './mazeHazards.js';
+import { ARM_Y0, ARM_Y1 } from './toyProps3d.js';
 import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from './mazePickups.js';
 import { buildLevelProps } from './mazeProps3d.js';
 import { sfx as uiSfx } from './sfx.js';
@@ -133,6 +135,11 @@ let gates = [];                  // [{ spec, body, mesh }]
 let winStar = null;
 let winStarMs = 0;               // time since the star appeared, drives pop + spin
 let iceRects = [];
+// World 4: the arms' kinematic blades, which shot each spring last fired
+// at the ball, and when each bumper last kicked (for its flash and sound).
+let armBodies = [];
+let springShots = [];
+let bumperKicks = 0;
 let props = null;                // belts, coins, pickups (mazeProps3d.js)
 let pickupState = null;          // this attempt's coins and power-ups (mazePickups.js)
 // The ball this level is played with: the selected marble plus upgrades
@@ -573,6 +580,26 @@ function buildWorld(lv, wallSpecs) {
         g.body = body;
     }
 
+    // World 4. Bumpers and arm hubs are static posts; a blade is kinematic,
+    // like a gate, turned by updateGates from the run clock with its true spin
+    // set so a hit is a push rather than an ejection. A bumper's kick is not
+    // the contact's: applyToys() sets it outright (mazeHazards.js bumperKick).
+    const post = (x, z, r) => {
+        const body = new CANNON.Body({ mass: 0, material: solidMat });
+        body.addShape(new CANNON.Cylinder(r, r, WALL_HEIGHT, 16));
+        body.position.set(x, FLOOR_Y + WALL_HEIGHT / 2, z);
+        w.addBody(body);
+    };
+    (lv.bumpers || []).forEach(b => post(b.x, b.z, b.r));
+    armBodies = (lv.arms || []).map(a => {
+        post(a.x, a.z, ARM_HUB_R);
+        const body = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, material: solidMat });
+        body.addShape(new CANNON.Box(new CANNON.Vec3(a.len, (ARM_Y1 - ARM_Y0) / 2, ARM_HALF_T)));
+        body.position.set(a.x, FLOOR_Y + (ARM_Y0 + ARM_Y1) / 2, a.z);
+        w.addBody(body);
+        return { a, body };
+    });
+
     const ball = new CANNON.Body({ mass: 1, material: ballMat });
     ball.addShape(new CANNON.Sphere(lv.ballRadius));
     // Angular damping keeps the marble from spinning up into an unstoppable
@@ -733,7 +760,7 @@ function advance(elapsedMs) {
     const simMs = phase === 'running' ? elapsedMs * timeScale(pickupState) : elapsedMs;
     const steps = Math.min(Math.max(1, Math.round((simMs / 1000) / FIXED_STEP)), MAX_CATCHUP_STEPS);
     for (let i = 0; i < steps; i++) {
-        if (phase === 'running') { applyConveyor(FIXED_STEP); applyWind(FIXED_STEP); applyGeysers(FIXED_STEP); }
+        if (phase === 'running') { applyConveyor(FIXED_STEP); applyWind(FIXED_STEP); applyGeysers(FIXED_STEP); applyToys(); }
         world.step(FIXED_STEP);
     }
 
@@ -752,6 +779,10 @@ function advance(elapsedMs) {
 // set alongside purely so contacts resolve as a push (see mazeHazards.js's
 // gateVelocity comment).
 function updateGates() {
+    for (const { a, body } of armBodies) {
+        body.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -armAngle(a, runClockMs));
+        body.angularVelocity.set(0, -armSpin(a) * timeScale(pickupState), 0);
+    }
     if (!gates.length) return;
     for (const g of gates) {
         const at = gateSpecAt(g.spec, gateFraction(g.spec, runClockMs));
@@ -833,6 +864,40 @@ function applyGeysers(dt) {
     const a = geyserAccel(level.geysers, runClockMs, p.x, p.z);
     ballBody.velocity.x += a.ax * dt;
     ballBody.velocity.z += a.az * dt;
+}
+
+// World 4, once per substep. A bumper the ball touches kicks it off
+// (halved by the Obsidian Core prize, spent the first time a bumper kicks on
+// this level); a spring firing under the ball launches it, once per shot.
+function applyToys() {
+    if (!level || !ballBody) return;
+    const p = ballBody.position, v = ballBody.velocity, R = level.ballRadius;
+    // A kick or launch sets the ball ROLLING at its new speed, spin and all: a
+    // ball set sliding gives a third of its speed to friction spinning up.
+    const roll = () => ballBody.angularVelocity.set(v.z / R, 0, -v.x / R);
+    (level.bumpers || []).forEach((b, i) => {
+        if (!bumperKick(b, p.x, p.z, v.x, v.z, R)) return;
+        const k = bumperKick(b, p.x, p.z, v.x, v.z, R, usePrizeFor('bumpers') ? 0.5 : 1);
+        if (!k) return;
+        v.x = k.vx; v.z = k.vz;
+        roll();
+        bumperKicks++;
+        if (props) props.hitBumper(i);
+        try { uiSfx.open(); } catch (e) { /* ignore */ }
+    });
+    if (level.springs) {
+        const pad = springUnder(level.springs, runClockMs, p.x, p.z, R);
+        if (pad) {
+            const n = level.springs.indexOf(pad), shot = springShot(pad, runClockMs);
+            if (springShots[n] !== shot) {
+                springShots[n] = shot;
+                const out = springLaunch(pad, v.x, v.z);
+                v.x = out.vx; v.z = out.vz;
+                roll();
+                try { uiSfx.open(); } catch (e) { /* ignore */ }
+            }
+        }
+    }
 }
 
 // Spin the star, and pop it in on arrival. The pop overshoots past full size
@@ -969,6 +1034,7 @@ function restart() {
     // is learning the level rather than re-rolling it -- and two runs of the
     // same route take the same time, which matters when gold pays.
     runClockMs = 0;
+    springShots = [];
     updateGates();
     // Every attempt starts with every coin and pickup back in place, and any
     // bought charges still unspent.
@@ -1253,6 +1319,8 @@ function teardownLevel() {
     // frame -- the stale-callback class of bug docs/KNOWN_ISSUES.md already
     // records once.
     gates = [];
+    armBodies = [];
+    springShots = [];
     iceRects = [];
     winStar = null;
     winStarMs = 0;
@@ -1401,6 +1469,18 @@ window.__mazeDebug = {
         moltenBurning: (level.gates || []).filter(g => g.molten).map(g => gateBurning(g, runClockMs)),
         moltenGlow: gates.filter(g => g.glow).map(g => g.glow.value),
         geysers: (level.geysers || []).map(g => geyserState(g, runClockMs).state)
+    } : null),
+    // Roll the ball: set its velocity (units/s) without moving it.
+    setBallVelocity: (vx, vz) => { if (!ballBody) return false; ballBody.velocity.set(vx, 0, vz); return true; },
+    world4: () => (level ? {
+        bumpers: (level.bumpers || []).length,
+        kicks: bumperKicks,
+        springs: (level.springs || []).map(sp => springState(sp, runClockMs).state),
+        arms: armBodies.map(({ a, body }) => {
+            const q = body.quaternion, ang = -2 * Math.atan2(q.y, q.w);
+            return { want: armAngle(a, runClockMs), body: ang };
+        }),
+        prizeOn: Object.keys(prizeOn).filter(k => prizeOn[k])
     } : null),
     world2: () => (level ? {
         fans: (level.fans || []).length,

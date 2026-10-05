@@ -246,10 +246,50 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
     check(far.ax === 0 && gyCalm.ax === 0, 'nothing beyond its reach, nothing outside the blast');
     check(H.GEYSER_ACCEL * H.GEYSER_BLAST_MS / 1000 <= 3.5, 'the most speed a blast can add stays in the range a tilt corrects within a cell');
 
+    // --- world 4: bumpers, spring pads, spinning arms -------------------------
+    const bp = { x: 0, z: 0, r: 0.16 }, BR = 0.26;
+    const k1 = H.bumperKick(bp, 0.42, 0, -2, 0, BR);
+    check(k1 && Math.abs(k1.vx - H.BUMPER_KICK) < 1e-9 && Math.abs(k1.vz) < 1e-9, 'a ball rolling into a bumper is kicked straight back at BUMPER_KICK');
+    const k2 = H.bumperKick(bp, 0.42, 0, -8, 1, BR);
+    check(k2 && Math.abs(k2.vx - 8 * H.BUMPER_BOUNCE) < 1e-9 && k2.vz === 1, 'a fast ball bounces back at BUMPER_BOUNCE of its speed, sideways speed kept');
+    check(!H.bumperKick(bp, 0.6, 0, -2, 0, BR), 'no kick without touching');
+    check(!H.bumperKick(bp, 0.42, 0, 4, 0, BR), 'no kick for a ball already leaving faster than one');
+    const k3 = H.bumperKick(bp, 0.42, 0, -2, 0, BR, 0.5);
+    check(k3 && Math.abs(k3.vx - H.BUMPER_KICK / 2) < 1e-9, 'the Obsidian Core halves the kick');
+    for (const [vx, vz] of [[-1, 0], [-3, 2], [-6, -1], [0.5, 3]]) {
+        const k = H.bumperKick(bp, 0.3, 0.3, vx, vz, BR);
+        if (k) check(Math.hypot(k.vx, k.vz) <= Math.hypot(vx, vz) + H.BUMPER_KICK + 1e-9, 'a kick adds at most BUMPER_KICK to the speed it arrived with');
+    }
+    check(H.BUMPER_KICK <= 3.5, 'a kick stays in the range a tilt corrects within a cell');
+    const posts = H.postSpecs({ bumpers: [bp], arms: [{ x: 1, z: 2, len: 0.9 }] });
+    check(posts.length === 2 && H.inPost(posts, 0.4, 0, BR) && !H.inPost(posts, 0.3, 0.33, BR) && H.inPost(posts, 1, 2.3, BR), 'bumpers and arm hubs are solid circles to every search');
+
+    const sp = { x: 0, z: 0, w: 0.5, d: 0.5, dir: '+z', periodMs: 3000, phase: 0.4 };
+    let fire = 0, wind = 0;
+    for (let t = 0; t < 3000; t++) { const st = H.springState(sp, t).state; if (st === 'fire') fire++; if (st === 'wind') wind++; }
+    check(Math.abs(fire - H.SPRING_FIRE_MS) <= 1 && Math.abs(wind - H.SPRING_WARN_MS) <= 1, `a spring winds ${H.SPRING_WARN_MS}ms then fires ${H.SPRING_FIRE_MS}ms (got ${wind}/${fire})`);
+    check(H.SPRING_MIN_PERIOD - H.SPRING_WARN_MS - H.SPRING_FIRE_MS >= 1500, 'a pad rests at least 1.5s each cycle -- the window to cross');
+    const sf = H.firstFireMs(sp);
+    check(H.springState(sp, sf).state === 'fire' && H.springState(sp, sf - 1).state === 'wind', `firstFireMs (${sf}) is the first shot, after its wind-up`);
+    check(H.springShot(sp, sf) !== H.springShot(sp, sf + 3000) && H.springShot(sp, sf) === H.springShot(sp, sf + H.SPRING_FIRE_MS - 1), 'one shot number per shot');
+    check(!!H.springUnder([sp], sf + 5, 0.1, 0.1, BR) && !H.springUnder([sp], sf + 5, 0.6, 0, BR) && !H.springUnder([sp], sf - 100, 0, 0, BR), 'a pad launches only a ball on it, only while firing');
+    const ln = H.springLaunch(sp, 1, -2);
+    check(ln.vz === H.SPRING_SPEED && ln.vx === 0.5, 'a launch sets SPRING_SPEED along dir and halves the sideways speed');
+    check(H.SPRING_SPEED <= 3.5, 'a launch stays in the range a tilt corrects within a cell');
+
+    const arm = { x: 0, z: 0, len: 0.9, periodMs: 4800, phase: 0, dir: 1 };
+    check(Math.abs(H.armAngle(arm, 1200) - Math.PI / 2) < 1e-9 && Math.abs(H.armAngle({ ...arm, dir: -1 }, 1200) + Math.PI / 2) < 1e-9, 'an arm turns a quarter in a quarter period, either way');
+    check(Math.abs(H.armSpin(arm) * 4.8 - 2 * Math.PI) < 1e-9, 'armSpin is the true rate of armAngle');
+    check(H.armTouches(arm, 0, 0.7, 0.2, BR) && !H.armTouches(arm, 1200, 0.7, 0.2, BR) && !H.armTouches(arm, 0, 1.3, 0, BR), 'a blade touches what is beside it, not what it has turned away from or what is past its tip');
+    const box = h => [{ x: 0, z: h + 0.15, w: 4, d: 0.3 }, { x: 0, z: -h - 0.15, w: 4, d: 0.3 }, { x: h + 0.15, z: 0, w: 0.3, d: 4 }, { x: -h - 0.15, z: 0, w: 0.3, d: 4 }];
+    check(!H.armRoomProblem(arm, box(1.15), null, BR), 'a 0.9 arm fits a room 2.3 across');
+    check(/cut through/.test(H.armRoomProblem({ ...arm, len: 1.1 }, box(1.15), null, BR) || ''), 'a blade longer than the room is refused (negative control)');
+    check(/crush/.test(H.armRoomProblem({ ...arm, len: 0.3 }, box(0.55), null, BR) || ''), 'a room too tight for the ball beside the blade is refused (negative control)');
+
     if (failures.length) {
         console.error('FAIL: maze hazard math\n - ' + failures.join('\n - '));
         process.exitCode = 1;
     } else {
-        console.log('PASS: maze hazard math -- gates reopen exactly every period, never leave their authored travel, carry a velocity that is the true derivative of their motion (so cannon pushes the ball rather than ejecting it), ice is a control change with no effect on reachability, conveyors and wind are always weaker than the player, and icicles always telegraph and only strike briefly');
+        console.log('PASS: maze hazard math -- gates reopen exactly every period, never leave their authored travel, carry a velocity that is the true derivative of their motion (so cannon pushes the ball rather than ejecting it), ice is a control change with no effect on reachability, conveyors and wind are always weaker than the player, icicles always telegraph and only strike briefly, and toy box kicks, launches and blades are bounded, telegraphed and never pinch');
     }
 })().catch(e => { console.error(e); process.exitCode = 1; });

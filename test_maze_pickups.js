@@ -85,6 +85,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const lv3 = { ...level, flares: [{ x: 5, z: -5, w: 0.4, d: 1.2, periodMs: 3000, phase: 0 }], geysers: [{ x: -5, z: -5, r: 0.24, reach: 1, periodMs: 3400, phase: 0 }] };
     check(!P.isSafeSpot(lv3, 5, -5, R), 'a spot on a lava seam is not safe');
     check(!P.isSafeSpot(lv3, -5, -4.2, R), "a spot in a geyser's reach is not safe");
+    // 4d. nor beside a bumper, on a spring, or in an arm's sweep (world 4)
+    const lv4 = { ...level, bumpers: [{ x: 5, z: 5, r: 0.16 }], springs: [{ x: -5, z: 5, w: 0.5, d: 0.5, dir: '+x', periodMs: 3000, phase: 0 }], arms: [{ x: 0, z: 5, len: 0.9, periodMs: 4800, phase: 0, dir: 1 }] };
+    check(!P.isSafeSpot(lv4, 5.4, 5, R) && !P.isSafeSpot(lv4, -5, 5.1, R) && !P.isSafeSpot(lv4, 0.6, 5, R), 'a spot by a bumper, on a spring or in an arm sweep is not safe');
+    check(P.isSafeSpot(lv4, 2.5, 5, R), 'clear floor between them still is');
 
     // 5. bought charges
     s = P.createRunPickups(level, { shield: 1, slowmo: 2 });

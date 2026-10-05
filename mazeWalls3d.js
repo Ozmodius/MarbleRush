@@ -29,7 +29,7 @@ import * as THREE from 'three';
 export const SIDE_INSET = 0.02;
 
 // Styles a theme can ask for. 'box' is the original sharp-edged wall.
-export const WALL_STYLES = ['box', 'rock'];
+export const WALL_STYLES = ['box', 'rock', 'bricks'];
 
 // Rock defaults, used when a theme names the style but not the numbers.
 const ROCK = { bevel: 0.05, jag: 0.14, step: 0.11, roundSteps: 2 };
@@ -107,7 +107,9 @@ function heightSamples(height, round, roundSteps, step) {
 // Resolve the numbers a style builds with. Clamped against the thinnest wall
 // so a bevel can never be wider than half the wall it rounds.
 export function wallShape(opts = {}) {
-    const style = WALL_STYLES.includes(opts.style) ? opts.style : 'box';
+    // 'bricks' (world 4) is built by toyWalls3d.js for the level's walls; a
+    // single block like a gate is drawn as the plain box it is.
+    const style = WALL_STYLES.includes(opts.style) && opts.style !== 'bricks' ? opts.style : 'box';
     if (style === 'box') return { style, bevel: 0, jag: 0, inset: 0, step: Infinity, roundSteps: 0 };
     const num = (v, d) => (Number.isFinite(v) && v >= 0 ? v : d);
     return {

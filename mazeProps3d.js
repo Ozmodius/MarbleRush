@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { conveyorDir, windStrength, icicleState, ICICLE_IMPACT_MS, flareState, geyserState } from './mazeHazards.js';
 import { applySurface } from './mazeSurface3d.js';
 import { COIN_RADIUS, PICKUP_RADIUS } from './mazePickups.js';
+import { buildBumpers, buildSprings, buildArms } from './toyProps3d.js';
 
 // LEVEL PROPS -- conveyor belts, coins and power-up pickups as meshes. Shared
 // by mazeGame.js and scripts/themePreview.html, so the preview shows what the
@@ -487,14 +488,22 @@ export function buildLevelProps(lv, tracked = []) {
     const icicles = buildIcicles(lv.icicles, tracked);
     const flares = buildFlares(lv.flares, tracked);
     const geysers = buildGeysers(lv.geysers, tracked);
+    const bumpers = buildBumpers(lv.bumpers, tracked);
+    const springs = buildSprings(lv.springs, tracked);
+    const arms = buildArms(lv.arms, tracked);
     const group = new THREE.Group();
-    group.add(belts.group, coins.group, pickups.group, fans.group, icicles.group, flares.group, geysers.group);
+    group.add(belts.group, coins.group, pickups.group, fans.group, icicles.group, flares.group, geysers.group,
+        bumpers.group, springs.group, arms.group);
     return {
         group,
-        tick(seconds) { belts.tick(seconds); coins.tick(seconds); pickups.tick(seconds); },
-        tickRun(runMs) { fans.tickRun(runMs); icicles.tickRun(runMs); flares.tickRun(runMs); geysers.tickRun(runMs); },
+        tick(seconds) { belts.tick(seconds); coins.tick(seconds); pickups.tick(seconds); bumpers.tick(seconds); },
+        tickRun(runMs) {
+            fans.tickRun(runMs); icicles.tickRun(runMs); flares.tickRun(runMs); geysers.tickRun(runMs);
+            springs.tickRun(runMs); arms.tickRun(runMs);
+        },
         takeCoin: i => coins.take(i),
         takePickup: i => pickups.take(i),
-        reset() { coins.reset(); pickups.reset(); }
+        hitBumper: i => bumpers.hit(i),
+        reset() { coins.reset(); pickups.reset(); bumpers.reset(); }
     };
 }

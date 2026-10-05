@@ -5,7 +5,7 @@ their own feel, upgrades, stars and a daily maze. Spun out of
 [3dBallSmack](https://github.com/Ozmodius/3dBallSmack)'s Marble Maze side game.
 
 **Status: Phase 0 done.** The game boots on its own with no server: level
-select, worlds 1-3 (Workshop to forest, Glacier, Magma Works), ten levels each, coins and power-ups, progress saved on the
+select, worlds 1-4 (Workshop to forest, Glacier, Magma Works, Toy Box), ten levels each, coins and power-ups, progress saved on the
 device (CrazyGames cloud save when signed in). See [docs/PLAN.md](docs/PLAN.md)
 for what comes next.
 

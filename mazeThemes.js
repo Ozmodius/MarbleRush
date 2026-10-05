@@ -93,6 +93,41 @@ export const MAZE_THEMES = {
         gateColor: '#7d6a5a',
         backdropColor: '#1d1614'
     },
+    // WORLD 4, THE TOY BOX: levels say theme 'playroom', themeTo 'toybox'
+    // and a blend. Foam play-mat tiles underfoot and walls of plastic bricks
+    // with studs on top (toyWalls3d.js), soft pastels in the first levels and
+    // bright primaries by the last. The marble is a pale pinball steel -- only
+    // half metal, since full chrome mirrors the dark room and reads as a hole. The mat
+    // stays light all the way, so dark holes and the hazards' bright plastic
+    // always read against it.
+    'playroom': {
+        id: 'playroom',
+        name: 'Playroom',
+        rarity: 'rare',
+        floorColor: '#f1e9da', floorColor2: '#d9e6ee', floorRoughness: 0.9, floorMetalness: 0.0,
+        floorPattern: 'foamMat',
+        wallColor: '#e8a3a3', wallRoughness: 0.4, wallMetalness: 0.0,
+        wallStyle: 'bricks', brickSat: 0.38,
+        marbleColor: '#e8ecf2', marbleRoughness: 0.14, marbleMetalness: 0.35,
+        holeColor: '#1b1e2c',
+        goalColor: '#16a34a',
+        gateColor: '#6d5bd0',
+        backdropColor: '#2b2433'
+    },
+    'toybox': {
+        id: 'toybox',
+        name: 'The Toy Box',
+        rarity: 'epic',
+        floorColor: '#f4efe4', floorColor2: '#a9cfe8', floorRoughness: 0.85, floorMetalness: 0.0,
+        floorPattern: 'foamMat',
+        wallColor: '#e03a3a', wallRoughness: 0.3, wallMetalness: 0.0,
+        wallStyle: 'bricks', brickSat: 0.85,
+        marbleColor: '#e8ecf2', marbleRoughness: 0.12, marbleMetalness: 0.35,
+        holeColor: '#141826',
+        goalColor: '#16a34a',
+        gateColor: '#6d5bd0',
+        backdropColor: '#1d1830'
+    },
     'slate': {
         id: 'slate',
         name: 'Cold Storage',

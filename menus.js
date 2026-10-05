@@ -172,7 +172,10 @@ function placeLabels() {
     for (const a of ctx.game.worldAnchors()) {
         const b = $('worldLabel_' + a.n);
         if (!b) continue;
-        b.style.left = a.x + 'px';
+        // Kept whole on screen: an outer planet near the edge would cut its
+        // name in half.
+        const half = b.offsetWidth / 2 + 6, W = b.parentElement ? b.parentElement.clientWidth : window.innerWidth;
+        b.style.left = Math.max(half, Math.min(W - half, a.x)) + 'px';
         b.style.top = a.y + 'px';
         b.style.visibility = '';
     }

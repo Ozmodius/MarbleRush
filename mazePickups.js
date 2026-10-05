@@ -16,7 +16,7 @@
 // bought before the level (a CHARGE the player fires with a tap; a bought
 // shield is simply armed from the start).
 
-import { gateSweptSpec, distanceToRect, conveyorAt, windAt } from './mazeHazards.js';
+import { gateSweptSpec, distanceToRect, conveyorAt, windAt, armReach } from './mazeHazards.js';
 
 export const COIN_RADIUS = 0.15;
 export const PICKUP_RADIUS = 0.22;
@@ -125,6 +125,10 @@ export function isSafeSpot(level, x, z, r) {
     // Nor on a lava seam, nor within a geyser's blast.
     if ((level.flares || []).some(f => distanceToRect(f, x, z) < r)) return false;
     if ((level.geysers || []).some(g => Math.hypot(x - g.x, z - g.z) < g.reach + r)) return false;
+    // Nor against a bumper, on a spring pad, or where an arm sweeps (world 4).
+    if ((level.bumpers || []).some(b => Math.hypot(x - b.x, z - b.z) < b.r + r * 2)) return false;
+    if ((level.springs || []).some(p => distanceToRect(p, x, z) < r)) return false;
+    if ((level.arms || []).some(a => Math.hypot(x - a.x, z - a.z) < armReach(a) + r)) return false;
     return true;
 }
 

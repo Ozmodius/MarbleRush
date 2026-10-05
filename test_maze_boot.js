@@ -264,6 +264,70 @@ const check = (c, m) => { if (!c) failures.push(m); };
             check(await dbg('phase') === 'running', 'a blast moves the ball; it does not end the run');
         }
 
+        // --- world 4: bumpers, springs, spinning arms -------------------------
+        const freeAt = (lv, x, z) => {
+            const R = lv.ballRadius;
+            return Math.abs(x) < lv.size.w / 2 - R && Math.abs(z) < lv.size.d / 2 - R
+                && lv.walls.every(w => Math.abs(x - w.x) > w.w / 2 + R + 0.01 || Math.abs(z - w.z) > w.d / 2 + R + 0.01);
+        };
+        const lvB = levels.find(l => (l.bumpers || []).length);
+        if (lvB) {
+            check(await dbg('startLevelForTest', lvB.id), `can build ${lvB.id}`);
+            await page.tap('#mazeStartBtn');
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const b = lvB.bumpers[0], R = lvB.ballRadius;
+            // Beside the bumper on its open side (it sits snug in a corner).
+            const dirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, c]) => [a / Math.SQRT2, c / Math.SQRT2]);
+            const d = dirs.find(([a, c]) => freeAt(lvB, b.x + a * (b.r + R + 0.05), b.z + c * (b.r + R + 0.05)));
+            check(!!d, 'found open floor beside a bumper');
+            if (d) {
+                const p0 = await dbg('placeBall', b.x + d[0] * (b.r + R + 0.05), b.z + d[1] * (b.r + R + 0.05));
+                await dbg('setBallVelocity', -d[0] * 1.2, -d[1] * 1.2);
+                const before = (await dbg('world4')).kicks;
+                const p1 = await dbg('advanceFrames', 12);
+                const w4 = await dbg('world4');
+                check(w4.kicks > before, 'rolling into a bumper sets off a kick');
+                check(Math.hypot(p1.x - b.x, p1.z - b.z) > Math.hypot(p0.x - b.x, p0.z - b.z) + 0.15,
+                    `a bumper kicks the ball away (from ${Math.hypot(p0.x - b.x, p0.z - b.z).toFixed(2)} to ${Math.hypot(p1.x - b.x, p1.z - b.z).toFixed(2)})`);
+                check(await dbg('phase') === 'running', 'a kick moves the ball; it does not end the run');
+            }
+        }
+        const lvS = levels.find(l => (l.springs || []).length);
+        if (lvS) {
+            check(await dbg('startLevelForTest', lvS.id), `can build ${lvS.id}`);
+            await page.tap('#mazeStartBtn');
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const sp = lvS.springs[0], tf = H.firstFireMs(sp);
+            const along = (p, q) => sp.dir[1] === 'x' ? (q.x - p.x) * (sp.dir[0] === '+' ? 1 : -1) : (q.z - p.z) * (sp.dir[0] === '+' ? 1 : -1);
+            await dbg('setRunClock', tf - 1500);
+            let q0 = await dbg('placeBall', sp.x, sp.z);
+            let q1 = await dbg('advanceFrames', 8);
+            check(Math.abs(along(q0, q1)) < 0.02, `a resting spring pad is just floor (moved ${along(q0, q1).toFixed(3)})`);
+            check((await dbg('world4')).springs[0] === 'rest', 'and it reads as resting');
+            await dbg('setRunClock', tf - 40);
+            q0 = await dbg('placeBall', sp.x, sp.z);
+            q1 = await dbg('advanceFrames', 8);
+            check(along(q0, q1) > 0.25, `a firing spring launches the ball along ${sp.dir} (moved ${along(q0, q1).toFixed(3)})`);
+        }
+        const lvArm = levels.find(l => (l.arms || []).length);
+        if (lvArm) {
+            check(await dbg('startLevelForTest', lvArm.id), `can build ${lvArm.id}`);
+            await page.tap('#mazeStartBtn');
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const ar = lvArm.arms[0];
+            await dbg('setRunClock', 1000);
+            const w4 = await dbg('world4');
+            const wrap = x => Math.atan2(Math.sin(x), Math.cos(x));
+            check(Math.abs(wrap(w4.arms[0].want - w4.arms[0].body)) < 0.01, `an arm's blade is where the run clock says (${w4.arms[0].want.toFixed(3)} vs ${w4.arms[0].body.toFixed(3)})`);
+            // A ball just ahead of a blade is swept along by it.
+            const th = H.armAngle(ar, 1000) + (ar.dir < 0 ? -1 : 1) * 0.3;
+            const a0 = await dbg('placeBall', ar.x + Math.cos(th) * 0.6, ar.z + Math.sin(th) * 0.6);
+            const a1 = await dbg('advanceFrames', 40);
+            check(Math.hypot(a1.x - a0.x, a1.z - a0.z) > 0.1, `a blade sweeps a ball in its way (moved ${Math.hypot(a1.x - a0.x, a1.z - a0.z).toFixed(3)})`);
+            check(await dbg('phase') === 'running', 'a blade shoves; it does not end the run');
+            check(Math.hypot(a1.x - ar.x, a1.z - ar.z) < 2, 'and the ball stays in the room');
+        }
+
         // --- progress survives a reload ----------------------------------
         await page.reload();
         await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });

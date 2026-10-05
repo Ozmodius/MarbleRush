@@ -24,6 +24,8 @@ const path = require('path');
 const DATA = require('./mazeLevels.json');
 // The theme catalog is mazeThemes.js (an ES module, loaded in run()).
 let THEMES = {};
+// mazeHazards.js, for the helpers that are not handed it (loaded in run()).
+let HZ = null;
 
 const GRID = 0.05;   // fine enough to find a channel a ball can actually use
 
@@ -69,7 +71,8 @@ function fitsWithMargin(lv, H) {
     const solids = lv.walls.concat((Array.isArray(lv.gates) ? lv.gates : []).map(g => H.gateOpenSpec(g)));
     const blocked = (x, z) =>
         Math.abs(x) > hw - R || Math.abs(z) > hd - R
-        || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R);
+        || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R)
+        || H.inPost(H.postSpecs(lv), x, z, R);
 
     const nx = Math.round(lv.size.w / GRID), nz = Math.round(lv.size.d / GRID);
     const px = i => -hw + i * GRID, pz = j => -hd + j * GRID;
@@ -105,7 +108,8 @@ function reachableFloor(lv, gateSpecs) {
     const hw = lv.size.w / 2, hd = lv.size.d / 2;
     const solids = lv.walls.concat(gateSpecs);
     const solid = (x, z) => Math.abs(x) > hw - R || Math.abs(z) > hd - R
-        || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R);
+        || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R)
+        || HZ.inPost(HZ.postSpecs(lv), x, z, R);
     const holed = (x, z) => (lv.holes || []).some(h => Math.hypot(x - h.x, z - h.z) <= h.r);
     // THE EXIT ABSORBS. mazeGame.js's checkOutcomes wins the run the moment the
     // ball centre enters the goal disc, so the ball never comes out the far side
@@ -192,8 +196,10 @@ function analyse(lv, H) {
     // must not affect the solver. What ice CAN do -- carry a player into a hole
     // they meant to stop short of -- is not a property any static search can
     // decide, and is handled as an authoring rule further down instead.
+    // Bumpers and arm hubs are posts: solid, like walls (mazeHazards.js postSpecs).
+    const posts = H.postSpecs(lv);
     const inWall = (x, z) => solids.some(w =>
-        Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R);
+        Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R) || H.inPost(posts, x, z, R);
     const outside = (x, z) => Math.abs(x) > hw - R || Math.abs(z) > hd - R;
     const inHole = (x, z) => lv.holes.some(h => Math.hypot(x - h.x, z - h.z) <= h.r);
     const free = (x, z) => !outside(x, z) && !inWall(x, z) && !inHole(x, z);
@@ -386,6 +392,69 @@ function checkExtras(lv, H, P) {
         check(reachableAt(gy.x, gy.z, gy.reach), `${gtag} is UNREACHABLE`);
     });
 
+    // BUMPERS -- posts (solid to every search above) with a bounded kick:
+    // no hole within BUMPER_HOLE_CLEAR, so a kick costs position, never the run.
+    (Array.isArray(lv.bumpers) ? lv.bumpers : []).forEach((b, n) => {
+        const btag = `${tag}: bumper ${n} at (${b.x},${b.z})`;
+        check(Number.isFinite(b.r) && b.r > 0 && b.r <= 0.3, `${btag} needs a radius in (0, 0.3]`);
+        check(Math.abs(b.x) + b.r <= a.hw && Math.abs(b.z) + b.r <= a.hd, `${btag} is outside the level`);
+        for (const h of lv.holes) check(Math.hypot(b.x - h.x, b.z - h.z) >= H.BUMPER_HOLE_CLEAR, `${btag} is within ${H.BUMPER_HOLE_CLEAR} of the hole at (${h.x},${h.z}) -- a kick could put the ball in`);
+        check(Math.hypot(b.x - lv.start.x, b.z - lv.start.z) > b.r + a.R * 3, `${btag} is at the START`);
+        check(Math.hypot(b.x - lv.goal.x, b.z - lv.goal.z) > b.r + lv.goal.r + a.R, `${btag} guards the GOAL`);
+        sweeps.forEach(sw => check(H.distanceToRect(sw, b.x, b.z) > b.r + a.R, `${btag} stands in a gate's sweep`));
+        check(reachableAt(b.x, b.z, b.r + a.R + GRID * 2), `${btag} is UNREACHABLE -- nothing can ever touch it`);
+    });
+
+    // SPRING PADS -- timed: they wind up before every shot and rest long
+    // enough to cross. A launch runs along the corridor to the first wall:
+    // that LANE stays clear of holes, so a launch never throws the ball in.
+    (Array.isArray(lv.springs) ? lv.springs : []).forEach((p, n) => {
+        const ptag = `${tag}: spring ${n} at (${p.x},${p.z})`;
+        check(Number.isFinite(p.w) && p.w > 0 && p.w <= 0.8 && Number.isFinite(p.d) && p.d > 0 && p.d <= 0.8, `${ptag} needs w and d in (0, 0.8]`);
+        check(!!H.conveyorDir(p), `${ptag} needs dir '+x', '-x', '+z' or '-z'`);
+        check(Number.isFinite(p.periodMs) && p.periodMs >= H.SPRING_MIN_PERIOD, `${ptag} needs a periodMs of at least ${H.SPRING_MIN_PERIOD}`);
+        check(H.firstFireMs(p) >= 1500, `${ptag} first fires ${H.firstFireMs(p)}ms into a run`);
+        check(H.distanceToRect(p, lv.start.x, lv.start.z) > a.R * 1.5, `${ptag} is at the START`);
+        check(H.distanceToRect(p, lv.goal.x, lv.goal.z) > lv.goal.r, `${ptag} touches the GOAL`);
+        sweeps.forEach(sw => check(!overlap(p, sw, a.R), `${ptag} lies under a gate's sweep`));
+        // The lane: from the pad's middle along dir until a ball would meet a
+        // wall, a gate (open) or a post.
+        const [dx, dz] = H.conveyorDir(p) || [0, 0];
+        let ex = p.x, ez = p.z;
+        for (let k = 0; k < 400; k++) {
+            const nx = ex + dx * GRID, nz = ez + dz * GRID;
+            if (a.outside(nx, nz) || a.inWall(nx, nz)) break;
+            ex = nx; ez = nz;
+        }
+        const seg = { x: (p.x + ex) / 2, z: (p.z + ez) / 2, w: Math.abs(ex - p.x), d: Math.abs(ez - p.z) };
+        for (const h of lv.holes) {
+            check(H.distanceToRect(seg, h.x, h.z) >= h.r + a.R + H.SPRING_LANE_CLEAR,
+                `${ptag} launches the ball down a lane that passes the hole at (${h.x},${h.z}) -- a launch must never throw the ball in`);
+        }
+        const live = [...rf.seen].some(k => { const [i, j] = k.split('_').map(Number); return H.distanceToRect(p, rf.px(i), rf.pz(j)) === 0; });
+        check(live, `${ptag} is UNREACHABLE`);
+    });
+
+    // SPINNING ARMS -- timed shoves, like gates. The room rules (blade never
+    // reaches a wall, never crushes the ball against one), and the whole
+    // sweep clear of holes, start, goal and gates.
+    (Array.isArray(lv.arms) ? lv.arms : []).forEach((ar, n) => {
+        const atag = `${tag}: arm ${n} at (${ar.x},${ar.z})`;
+        check(Number.isFinite(ar.len) && ar.len > 0.3 && ar.len <= 1.5, `${atag} needs a len in (0.3, 1.5]`);
+        check(ar.dir === 1 || ar.dir === -1, `${atag} needs dir 1 or -1`);
+        check(Number.isFinite(ar.periodMs) && ar.periodMs >= H.ARM_MIN_PERIOD, `${atag} needs a periodMs of at least ${H.ARM_MIN_PERIOD}`);
+        const why = H.armRoomProblem(ar, lv.walls.concat(openSpecs), lv.size, a.R);
+        check(!why, `${atag}: ${why}`);
+        const reach = H.armReach(ar);
+        for (const h of lv.holes) check(Math.hypot(ar.x - h.x, ar.z - h.z) >= reach + a.R + h.r + 0.3, `${atag} sweeps too near the hole at (${h.x},${h.z}) -- a blade would shove the ball in`);
+        check(Math.hypot(ar.x - lv.start.x, ar.z - lv.start.z) > reach + a.R, `${atag} sweeps the START`);
+        check(Math.hypot(ar.x - lv.goal.x, ar.z - lv.goal.z) > reach + lv.goal.r, `${atag} sweeps the GOAL`);
+        sweeps.forEach(sw => check(H.distanceToRect(sw, ar.x, ar.z) >= reach + a.R, `${atag} sweeps into a gate's path`));
+        (lv.springs || []).forEach((p, k) => check(H.distanceToRect(p, ar.x, ar.z) >= reach, `${atag} sweeps over spring ${k}`));
+        (lv.bumpers || []).forEach((b, k) => check(Math.hypot(b.x - ar.x, b.z - ar.z) >= reach + b.r, `${atag} sweeps through bumper ${k}`));
+        check(reachableAt(ar.x, ar.z, reach + a.R), `${atag} is UNREACHABLE`);
+    });
+
     // COINS AND PICKUPS. Every one must be collectible by a ball standing on
     // reachable floor, without that ball being over a hole, and must not sit
     // where a gate sweeps (a coin you can only take by being crushed is a
@@ -406,6 +475,8 @@ function checkExtras(lv, H, P) {
         }
         sweeps.forEach(sw => check(H.distanceToRect(sw, it.x, it.z) > a.R, `${itag} lies in a gate's sweep`));
         check(Math.hypot(it.x - lv.goal.x, it.z - lv.goal.z) > lv.goal.r + it.reach, `${itag} is on the GOAL`);
+        (lv.springs || []).forEach((p, k) => check(H.distanceToRect(p, it.x, it.z) >= a.R, `${itag} sits on spring ${k} -- taking it would mean riding the launch`));
+        (lv.bumpers || []).forEach((b, k) => check(Math.hypot(it.x - b.x, it.z - b.z) >= b.r + a.R, `${itag} is inside bumper ${k}`));
         check(Math.hypot(it.x - lv.start.x, it.z - lv.start.z) > a.R + it.reach, `${itag} is on the START -- collected before the run begins`);
     }
     (lv.pickups || []).forEach((p, n) => check(P.POWERUP_KINDS.includes(p.kind), `${tag}: pickup ${n} has unknown kind '${p.kind}' (have: ${P.POWERUP_KINDS.join(', ')})`));
@@ -417,6 +488,7 @@ async function run() {
     // differently from the thing that draws them would certify levels the game
     // then makes impossible -- the precise failure this file exists to prevent.
     const H = await import('./mazeHazards.js');
+    HZ = H;
     THEMES = (await import('./mazeThemes.js')).MAZE_THEMES;
     const P = await import('./mazePickups.js');
 
@@ -676,7 +748,8 @@ async function run() {
         ice: l => (l.ice || []).length, conveyors: l => (l.conveyors || []).length,
         fans: l => (l.fans || []).length, icicles: l => (l.icicles || []).length,
         flares: l => (l.flares || []).length, moltenGates: l => (l.gates || []).filter(g => g.molten).length,
-        geysers: l => (l.geysers || []).length };
+        geysers: l => (l.geysers || []).length,
+        bumpers: l => (l.bumpers || []).length, springs: l => (l.springs || []).length, arms: l => (l.arms || []).length };
     const metBefore = new Set();
     for (const w of Object.keys(worldRanges).sort((a, b) => a - b)) {
         const lvls = DATA.levels.filter(l => String(l.world) === w);

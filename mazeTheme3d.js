@@ -67,7 +67,9 @@ const HARD_DEFAULTS = {
     floorColor2: '', wallColor2: '',
     glowColor: '#ff5a14', floorGlow: 0, wallGlow: 0,
     gatePattern: '', gateGlow: -1,
-    patternScale: 1
+    patternScale: 1,
+    // 'bricks' walls (world 4, toyWalls3d.js): 0 pastel .. 1 full primaries.
+    brickSat: 1
 };
 
 // Accepts either a theme ID (the game: a level names its theme) or a raw

@@ -101,6 +101,37 @@ const EPS = 1e-4;
         check(pa.length === pb.length && pa.every((v, i) => v === pb[i]), `${lv.id}: rock walls differ between two builds`);
     }
 
+    // 7. TOY BRICKS (world 4, toyWalls3d.js): the bricks tile the walls'
+    // outline exactly once -- runs never overlap (two bricks in one place
+    // flicker), every point of every wall is under a run (no hole in a wall),
+    // every run lies inside the walls (nothing pokes into a corridor) -- and no
+    // vertex leaves the collider union or floats off the floor.
+    const T = await import('./toyWalls3d.js');
+    let runs = 0;
+    for (const lv of levels.filter(l => l.theme === 'playroom')) {
+        const specs = lv.walls.concat(railsFor(lv));
+        const R = T.brickRuns(specs).map(r => r.alongX
+            ? { x: (r.lo + r.hi) / 2, z: r.c, w: r.hi - r.lo, d: r.t } : { x: r.c, z: (r.lo + r.hi) / 2, w: r.t, d: r.hi - r.lo });
+        runs += R.length;
+        const inRect = (q, x, z, e = 1e-6) => Math.abs(x - q.x) <= q.w / 2 + e && Math.abs(z - q.z) <= q.d / 2 + e;
+        for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) {
+            const ox = Math.min(R[i].x + R[i].w / 2, R[j].x + R[j].w / 2) - Math.max(R[i].x - R[i].w / 2, R[j].x - R[j].w / 2);
+            const oz = Math.min(R[i].z + R[i].d / 2, R[j].z + R[j].d / 2) - Math.max(R[i].z - R[i].d / 2, R[j].z - R[j].d / 2);
+            check(!(ox > 1e-4 && oz > 1e-4), `${lv.id}: brick runs ${i} and ${j} overlap`);
+        }
+        const sample = (q, fn) => { for (let a = 0.02; a < 1; a += 0.08) for (let b = 0.02; b < 1; b += 0.08) fn(q.x - q.w / 2 + q.w * a, q.z - q.d / 2 + q.d * b); };
+        specs.forEach((sp, i) => sample(sp, (x, z) => check(R.some(q => inRect(q, x, z)), `${lv.id}: wall ${i} has a gap in its bricks at (${x.toFixed(2)},${z.toFixed(2)})`)));
+        R.forEach((q, i) => sample(q, (x, z) => check(specs.some(sp => inRect(sp, x, z)), `${lv.id}: brick run ${i} lies outside every wall at (${x.toFixed(2)},${z.toFixed(2)})`)));
+        const p = T.buildBrickWallGeometry(specs, { height: WALL_HEIGHT, sat: 0.5 }).getAttribute('position').array;
+        for (let i = 0; i < p.length; i += 3) {
+            if (!specs.some(sp => inRect(sp, p[i], p[i + 2], 1e-5)) || p[i + 1] < -EPS || p[i + 1] > WALL_HEIGHT + T.STUD_H + EPS) {
+                check(false, `${lv.id}: a brick vertex at (${p[i].toFixed(3)},${p[i + 1].toFixed(3)},${p[i + 2].toFixed(3)}) is outside the walls`);
+                break;
+            }
+        }
+    }
+    check(runs > 0, 'no world 4 level was checked for bricks');
+
     // 4. 'box' is the box: four corners at floor and top on each face, nothing else.
     const box = W.buildWallGeometry([{ x: 1, z: 2, w: 3, d: 0.4 }], { height: WALL_HEIGHT, style: 'box' });
     check(box.getAttribute('position').count === 20, `'box' should be 5 quads (no bottom), got ${box.getAttribute('position').count} vertices`);
@@ -110,6 +141,6 @@ const EPS = 1e-4;
             + (failures.length > 40 ? `\n ... and ${failures.length - 40} more` : ''));
         process.exitCode = 1;
     } else {
-        console.log(`PASS: maze wall geometry -- ${walls} walls across ${levels.length} levels, box and rock: no drawn rock leaves its collider, faces hold within ${W.SIDE_INSET} of it below the marble's reach, every foot is on the floor, and rock is seeded`);
+        console.log(`PASS: maze wall geometry -- ${walls} walls across ${levels.length} levels, box and rock and ${runs} toy brick runs: no drawn rock or brick leaves its collider, bricks tile each wall once, faces hold within ${W.SIDE_INSET} of it below the marble's reach, every foot is on the floor, and rock is seeded`);
     }
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -260,9 +260,11 @@ function solvable(lv) {
     const R = lv.ballRadius, GRID = SEARCH_GRID;
     const hw = lv.size.w / 2, hd = lv.size.d / 2;
     const solids = lv.walls.concat((lv.gates || []).map(g => ({ x: g.x, z: g.z, w: g.w, d: g.d })));
+    const posts = H.postSpecs(lv);
     const blocked = (x, z) =>
         Math.abs(x) > hw - R || Math.abs(z) > hd - R
         || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R)
+        || H.inPost(posts, x, z, R)
         || (lv.holes || []).some(h => Math.hypot(x - h.x, z - h.z) <= h.r);
 
     const nx = Math.round(lv.size.w / GRID), nz = Math.round(lv.size.d / GRID);
@@ -433,9 +435,11 @@ function fits(lv) {
     const R = lv.ballRadius * (1 + FIT_MARGIN_R), GRID = SEARCH_GRID;
     const hw = lv.size.w / 2, hd = lv.size.d / 2;
     const solids = lv.walls.concat((lv.gates || []).map(g => ({ x: g.x, z: g.z, w: g.w, d: g.d })));
+    const posts = H.postSpecs(lv);
     const blocked = (x, z) =>
         Math.abs(x) > hw - R || Math.abs(z) > hd - R
-        || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R);
+        || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R)
+        || H.inPost(posts, x, z, R);
 
     const nx = Math.round(lv.size.w / GRID), nz = Math.round(lv.size.d / GRID);
     const px = i => -hw + i * GRID, pz = j => -hd + j * GRID;
@@ -531,8 +535,10 @@ function reachable(lv, gateSpecs) {
     const R = lv.ballRadius, GRID = SEARCH_GRID;
     const hw = lv.size.w / 2, hd = lv.size.d / 2;
     const solids = lv.walls.concat(gateSpecs);
+    const posts = H.postSpecs(lv);
     const solid = (x, z) => Math.abs(x) > hw - R || Math.abs(z) > hd - R
-        || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R);
+        || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R)
+        || H.inPost(posts, x, z, R);
     const holed = (x, z) => (lv.holes || []).some(h => Math.hypot(x - h.x, z - h.z) <= h.r);
     // THE EXIT ABSORBS. checkOutcomes() wins the run the moment the ball centre
     // enters the goal disc, so the ball can never come out the far side of it:
@@ -807,6 +813,8 @@ function placeCollectibles(open, cfg, g, path, rand, lv, coinCount, pickupKinds)
     });
     const ok = (x, z) => standable(x, z)
         && (lv.holes || []).every(h => Math.hypot(x - h.x, z - h.z) >= h.r + R + 0.15)
+        && (lv.bumpers || []).every(b => Math.hypot(x - b.x, z - b.z) >= b.r + R + 0.15)
+        && (lv.springs || []).every(p => Math.max(Math.abs(x - p.x) - p.w / 2, Math.abs(z - p.z) - p.d / 2) >= R)
         && sweeps.every(sw => Math.abs(x - sw.x) > sw.w / 2 + R || Math.abs(z - sw.z) > sw.d / 2 + R);
     const used = new Set();
     const take = (pool) => {
@@ -935,6 +943,103 @@ function placeGeysers(open, cfg, g, path, rand, count) {
     return out;
 }
 
+// WORLD 4. SPINNING ARMS need a ROOM: a rotor in a one-cell corridor would
+// leave no way past its hub. So the generator opens a 2x2 block of cells the
+// route crosses into one room (its four inner faces knocked through) and
+// stands the arm at the room's middle, where those faces met. Rooms are only
+// ever ADDED floor, so the maze stays solvable; the caller recomputes the
+// route through them. Returns the arms; mutates `open`.
+function openRooms(open, cfg, g, path, rand, count) {
+    const near = new Set([path[0], path[1], path[path.length - 1], path[path.length - 2]].map(([i, j]) => i + ',' + j));
+    const cands = [];
+    for (let n = 2; n < path.length - 3; n++) {
+        const [i, j] = path[n], [ni, nj] = path[n + 1];
+        const bi0 = Math.min(i, ni), bj0 = Math.min(j, nj);
+        const blocks = i !== ni ? [[bi0, j], [bi0, j - 1]] : [[i, bj0], [i - 1, bj0]];
+        for (const [bi, bj] of blocks) {
+            if (bi < 0 || bj < 0 || bi + 1 >= cfg.cols || bj + 1 >= cfg.rows) continue;
+            const cells = [[bi, bj], [bi + 1, bj], [bi, bj + 1], [bi + 1, bj + 1]];
+            if (cells.some(([a, b]) => near.has(a + ',' + b))) continue;
+            cands.push([bi, bj]);
+        }
+    }
+    shuffle(cands, rand);
+    const rooms = [];
+    for (const [bi, bj] of cands) {
+        if (rooms.length >= count) break;
+        if (rooms.some(([a, b]) => Math.abs(a - bi) < 4 && Math.abs(b - bj) < 4)) continue;
+        rooms.push([bi, bj]);
+    }
+    const D = Math.min(g.px, g.pz) - g.t / 2;
+    return rooms.map(([bi, bj], n) => {
+        open[bj][bi].E = open[bj][bi + 1].W = true;
+        open[bj + 1][bi].E = open[bj + 1][bi + 1].W = true;
+        open[bj][bi].S = open[bj + 1][bi].N = true;
+        open[bj][bi + 1].S = open[bj + 1][bi + 1].N = true;
+        return {
+            x: r2(g.cx(bi) + g.px / 2), z: r2(g.cz(bj) + g.pz / 2),
+            len: r2(D - H.ARM_HALF_T - H.ARM_WALL_GAP - 0.1),
+            periodMs: 4400 + Math.round(rand() * 8) * 100, phase: r2(rand()), dir: n % 2 ? -1 : 1,
+            _cells: [[bi, bj], [bi + 1, bj], [bi, bj + 1], [bi + 1, bj + 1]]
+        };
+    });
+}
+
+// BUMPERS stand in the OUTER corner of a turn the route takes: roll into the
+// turn wide and the bumper kicks you back; cut the corner and you never touch
+// it. Snug in the corner (a hair off both walls): any further out and the
+// test ball half again as wide could not get round the turn. Candidates only
+// -- buildLevel keeps each one the level still fits with.
+const BUMPER_R = 0.18;
+function placeBumpers(open, cfg, g, path, rand, count) {
+    const out = [];
+    const fx = (g.px - g.t) / 2, fz = (g.pz - g.t) / 2;
+    for (let n = 2; n < path.length - 2; n++) {
+        const [pi, pj] = path[n - 1], [i, j] = path[n], [ni, nj] = path[n + 1];
+        if (pi === ni || pj === nj) continue;                     // straight, not a turn
+        if (neighbours(open, cfg.cols, cfg.rows, i, j).length !== 2) continue;
+        const sx = -((pi - i) + (ni - i)), sz = -((pj - j) + (nj - j));
+        out.push({ x: r2(g.cx(i) + sx * (fx - BUMPER_R - 0.01)), z: r2(g.cz(j) + sz * (fz - BUMPER_R - 0.01)), r: BUMPER_R, _cell: i + ',' + j });
+    }
+    shuffle(out, rand);
+    return out.slice(0, count);
+}
+
+// SPRING PADS lie on straight route cells and fire ALONG the corridor, with
+// the route or against it. Each comes with its LAUNCH LANE -- the cells from
+// the pad to the first wall that way -- which holes keep out of.
+function placeSprings(open, cfg, g, path, rand, count, taken) {
+    const out = [];
+    const cells = [];
+    for (let n = 3; n < path.length - 2; n++) {
+        const [pi, pj] = path[n - 1], [i, j] = path[n], [ni, nj] = path[n + 1];
+        if ((i - pi) + ',' + (j - pj) !== (ni - i) + ',' + (nj - j)) continue;
+        if (taken.has(i + ',' + j)) continue;
+        cells.push({ i, j, di: ni - i, dj: nj - j });
+    }
+    shuffle(cells, rand);
+    const FACE = { '1,0': 'E', '-1,0': 'W', '0,1': 'S', '0,-1': 'N' };
+    for (const c of cells) {
+        if (out.length >= count) break;
+        if (out.some(o => Math.hypot(o.pad.x - g.cx(c.i), o.pad.z - g.cz(c.j)) < Math.min(g.px, g.pz) * 2)) continue;
+        const back = rand() < 0.5 ? -1 : 1;
+        const di = c.di * back, dj = c.dj * back;
+        let ei = c.i, ej = c.j;
+        while (open[ej][ei][FACE[di + ',' + dj]] && ei + di >= 0 && ej + dj >= 0 && ei + di < cfg.cols && ej + dj < cfg.rows) { ei += di; ej += dj; }
+        const x0 = Math.min(g.cx(c.i), g.cx(ei)) - g.px / 2, x1 = Math.max(g.cx(c.i), g.cx(ei)) + g.px / 2;
+        const z0 = Math.min(g.cz(c.j), g.cz(ej)) - g.pz / 2, z1 = Math.max(g.cz(c.j), g.cz(ej)) + g.pz / 2;
+        const pad = {
+            x: r2(g.cx(c.i)), z: r2(g.cz(c.j)), w: 0.5, d: 0.5,
+            dir: (di ? (di > 0 ? '+x' : '-x') : (dj > 0 ? '+z' : '-z')),
+            periodMs: 2800 + Math.round(rand() * 8) * 100, phase: r2(rand())
+        };
+        for (let k = 0; k < 20 && H.firstFireMs(pad) < 1800; k++) pad.phase = r2((pad.phase + 0.13) % 1);
+        if (H.firstFireMs(pad) < 1800) continue;
+        out.push({ pad, lane: { x: (x0 + x1) / 2, z: (z0 + z1) / 2, w: x1 - x0, d: z1 - z0 }, cell: c.i + ',' + c.j });
+    }
+    return out;
+}
+
 // Gates go on a DOORWAY the solution path crosses -- the boundary between two
 // cells the player has to pass between, not a bar standing in the middle of a
 // corridor. A gate on a branch nobody takes is scenery; a bar in a corridor wide
@@ -1024,8 +1129,7 @@ module.exports.holeRadiusFor = holeRadiusFor;
 // level by level. `route` is how much of the grid the solution path should
 // cover; it climbs too.
 //
-// Only world 1 is built so far; worlds 2-5 (Glacier, Magma Works, Toy Box,
-// Foundry) follow as their traps are built.
+// Worlds 1-4 are built; world 5 (Foundry) follows as its traps are built.
 const PICKUP_ROTATION = ['shield', 'magnet', 'slowmo'];
 const WORLDS = [
     {
@@ -1103,6 +1207,32 @@ const WORLDS = [
             { cols: 7, rows: 10, holes: 6, gates: 0, molten: 1, conveyors: 0, flares: 3, geysers: 3, coins: 12, route: 0.5 }
         ],
         prize: 'obsidianCore'
+    },
+    {
+        // THE TOY BOX. A playroom floor of foam tiles and walls of plastic
+        // bricks, pastel at first and bright by the end (blend playroom ->
+        // toybox). New here: BUMPERS (L1), SPRING PADS (L4), SPINNING ARMS
+        // (L10). Holes and gates return as review.
+        world: 4, theme: 'playroom', themeTo: 'toybox', ball: 0.26, wall: 0.28, braid: 0.25,
+        names: ['Pinball', 'Ricochet', 'Rebound', 'Jack in the Box', 'Boing',
+                'Pogo', 'Wind-Up', 'Bounce House', 'Toy Soldier', 'Merry-Go-Round'],
+        teaches: ['BUMPERS: posts in the corners that kick you back. Cut the corner.', 'More bumpers.', 'Bumpers and a gate.',
+                  'SPRING PADS: they wind down, then launch you along the corridor. Cross while they rest.', 'Springs and bumpers.', 'Springs and a gate.',
+                  'More springs.', 'A finer grid.', 'The finest grid this ball fits.',
+                  'SPINNING ARMS: rotors in open rooms. Slip through behind a blade.'],
+        levels: [
+            { cols: 7, rows: 10, holes: 4, gates: 0, conveyors: 0, bumpers: 3, springs: 0, arms: 0, coins: 7,  route: 0.35 },
+            { cols: 7, rows: 10, holes: 5, gates: 0, conveyors: 0, bumpers: 4, springs: 0, arms: 0, coins: 8,  route: 0.45 },
+            { cols: 7, rows: 10, holes: 5, gates: 1, conveyors: 0, bumpers: 4, springs: 0, arms: 0, coins: 8,  route: 0.5 },
+            { cols: 7, rows: 10, holes: 5, gates: 0, conveyors: 0, bumpers: 2, springs: 2, arms: 0, coins: 9,  route: 0.4 },
+            { cols: 7, rows: 10, holes: 6, gates: 0, conveyors: 0, bumpers: 3, springs: 2, arms: 0, coins: 9,  route: 0.45 },
+            { cols: 7, rows: 11, holes: 6, gates: 1, conveyors: 0, bumpers: 3, springs: 2, arms: 0, coins: 10, route: 0.45 },
+            { cols: 7, rows: 11, holes: 6, gates: 0, conveyors: 0, bumpers: 4, springs: 3, arms: 0, coins: 10, route: 0.5 },
+            { cols: 7, rows: 11, holes: 7, gates: 0, conveyors: 0, bumpers: 4, springs: 3, arms: 0, coins: 11, route: 0.5 },
+            { cols: 7, rows: 11, holes: 7, gates: 1, conveyors: 0, bumpers: 4, springs: 3, arms: 0, coins: 11, route: 0.55 },
+            { cols: 7, rows: 10, holes: 5, gates: 0, conveyors: 0, bumpers: 2, springs: 1, arms: 2, coins: 12, route: 0.5 }
+        ],
+        prize: 'plasticBall'
     }
 ];
 
@@ -1115,7 +1245,10 @@ function buildLevel(cfg, n, index, seed) {
 
     // Start and goal at opposite ends of the board so the route crosses it.
     const from = [0, 0], to = [cfg.cols - 1, cfg.rows - 1];
-    const path = shortestPath(open, cfg.cols, cfg.rows, from, to);
+    let path = shortestPath(open, cfg.cols, cfg.rows, from, to);
+    // World 4: rooms for the spinning arms, then the route through them.
+    const arms = cfg.arms ? openRooms(open, cfg, g, path, rand, cfg.arms) : [];
+    if (arms.length) path = shortestPath(open, cfg.cols, cfg.rows, from, to);
 
     // GATES FIRST, then holes around them. A gate that sweeps over a hole would
     // shove the ball in with no input the player could have given differently,
@@ -1133,8 +1266,11 @@ function buildLevel(cfg, n, index, seed) {
         size: { w: BOARD_W, d: BOARD_D }, ballRadius: cfg.ball, walls,
         start: { x: r2(g.cx(from[0])), z: r2(g.cz(from[1])) },
         goal: { x: r2(g.cx(to[0])), z: r2(g.cz(to[1])), r: r2(Math.min(g.px, g.pz) * 0.3) },
-        holes: [], gates: []
+        holes: [], gates: [],
+        arms: arms.map(({ _cells, ...a }) => a), bumpers: []
     };
+    // An arm whose room came out tighter than planned is dropped.
+    base.arms = base.arms.filter(a => !H.armRoomProblem(a, walls, base.size, cfg.ball));
     if (!solvable(base)) return null;      // the carve itself is too tight for this ball
     if (!fits(base)) return null;          // ...or fits only by a hair; see FIT_MARGIN_R
     // ...or strands part of itself behind the exit. The goal sits in a corner
@@ -1165,6 +1301,14 @@ function buildLevel(cfg, n, index, seed) {
         // over each other from either side. Compared by what they SHUT rather
         // than by where they sit, which is what catches the second case.
         if (shuts.some(f => gatedFaces.has(f))) continue;
+        // Nor anywhere a spinning arm reaches (world 4): a bar and a blade
+        // would shove the ball from two sides at once.
+        if (base.arms.some(a => {
+            const k = H.armReach(a) + cfg.ball;
+            const x0 = Math.min(gt.x, gt.x + (gt.axis === 'x' ? gt.travel : 0)) - gt.w / 2, x1 = Math.max(gt.x, gt.x + (gt.axis === 'x' ? gt.travel : 0)) + gt.w / 2;
+            const z0 = Math.min(gt.z, gt.z + (gt.axis === 'z' ? gt.travel : 0)) - gt.d / 2, z1 = Math.max(gt.z, gt.z + (gt.axis === 'z' ? gt.travel : 0)) + gt.d / 2;
+            return Math.hypot(Math.max(x0 - a.x, 0, a.x - x1), Math.max(z0 - a.z, 0, a.z - z1)) < k;
+        })) continue;
         // Open, it is not standing in some OTHER doorway. Reachability alone
         // misses this: in a braided maze there is usually another way round, so
         // a retracted bar can sit across a cut passage without orphaning a
@@ -1229,9 +1373,31 @@ function buildLevel(cfg, n, index, seed) {
         .filter((c, n, all) => all.slice(0, n).every(o => !overlaps(c, o, cfg.ball)))
         .slice(0, cfg.conveyors);
 
+    // World 4. Bumpers one at a time, kept only while the level still fits
+    // round them (they are posts: solid to every search); then spring pads.
+    const armCells = new Set(arms.flatMap(a => a._cells.map(([i, j]) => i + ',' + j)));
+    const bumperCells = new Set();
+    for (const b of (cfg.bumpers ? placeBumpers(open, cfg, g, path, rand, cfg.bumpers * 4) : [])) {
+        if (base.bumpers.length >= cfg.bumpers) break;
+        if (armCells.has(b._cell)) continue;
+        if (sweepRects.some(sw => !apart({ x: b.x, z: b.z, w: b.r * 2, d: b.r * 2 }, sw, cfg.ball))) continue;
+        if (base.bumpers.some(o => Math.hypot(o.x - b.x, o.z - b.z) < 1.6)) continue;
+        const { _cell, ...bumper } = b;
+        base.bumpers.push(bumper);
+        if (solvable(base) && fits(base)) bumperCells.add(_cell);
+        else base.bumpers.pop();
+    }
+    const springs = (cfg.springs ? placeSprings(open, cfg, g, path, rand, cfg.springs * 3, new Set([...armCells, ...bumperCells])) : [])
+        .filter(s => sweepRects.every(sw => apart(s.pad, sw, cfg.ball)))
+        .slice(0, cfg.springs || 0);
+    const holeClear = cfg.ball * 1.35;
+    const world4Keepouts = base.bumpers.map(b => ({ x: b.x, z: b.z, w: 2 * (H.BUMPER_HOLE_CLEAR - holeClear), d: 2 * (H.BUMPER_HOLE_CLEAR - holeClear) }))
+        .concat(springs.map(s => s.lane))
+        .concat(base.arms.map(a => { const k = 2 * (H.armReach(a) + cfg.ball + 0.5 - holeClear); return { x: a.x, z: a.z, w: k, d: k }; }));
+
     const holes = [];
     const openSpecs = base.gates.map(gt => ({ x: gt.x, z: gt.z, w: gt.w, d: gt.d }));
-    for (const h of placeHoles(open, cfg, g, path, rand, cfg.holes * 3, gates, ice.concat(conveyors, fans.map(fanRects), icicleRects, world3Keepouts), cfg)) {
+    for (const h of placeHoles(open, cfg, g, path, rand, cfg.holes * 3, gates, ice.concat(conveyors, fans.map(fanRects), icicleRects, world3Keepouts, world4Keepouts), cfg)) {
         if (holes.length >= cfg.holes) break;
         base.holes.push(h);
         // Solvable is not enough -- see orphanArea(). A hole that seals a branch
@@ -1250,7 +1416,7 @@ function buildLevel(cfg, n, index, seed) {
     const goldMs = Math.round(dist / 1.5 * 1000);
 
     // Collectibles last: they go where the finished level leaves room.
-    const placed = { ...base, holes, gates };
+    const placed = { ...base, holes, gates, springs: springs.map(s => s.pad) };
     const pickupKinds = n === 0 ? [] : [PICKUP_ROTATION[(n - 1) % PICKUP_ROTATION.length]];
     const { coins, pickups } = placeCollectibles(open, cfg, g, path, rand, placed, cfg.coins || 0, pickupKinds);
 
@@ -1277,6 +1443,9 @@ function buildLevel(cfg, n, index, seed) {
     if (icicles.length) lv.icicles = icicles;
     if (flares.length) lv.flares = flares;
     if (geysers.length) lv.geysers = geysers;
+    if (base.bumpers.length) lv.bumpers = base.bumpers;
+    if (springs.length) lv.springs = springs.map(s => s.pad);
+    if (base.arms.length) lv.arms = base.arms;
     lv.coins = coins;
     if (pickups.length) lv.pickups = pickups;
     return lv;
@@ -1346,6 +1515,9 @@ function buildAll() {
                     && (built.conveyors || []).length === cfg.conveyors
                     && (built.fans || []).length === (cfg.fans || 0)
                     && (built.icicles || []).length === (cfg.icicles || 0)
+                    && (built.bumpers || []).length === (cfg.bumpers || 0)
+                    && (built.springs || []).length === (cfg.springs || 0)
+                    && (built.arms || []).length === (cfg.arms || 0)
                     && built.coins.length === cfg.coins) { lv = built; break; }
             }
             if (!lv) lv = fallback;
@@ -1421,6 +1593,9 @@ function renderLevel(lv) {
         ['conveyors', lv.conveyors, ['x', 'z', 'w', 'd', 'dir', 'speed']],
         ['fans', lv.fans, ['x', 'z', 'w', 'd', 'dir', 'periodMs', 'phase']],
         ['icicles', lv.icicles, ['x', 'z', 'r', 'periodMs', 'phase']],
+        ['bumpers', lv.bumpers, ['x', 'z', 'r']],
+        ['springs', lv.springs, ['x', 'z', 'w', 'd', 'dir', 'periodMs', 'phase']],
+        ['arms', lv.arms, ['x', 'z', 'len', 'periodMs', 'phase', 'dir']],
         ['coins', lv.coins, ['x', 'z']],
         ['pickups', lv.pickups, ['x', 'z', 'kind']]
     ].filter(([, arr]) => arr);

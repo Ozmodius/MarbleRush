@@ -38,7 +38,7 @@ export function starfield(count, seed) {
 // from three axes (lavaPlanet), and the pattern scaled to the sphere so every
 // planet, big or small, shows about the same number of continents. Shared
 // with the solar system (solarSystem3d.js).
-const PLANET_PATTERN = { plain: 'rock', rock: 'rock', lavaCracks: 'lavaPlanet', woodToDirt: 'rock' };
+const PLANET_PATTERN = { plain: 'rock', rock: 'rock', lavaCracks: 'lavaPlanet', woodToDirt: 'rock', foamMat: 'beachBall' };
 export function makePlanetMaterial(theme, r) {
     const surfaceTheme = { ...theme, floorPattern: PLANET_PATTERN[theme.floorPattern] || 'rock', floorTextures: null };
     const mat = makeFloorMaterial(surfaceTheme, 10);
