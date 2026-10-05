@@ -19,7 +19,7 @@ import * as THREE from 'three';
 // geometry from mazeWalls3d.js, so shadows and silhouettes agree with it.
 
 export const FLOOR_PATTERNS = ['plain', 'rock', 'lavaCracks'];
-export const WALL_PATTERNS = ['plain', 'rock', 'emberRock'];
+export const WALL_PATTERNS = ['plain', 'rock', 'emberRock', 'molten'];
 
 // One clock for every glowing surface, so all the lava pulses together. Only
 // ever advanced by tickSurfaces(); a level that is not rendering does not pulse.
@@ -76,6 +76,18 @@ float mrCrack(vec2 p) {
     }
     return sqrt(d2) - sqrt(d1);
 }
+// Fine grain for close-up rock: a gritty high octave plus scattered gas
+// pockets (vesicles, the pits real basalt is full of). Returns x = height
+// detail, y = how much to darken (pits are dark). Faded out by screen-space
+// footprint: at the full-board distance this detail is finer than a pixel and
+// would only shimmer as the board leans, so it is drawn only where it reads.
+vec2 mrGrit(vec3 p) {
+    float fade = 1.0 - smoothstep(0.035, 0.09, length(fwidth(p)));
+    if (fade <= 0.0) return vec2(0.0);
+    float g = mrFbm(p * 26.0);
+    float pit = smoothstep(0.66, 0.78, mrNoise(p * 38.0 + 7.1));
+    return vec2((g - 0.5) * 0.5 - pit * 0.6, pit * 0.55) * fade;
+}
 `;
 
 // Each pattern sets three things from the surface position:
@@ -86,8 +98,9 @@ const PATTERN_GLSL = {
     rock: /* glsl */`
         vec3 mrP = vMrPos * mrScale;
         float mrN = mrFbm(mrP * 2.2);
-        float mrTone = smoothstep(0.25, 0.8, mrN);
-        float mrH = mrN + 0.35 * mrFbm(mrP * 7.0);
+        vec2 mrG = mrGrit(mrP);
+        float mrTone = clamp(smoothstep(0.25, 0.8, mrN) + mrG.y, 0.0, 1.0);
+        float mrH = mrN + 0.35 * mrFbm(mrP * 7.0) + mrG.x;
         float mrHot = 0.0;
     `,
     // Dark basalt plates split by glowing seams. The plates are lighter at the
@@ -109,10 +122,24 @@ const PATTERN_GLSL = {
     emberRock: /* glsl */`
         vec3 mrP = vMrPos * mrScale;
         float mrN = mrFbm(mrP * 2.2);
-        float mrTone = smoothstep(0.25, 0.8, mrN);
-        float mrH = mrN + 0.35 * mrFbm(mrP * 7.0);
+        vec2 mrG = mrGrit(mrP);
+        float mrTone = clamp(smoothstep(0.25, 0.8, mrN) + mrG.y, 0.0, 1.0);
+        float mrH = mrN + 0.35 * mrFbm(mrP * 7.0) + mrG.x;
         float mrFoot = 1.0 - smoothstep(0.0, 0.22, vMrPos.y);
         float mrHot = smoothstep(0.42, 0.18, mrN) * (0.35 + 0.65 * mrFoot);
+    `,
+    // Rock still molten: glowing everywhere except where a thin dark crust has
+    // floated on top. The inverse of lavaCracks, and in 3D rather than on the
+    // ground plane, so it wraps an upright surface without streaking. Made for
+    // gates: a wall that is about to move should look like it is not set yet.
+    molten: /* glsl */`
+        vec3 mrP = vMrPos * mrScale;
+        float mrN = mrFbm(mrP * 2.6 + vec3(0.0, mrTime * 0.05, 0.0));
+        float mrCrust = smoothstep(0.6, 0.7, mrFbm(mrP * 4.5));
+        vec2 mrG = mrGrit(mrP);
+        float mrTone = mrCrust;
+        float mrH = mrCrust * 0.8 + mrN * 0.3 + mrG.x * mrCrust;
+        float mrHot = (1.0 - mrCrust) * (0.6 + 0.4 * mrN);
     `
 };
 

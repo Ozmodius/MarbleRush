@@ -40,6 +40,7 @@ const EPS = 1e-4;
         if (t.wallStyle !== undefined) check(W.WALL_STYLES.includes(t.wallStyle), `theme ${t.id}: unknown wallStyle '${t.wallStyle}'`);
         if (t.floorPattern !== undefined) check(S.FLOOR_PATTERNS.includes(t.floorPattern), `theme ${t.id}: unknown floorPattern '${t.floorPattern}'`);
         if (t.wallPattern !== undefined) check(S.WALL_PATTERNS.includes(t.wallPattern), `theme ${t.id}: unknown wallPattern '${t.wallPattern}'`);
+        if (t.gatePattern) check(S.WALL_PATTERNS.includes(t.gatePattern), `theme ${t.id}: unknown gatePattern '${t.gatePattern}'`);
     }
     const rockThemes = Object.values(MAZE_THEMES).filter(t => t.wallStyle === 'rock');
     const bevel = Math.max(0.07, ...rockThemes.map(t => t.wallBevel || 0));

@@ -54,11 +54,16 @@ const HARD_DEFAULTS = {
     //   glowColor      what the hot parts of a pattern glow
     //   floorGlow,
     //   wallGlow       glow strength; 0 turns it off
+    //   gatePattern,
+    //   gateGlow       a gate's own pattern and glow; '' / -1 mean "as the
+    //                  walls", so a theme that sets neither gets walls that
+    //                  move, tinted gateColor, exactly as before
     //   patternScale   rock features per world unit (bigger = finer)
     wallStyle: 'box', wallBevel: 0.07, wallJag: 0.06,
     floorPattern: 'plain', wallPattern: 'plain',
     floorColor2: '', wallColor2: '',
     glowColor: '#ff5a14', floorGlow: 0, wallGlow: 0,
+    gatePattern: '', gateGlow: -1,
     patternScale: 1
 };
 
@@ -133,7 +138,7 @@ export function makeFloorMaterial(theme, extentUnits = 10) {
 // (mazeWalls3d.js), so a wall texture keeps its scale on a short stub and a
 // long run alike. The repeat therefore lives in the geometry, and the maps
 // here are sampled at 1.
-export function makeWallMaterial(theme, color = theme.wallColor) {
+export function makeWallMaterial(theme, color = theme.wallColor, pattern = theme.wallPattern, glow = theme.wallGlow) {
     const mat = new THREE.MeshStandardMaterial({
         color: new THREE.Color(color),
         roughness: theme.wallRoughness,
@@ -144,8 +149,8 @@ export function makeWallMaterial(theme, color = theme.wallColor) {
         forceMapScalars(mat, theme.wallTextures);
     }
     return applySurface(mat, {
-        pattern: theme.wallPattern, color2: secondColor(color, theme.wallColor2 && color === theme.wallColor ? theme.wallColor2 : ''),
-        glowColor: theme.glowColor, glow: theme.wallGlow, scale: theme.patternScale, bump: 1.4
+        pattern, color2: secondColor(color, theme.wallColor2 && color === theme.wallColor ? theme.wallColor2 : ''),
+        glowColor: theme.glowColor, glow, scale: theme.patternScale, bump: 1.4
     });
 }
 
@@ -198,7 +203,9 @@ export function makeIceMaterial(theme) {
 // move. Getting that wrong is not a cosmetic problem: a gate that looks exactly
 // like a wall reads as the level cheating when it shifts.
 export function makeGateMaterial(theme) {
-    return makeWallMaterial(theme, theme.gateColor);
+    return makeWallMaterial(theme, theme.gateColor,
+        theme.gatePattern || theme.wallPattern,
+        theme.gateGlow >= 0 ? theme.gateGlow : theme.wallGlow);
 }
 
 // A miniature maze for the admin cosmetics editor: floor, a couple of walls, a

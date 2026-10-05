@@ -59,7 +59,10 @@ export const MAZE_THEMES = {
         marbleColor: '#eef1f5', marbleRoughness: 0.14, marbleMetalness: 0.1,
         holeColor: '#ff7a1f',
         goalColor: '#3fd0ff',
-        gateColor: '#8a5a3c',
+        // Gates are lava that has not set yet: molten, crusted, glowing. A wall
+        // that is about to move must look different from one that never will,
+        // and on a board of black rock nothing reads more "not solid" than this.
+        gateColor: '#3a1a10', gatePattern: 'molten', gateGlow: 2.2,
         backdropColor: '#140604'
     }
 };

@@ -95,11 +95,13 @@ goal.rotation.x = -Math.PI / 2; goal.position.set(lv.goal.x, 0.015, lv.goal.z); 
 const ball = new THREE.Mesh(new THREE.SphereGeometry(lv.ballRadius, 32, 24), makeBallMaterial(theme));
 ball.position.set(lv.start.x, lv.ballRadius, lv.start.z); ball.castShadow = true; scene.add(ball);
 
-// ?zoom=1 frames a close-up near the start, to judge rock up close.
+// ?zoom=1 frames a close-up near the start, to judge rock up close;
+// &at=x,z moves that close-up to another spot (a gate, say).
 const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.1, 100);
 if (q.get('zoom')) {
-    camera.position.set(lv.start.x + 1.2, 3.2, lv.start.z + 3.0);
-    camera.lookAt(lv.start.x, 0, lv.start.z);
+    const [ax, az] = (q.get('at') || `${lv.start.x},${lv.start.z}`).split(',').map(Number);
+    camera.position.set(ax + 1.2, 3.2, az + 3.0);
+    camera.lookAt(ax, 0, az);
 } else {
     const tilt = 10 * Math.PI / 180;
     const fitD = (lv.size.d / 2 + 1.1) / Math.tan(24 * Math.PI / 180);
