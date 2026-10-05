@@ -89,6 +89,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const lv4 = { ...level, bumpers: [{ x: 5, z: 5, r: 0.16 }], springs: [{ x: -5, z: 5, w: 0.5, d: 0.5, dir: '+x', periodMs: 3000, phase: 0 }], arms: [{ x: 0, z: 5, len: 0.9, periodMs: 4800, phase: 0, dir: 1 }] };
     check(!P.isSafeSpot(lv4, 5.4, 5, R) && !P.isSafeSpot(lv4, -5, 5.1, R) && !P.isSafeSpot(lv4, 0.6, 5, R), 'a spot by a bumper, on a spring or in an arm sweep is not safe');
     check(P.isSafeSpot(lv4, 2.5, 5, R), 'clear floor between them still is');
+    // 4e. nor in a magnet's pull, under a press, or against a rail (world 5)
+    const lv5 = { ...level, magnets: [{ x: 5, z: -5, nx: -1, nz: 0, reach: 1 }], crushers: [{ x: -5, z: -5, w: 1, d: 0.6, periodMs: 3600, phase: 0 }], rails: [{ x: 0, z: -5, w: 1, d: 0.04, nx: 0, nz: 1, periodMs: 2600, phase: 0 }] };
+    check(!P.isSafeSpot(lv5, 4.4, -5, R) && !P.isSafeSpot(lv5, -5, -5.2, R) && !P.isSafeSpot(lv5, 0, -4.6, R), 'a spot by a magnet, under a press or against a rail is not safe');
+    check(P.isSafeSpot(lv5, 2.5, -3, R), 'clear floor away from them still is');
 
     // 5. bought charges
     s = P.createRunPickups(level, { shield: 1, slowmo: 2 });

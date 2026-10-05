@@ -73,7 +73,7 @@ the next world. Worlds 1-5 ship at launch.
 | 2 | Glacier (snowy rock at the treeline turning to blue ice) | ice | wind fans | falling icicles | Heat Shield: survives one lava flare |
 | 3 | Magma Works (`lava` theme) | flaring lava seams | molten gates | geysers | Obsidian Core: bumpers push half as hard |
 | 4 | Toy Box (foam play mat, plastic brick walls; pastel turning bright) | bumpers | spring pads | spinning arms | Plastic Ball: ignores magnets |
-| 5 | Foundry (metal) | magnets | crushers | electric rails | Chrome Polish: slides through mud |
+| 5 | Foundry (rusty tread plate and riveted steel, cleaned up level by level) | magnets | crushers | electric rails | Chrome Polish: slides through mud |
 | 6 | Swamp | mud | fog | gas vents | Firefly Lantern: lights the dark |
 | 7 | Crypt | darkness | ghost walls | portals | Spirit Compass: shows where portals lead |
 | 8 | Desert Temple | sand slides | dart traps | sandstorm | Gyro Core: wind pushes less |
@@ -87,6 +87,15 @@ for 0.9s, fire, then rest at least 1.5s) and their launch lane to the next
 wall stays clear of holes; spinning arms stand in 2x2 rooms the generator
 opens for them, never reach a wall, leave the ball room beside a blade lying
 along a wall, and keep their sweep clear of holes, start and goal.
+
+How world 5's traps keep the verifier's guarantees (built 2026-10-05; with
+it all five launch worlds are built): magnets pull toward their wall at no
+more than 3.8 u/s^2 (under half of full tilt, like wind) and reach no hole
+and no rail; crushers are timed presses (0.8s warning, then slam, sit and
+rise; at least a second up each cycle) never over a hole, start, goal or
+gate sweep; electric rails are set into walls and solved as if always live
+-- the band where a ball would touch one is fatal to the search, like a
+hole -- so the middle of every railed corridor is a proven way through.
 
 No crumbling or sinking floor in any world (see CLAUDE.md).
 

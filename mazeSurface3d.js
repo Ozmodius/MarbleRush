@@ -18,8 +18,8 @@ import * as THREE from 'three';
 // Only shading changes here. Shape -- rounded crests, jagged tops -- is real
 // geometry from mazeWalls3d.js, so shadows and silhouettes agree with it.
 
-export const FLOOR_PATTERNS = ['plain', 'rock', 'lavaCracks', 'woodToDirt', 'snow', 'foamMat'];
-export const WALL_PATTERNS = ['plain', 'rock', 'emberRock', 'molten', 'planks', 'bark', 'leaves', 'iceRock'];
+export const FLOOR_PATTERNS = ['plain', 'rock', 'lavaCracks', 'woodToDirt', 'snow', 'foamMat', 'treadPlate'];
+export const WALL_PATTERNS = ['plain', 'rock', 'emberRock', 'molten', 'planks', 'bark', 'leaves', 'iceRock', 'steelPanels'];
 // Not chosen by themes: the ice HAZARD patches always wear this (mazeTheme3d.js).
 export const ICE_PATTERN = 'iceSheet';
 
@@ -369,6 +369,83 @@ const PATTERN_GLSL = {
         float mrPeb = mrNoise(mrP * 60.0) * mrFade;
         diffuseColor.rgb *= (1.0 - 0.06 * mrN) * (1.0 - 0.3 * mrGroove);
         float mrH = -mrGroove * 1.2 + mrPeb * 0.18;
+        float mrHot = 0.0;
+    `,
+    // WORLD 5's FLOOR: diamond tread plate -- raised lozenges in a
+    // two-way weave on big welded plates -- with rust eating in from noisy
+    // patches. The rust (mrColor2) fades as mrBlend rises: a scrap yard at
+    // the start of the world, a clean working floor at the end.
+    treadPlate: /* glsl */`
+        vec3 mrP = vMrPos * mrScale;
+        float mrN = mrFbm(mrP * 1.1);
+        vec2 mrQ = mrP.xz / 0.17;
+        vec2 mrCellT = floor(mrQ), mrF = fract(mrQ) - 0.5;
+        float mrFlip = mod(mrCellT.x + mrCellT.y, 2.0) * 2.0 - 1.0;
+        vec2 mrRq = vec2(mrF.x + mrFlip * mrF.y, mrF.y - mrFlip * mrF.x) * 0.7071;
+        float mrLz = length(vec2(mrRq.x / 0.36, mrRq.y / 0.075));
+        float mrFade = 1.0 - smoothstep(0.008, 0.03, length(fwidth(mrQ)) * 0.17);
+        float mrBossy = (1.0 - smoothstep(0.75, 1.0, mrLz)) * mrFade;
+        // Weld seams between plates.
+        vec2 mrPl = mrP.xz / 1.8;
+        float mrSeam = 1.0 - smoothstep(0.0, 0.012, min(min(fract(mrPl.x), 1.0 - fract(mrPl.x)), min(fract(mrPl.y), 1.0 - fract(mrPl.y))));
+        float mrRust = smoothstep(0.42, 0.7, mrFbm(mrP * 0.7 + 3.0) + mrN * 0.15) * (1.0 - 0.9 * mrBlend);
+        float mrSpeck = smoothstep(0.55, 0.8, mrFbm(mrP * 9.0));
+        float mrTone = clamp(mrRust * (0.75 + 0.25 * mrSpeck), 0.0, 1.0);
+        diffuseColor.rgb *= (0.9 + 0.2 * mrBossy) * (1.0 - 0.45 * mrSeam) * (0.92 + 0.12 * mrN);
+        float mrH = mrBossy * (1.0 - mrTone * 0.6) - mrSeam + mrSpeck * mrTone * 0.4;
+        float mrHot = 0.0;
+    `,
+    // WORLD 5's WALLS: riveted steel panels with seams, rust streaks running
+    // down from the top (fading with mrBlend), and yellow-and-black hazard
+    // stripes painted on top once the foundry is cleaned up (none on the rust).
+    steelPanels: /* glsl */`
+        vec3 mrP = vMrPos * mrScale;
+        float mrN = mrFbm(mrP * 2.0);
+        float mrAlong = mrP.x + mrP.z;
+        float mrPu = mrAlong / 0.62;
+        float mrVs = min(fract(mrPu), 1.0 - fract(mrPu)) * 0.62;
+        float mrHs = abs(mrP.y - 0.28);
+        float mrSeamS = 1.0 - smoothstep(0.0, 0.01, min(mrVs, mrHs));
+        // Rivets in a row beside each seam.
+        vec2 mrRv = vec2(mrVs - 0.04, mod(mrP.y + 0.045, 0.09) - 0.045);
+        float mrRiv = 1.0 - smoothstep(0.011, 0.016, length(mrRv));
+        vec2 mrRh = vec2(mod(mrAlong + 0.045, 0.09) - 0.045, mrHs - 0.04);
+        mrRiv = max(mrRiv, 1.0 - smoothstep(0.011, 0.016, length(mrRh)));
+        float mrStreak = smoothstep(0.5, 0.75, mrFbm(vec3(mrAlong * 9.0, mrP.y * 0.9, 1.0))) * smoothstep(0.0, 0.5, mrP.y);
+        vec3 mrUpV = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+        float mrTop = smoothstep(0.6, 0.9, dot(normalize(vNormal), mrUpV));
+        // Streaks run DOWN the faces; on top, rust is patches only.
+        float mrRust = clamp(mrStreak * (1.0 - mrTop) + smoothstep(0.55, 0.75, mrFbm(mrP * 3.0)) * 0.6, 0.0, 1.0) * (1.0 - 0.9 * mrBlend);
+        float mrTone = mrRust;
+        float mrStripe = step(0.5, fract((mrP.x - mrP.z) * 3.2));
+        vec3 mrHaz = mix(vec3(0.07), vec3(0.95, 0.72, 0.08), mrStripe);
+        diffuseColor.rgb *= (1.0 - 0.5 * mrSeamS) * (1.0 + 0.35 * mrRiv) * (0.9 + 0.15 * mrN);
+        diffuseColor.rgb = mix(diffuseColor.rgb, mix(diffuseColor.rgb, mrHaz, 0.85 * smoothstep(0.2, 0.8, mrBlend)), mrTop);
+        mrTone *= 1.0 - mrTop * mrBlend;
+        float mrH = -mrSeamS + mrRiv * 0.8 + mrN * 0.2;
+        float mrHot = 0.0;
+    `,
+    // WORLD 5's PLANET (planet3d.js): a riveted steel sphere -- plates on a
+    // latitude/longitude grid, rust patches, and a hazard-striped band round
+    // the equator. Owns its palette.
+    steelPlanet: /* glsl */`
+        vec3 mrP = vMrPos * mrScale;
+        float mrN = mrFbm(mrP * 2.5);
+        vec3 mrU = normalize(vMrPos);
+        float mrLon = atan(mrU.z, mrU.x) / 6.28318 * 18.0, mrLat = asin(clamp(mrU.y, -1.0, 1.0)) / 3.14159 * 9.0;
+        float mrSq = sqrt(max(0.0, 1.0 - mrU.y * mrU.y));
+        float mrSeamP = 1.0 - smoothstep(0.0, 0.03, min(min(fract(mrLon), 1.0 - fract(mrLon)) * mrSq, min(fract(mrLat), 1.0 - fract(mrLat))));
+        vec2 mrRv = vec2(fract(mrLon * 4.0) - 0.5, (min(fract(mrLat), 1.0 - fract(mrLat)) - 0.08) * 4.0);
+        float mrRiv = (1.0 - smoothstep(0.12, 0.2, length(mrRv))) * mrSq;
+        float mrRust = smoothstep(0.5, 0.72, mrFbm(mrP * 1.6 + 2.0));
+        float mrBand = 1.0 - smoothstep(0.1, 0.12, abs(mrU.y));
+        float mrStripe = step(0.5, fract(mrLon * 1.5 + mrU.y * 6.0));
+        vec3 mrSteel = vec3(0.42, 0.45, 0.49) * (0.85 + 0.25 * mrN);
+        mrSteel = mix(mrSteel, vec3(0.45, 0.22, 0.09) * (0.8 + 0.4 * mrN), mrRust * 0.8);
+        mrSteel = mix(mrSteel, mix(vec3(0.07), vec3(0.95, 0.72, 0.08), mrStripe), mrBand);
+        diffuseColor.rgb = mrSteel * (1.0 - 0.5 * mrSeamP) * (1.0 + 0.4 * mrRiv);
+        float mrTone = 0.0;
+        float mrH = -mrSeamP + mrRiv;
         float mrHot = 0.0;
     `,
     // WORLD 4's PLANET (planet3d.js): a beach ball -- six bright panels

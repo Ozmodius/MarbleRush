@@ -510,3 +510,115 @@ export function armRoomProblem(a, walls, size, R) {
     if (D - ARM_HALF_T < 2 * R + ARM_WALL_GAP) return `a blade alongside the nearest wall leaves ${(D - ARM_HALF_T).toFixed(2)}, too little for the ball -- it would crush it`;
     return null;
 }
+
+// ---------------------------------------------------------------------------
+// WORLD 5, THE FOUNDRY. Magnets are PUSHING (held under half of full tilt,
+// like wind, so the player can always pull away); crushers are TIMED (a press
+// that is up most of its cycle and always warns before it drops); electric
+// rails are FATAL ZONES the verifier solves around as if always live, like
+// holes -- and they are only live part of the time on top of that.
+// ---------------------------------------------------------------------------
+
+// MAGNETS: mounted on a wall, pulling the ball toward the point (x, z) on the
+// wall's face while it is within `reach`: hardest close in, nothing at the
+// edge. { x, z, nx, nz, reach } -- (nx, nz) is the face's normal, pointing
+// into the corridor. Never more than MAGNET_MAX_ACCEL (test_maze_hazards.js
+// holds it under half of full tilt). The Plastic Ball prize switches them off.
+export const MAGNET_MAX_ACCEL = 3.8;
+export function magnetAccel(magnets, x, z) {
+    let ax = 0, az = 0;
+    for (const m of magnets || []) {
+        const dx = m.x - x, dz = m.z - z, d = Math.hypot(dx, dz);
+        if (d >= m.reach || d < 1e-6) continue;
+        const a = MAGNET_MAX_ACCEL * (1 - d / m.reach);
+        ax += dx / d * a; az += dz / d * a;
+    }
+    // Two fields overlapping could add up past the cap; the generator keeps
+    // them apart, and this keeps the promise regardless.
+    const n = Math.hypot(ax, az);
+    if (n > MAGNET_MAX_ACCEL) { ax *= MAGNET_MAX_ACCEL / n; az *= MAGNET_MAX_ACCEL / n; }
+    return { ax, az };
+}
+
+// CRUSHERS: a press { x, z, w, d, periodMs, phase } over a stretch of floor.
+// Up (high above the walls) most of its cycle; then it shudders for
+// CRUSH_WARN_MS, slams down in CRUSH_SLAM_MS, sits on the floor for
+// CRUSH_DOWN_MS -- a wall while it does -- and rises over CRUSH_RISE_MS. A
+// ball under it as it comes down is crushed. CRUSH_MIN_PERIOD leaves over a
+// second up to pass under in.
+export const CRUSH_UP_H = 0.75;
+export const CRUSH_WARN_MS = 800;
+export const CRUSH_SLAM_MS = 150;
+export const CRUSH_DOWN_MS = 450;
+export const CRUSH_RISE_MS = 700;
+export const CRUSH_MIN_PERIOD = 3400;
+export function crusherState(c, tMs) {
+    const P = Math.max(CRUSH_MIN_PERIOD, Number(c.periodMs) || CRUSH_MIN_PERIOD);
+    const local = (((tMs / P + (Number(c.phase) || 0)) % 1 + 1) % 1) * P;
+    const riseAt = P - CRUSH_RISE_MS, downAt = riseAt - CRUSH_DOWN_MS, slamAt = downAt - CRUSH_SLAM_MS, warnAt = slamAt - CRUSH_WARN_MS;
+    if (local >= riseAt) return { state: 'rise', k: (local - riseAt) / CRUSH_RISE_MS };
+    if (local >= downAt) return { state: 'down', k: (local - downAt) / CRUSH_DOWN_MS };
+    if (local >= slamAt) return { state: 'slam', k: (local - slamAt) / CRUSH_SLAM_MS };
+    if (local >= warnAt) return { state: 'warn', k: (local - warnAt) / CRUSH_WARN_MS };
+    return { state: 'up', k: local / warnAt };
+}
+// How high the press's underside is, and how fast it is moving (units/s).
+export function crusherBottom(c, tMs) {
+    const s = crusherState(c, tMs);
+    if (s.state === 'slam') return CRUSH_UP_H * (1 - s.k * s.k);
+    if (s.state === 'down') return 0;
+    if (s.state === 'rise') return CRUSH_UP_H * s.k;
+    return CRUSH_UP_H;
+}
+export function crusherVelocity(c, tMs) {
+    const s = crusherState(c, tMs);
+    if (s.state === 'slam') return -CRUSH_UP_H * 2 * s.k / (CRUSH_SLAM_MS / 1000);
+    if (s.state === 'rise') return CRUSH_UP_H / (CRUSH_RISE_MS / 1000);
+    return 0;
+}
+// Run time of a crusher's first slam.
+export function firstSlamMs(c) {
+    let t = 0;
+    while (crusherState(c, t).state === 'slam') t += 5;          // starting mid-slam: go round
+    while (crusherState(c, t).state !== 'slam' && t < 60000) t++;
+    return t;
+}
+// Crushed: the press is coming down or down, and is lower than the ball is
+// tall, and the ball is under it (centre within 0.9 radius of its footprint).
+export function crusherHits(crushers, tMs, x, z, R) {
+    for (const c of crushers || []) {
+        const st = crusherState(c, tMs).state;
+        if (st !== 'slam' && st !== 'down') continue;
+        if (crusherBottom(c, tMs) >= 2 * R) continue;
+        if (distanceToRect(c, x, z) < R * 0.9) return c;
+    }
+    return null;
+}
+
+// ELECTRIC RAILS: a live strip { x, z, w, d, nx, nz, periodMs, phase } set
+// into a wall's face, (nx, nz) pointing into the corridor. Dead, it warns
+// for RAIL_WARN_MS (sparks), then it is LIVE for RAIL_LIVE_MS: a ball touching
+// that stretch of wall (centre within R + RAIL_TOUCH of the strip) is
+// shocked. The verifier treats every rail as always live, like a hole -- the
+// middle of the corridor must still be a way through -- so the timing is
+// only ever a mercy.
+export const RAIL_WARN_MS = 600;
+export const RAIL_LIVE_MS = 1100;
+export const RAIL_MIN_PERIOD = 2400;
+export const RAIL_TOUCH = 0.04;
+export function railState(r, tMs) {
+    const c = cycle(r, tMs, RAIL_MIN_PERIOD, RAIL_WARN_MS, RAIL_LIVE_MS);
+    return { state: c.state === 'live' ? 'live' : c.state === 'warn' ? 'warn' : 'dead', k: c.k };
+}
+export function firstLiveMs(r) { return firstLive(r, RAIL_MIN_PERIOD, RAIL_WARN_MS, RAIL_LIVE_MS); }
+// The zone a ball centre must stay out of near a rail (live or not).
+export function inRailZone(rails, x, z, R) {
+    for (const r of rails || []) if (distanceToRect(r, x, z) <= R + RAIL_TOUCH) return r;
+    return null;
+}
+export function railHits(rails, tMs, x, z, R) {
+    for (const r of rails || []) {
+        if (railState(r, tMs).state === 'live' && distanceToRect(r, x, z) <= R + RAIL_TOUCH) return r;
+    }
+    return null;
+}

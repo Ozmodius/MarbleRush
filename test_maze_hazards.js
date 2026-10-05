@@ -286,10 +286,60 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
     check(/cut through/.test(H.armRoomProblem({ ...arm, len: 1.1 }, box(1.15), null, BR) || ''), 'a blade longer than the room is refused (negative control)');
     check(/crush/.test(H.armRoomProblem({ ...arm, len: 0.3 }, box(0.55), null, BR) || ''), 'a room too tight for the ball beside the blade is refused (negative control)');
 
+    // --- world 5: magnets, crushers, electric rails ------------------------
+    check(H.MAGNET_MAX_ACCEL <= 0.5 * tiltAccel, `a magnet (${H.MAGNET_MAX_ACCEL}) must be at most half of full tilt (${tiltAccel.toFixed(2)})`);
+    const mg5 = { x: 0, z: 0, nx: 0, nz: 1, reach: 1 };
+    const pull = H.magnetAccel([mg5], 0, 0.4);
+    check(pull.az < 0 && Math.abs(pull.ax) < 1e-12, 'a magnet pulls the ball toward itself');
+    check(Math.hypot(pull.ax, pull.az) < Math.hypot(...Object.values(H.magnetAccel([mg5], 0, 0.25))), 'harder the closer you are');
+    check(H.magnetAccel([mg5], 0, 1.05).az === 0, 'nothing beyond its reach');
+    const two = H.magnetAccel([mg5, { ...mg5, x: 0.01 }], 0, 0.25);
+    check(Math.hypot(two.ax, two.az) <= H.MAGNET_MAX_ACCEL + 1e-9, 'two overlapping fields still never pass the cap');
+    // Full tilt pulls a ball off a magnet from right against it.
+    let mz = 0.24, mv = 0, mt = 0;
+    while (mz < 1 && mt < 5) { mv += (tiltAccel + H.magnetAccel([mg5], 0, mz).az) / 60; mz += mv / 60; mt += 1 / 60; }
+    check(mz >= 1 && mt < 1.5, `full tilt pulls the ball clear of a magnet in under 1.5s (took ${mt.toFixed(2)}s)`);
+
+    const cr = { x: 0, z: 0, w: 1, d: 0.6, periodMs: 3600, phase: 0.3 };
+    const crSeen = {};
+    let upRun = 0, longestUp = 0, lastB = H.crusherBottom(cr, 0), bigJump = 0;
+    for (let t = 0; t < 3600; t++) {
+        const st = H.crusherState(cr, t).state;
+        crSeen[st] = (crSeen[st] || 0) + 1;
+        if (H.crusherBottom(cr, t) >= 0.5) { upRun++; longestUp = Math.max(longestUp, upRun); } else upRun = 0;
+        const b = H.crusherBottom(cr, t);
+        bigJump = Math.max(bigJump, Math.abs(b - lastB)); lastB = b;
+    }
+    check(['up', 'warn', 'slam', 'down', 'rise'].every(k => crSeen[k] > 0), `a crusher goes up, warns, slams, sits, rises: ${JSON.stringify(crSeen)}`);
+    check(Math.abs(crSeen.warn - H.CRUSH_WARN_MS) <= 1, 'it warns for CRUSH_WARN_MS before every slam');
+    check(H.CRUSH_MIN_PERIOD - H.CRUSH_WARN_MS - H.CRUSH_SLAM_MS - H.CRUSH_DOWN_MS - H.CRUSH_RISE_MS >= 1000, 'a press stays up at least a second each cycle');
+    check(bigJump < 0.02, `the press moves, it never teleports (largest step ${bigJump.toFixed(3)} per ms)`);
+    for (let t = 0; t < 3600; t += 7) {
+        const v = H.crusherVelocity(cr, t), num = (H.crusherBottom(cr, t + 0.5) - H.crusherBottom(cr, t - 0.5)) * 1000;
+        const st = H.crusherState(cr, t), edge = H.crusherState(cr, t - 1).state !== st.state || H.crusherState(cr, t + 1).state !== st.state;
+        if (!edge) check(Math.abs(v - num) < 0.05, `crusherVelocity is the true rate at ${t}ms (${v.toFixed(3)} vs ${num.toFixed(3)})`);
+    }
+    const fs = H.firstSlamMs(cr);
+    check(H.crusherState(cr, fs).state === 'slam' && H.crusherState(cr, fs - 1).state === 'warn', `firstSlamMs (${fs}) is a slam, after its warning`);
+    check(!H.crusherHits([cr], fs + 10, 0, 0, 0.24), 'not crushed while the press is still above the ball');
+    check(!!H.crusherHits([cr], fs + 140, 0.2, 0.1, 0.24), 'crushed under it as it lands');
+    check(!H.crusherHits([cr], fs + 140, 0.9, 0, 0.24), 'not crushed beside it');
+    check(!H.crusherHits([cr], fs - 300, 0, 0, 0.24), 'never while up');
+
+    const rl = { x: 0, z: 0, w: 1, d: 0.04, nx: 0, nz: 1, periodMs: 2600, phase: 0.2 };
+    let live = 0, rWarn = 0;
+    for (let t = 0; t < 2600; t++) { const st = H.railState(rl, t).state; if (st === 'live') live++; if (st === 'warn') rWarn++; }
+    check(Math.abs(live - H.RAIL_LIVE_MS) <= 1 && Math.abs(rWarn - H.RAIL_WARN_MS) <= 1, `a rail sparks ${H.RAIL_WARN_MS}ms then is live ${H.RAIL_LIVE_MS}ms (got ${rWarn}/${live})`);
+    const fl5 = H.firstLiveMs(rl);
+    check(H.railState(rl, fl5).state === 'live' && H.railState(rl, fl5 - 1).state === 'warn', 'every live spell is preceded by sparks');
+    check(!!H.railHits([rl], fl5 + 5, 0.3, 0.02 + 0.24 + 0.02, 0.24) && !H.railHits([rl], fl5 + 5, 0.3, 0.02 + 0.24 + 0.1, 0.24), 'a live rail shocks a ball touching its wall, not one a little off it');
+    check(!H.railHits([rl], fl5 - 100, 0.3, 0.27, 0.24), 'a dead rail is just wall');
+    check(!!H.inRailZone([rl], 0.3, 0.29, 0.24), 'the zone the verifier solves around is the touching band');
+
     if (failures.length) {
         console.error('FAIL: maze hazard math\n - ' + failures.join('\n - '));
         process.exitCode = 1;
     } else {
-        console.log('PASS: maze hazard math -- gates reopen exactly every period, never leave their authored travel, carry a velocity that is the true derivative of their motion (so cannon pushes the ball rather than ejecting it), ice is a control change with no effect on reachability, conveyors and wind are always weaker than the player, icicles always telegraph and only strike briefly, and toy box kicks, launches and blades are bounded, telegraphed and never pinch');
+        console.log('PASS: maze hazard math -- gates reopen exactly every period, never leave their authored travel, carry a velocity that is the true derivative of their motion (so cannon pushes the ball rather than ejecting it), ice is a control change with no effect on reachability, conveyors and wind are always weaker than the player, icicles always telegraph and only strike briefly, toy box kicks, launches and blades are bounded, telegraphed and never pinch, and foundry magnets are weaker than the player while presses and rails always warn');
     }
 })().catch(e => { console.error(e); process.exitCode = 1; });

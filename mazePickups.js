@@ -129,6 +129,10 @@ export function isSafeSpot(level, x, z, r) {
     if ((level.bumpers || []).some(b => Math.hypot(x - b.x, z - b.z) < b.r + r * 2)) return false;
     if ((level.springs || []).some(p => distanceToRect(p, x, z) < r)) return false;
     if ((level.arms || []).some(a => Math.hypot(x - a.x, z - a.z) < armReach(a) + r)) return false;
+    // Nor in a magnet's pull, under a press, or against a rail (world 5).
+    if ((level.magnets || []).some(m => Math.hypot(x - m.x, z - m.z) < m.reach)) return false;
+    if ((level.crushers || []).some(c => distanceToRect(c, x, z) < r * 1.5)) return false;
+    if ((level.rails || []).some(rl => distanceToRect(rl, x, z) < r * 2)) return false;
     return true;
 }
 

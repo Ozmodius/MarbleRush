@@ -265,7 +265,8 @@ function solvable(lv) {
         Math.abs(x) > hw - R || Math.abs(z) > hd - R
         || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R)
         || H.inPost(posts, x, z, R)
-        || (lv.holes || []).some(h => Math.hypot(x - h.x, z - h.z) <= h.r);
+        || (lv.holes || []).some(h => Math.hypot(x - h.x, z - h.z) <= h.r)
+        || !!H.inRailZone(lv.rails, x, z, R);
 
     const nx = Math.round(lv.size.w / GRID), nz = Math.round(lv.size.d / GRID);
     const px = i => -hw + i * GRID, pz = j => -hd + j * GRID;
@@ -539,7 +540,8 @@ function reachable(lv, gateSpecs) {
     const solid = (x, z) => Math.abs(x) > hw - R || Math.abs(z) > hd - R
         || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R)
         || H.inPost(posts, x, z, R);
-    const holed = (x, z) => (lv.holes || []).some(h => Math.hypot(x - h.x, z - h.z) <= h.r);
+    // Electric rails are solved as if always live: fatal, like holes.
+    const holed = (x, z) => (lv.holes || []).some(h => Math.hypot(x - h.x, z - h.z) <= h.r) || !!H.inRailZone(lv.rails, x, z, R);
     // THE EXIT ABSORBS. checkOutcomes() wins the run the moment the ball centre
     // enters the goal disc, so the ball can never come out the far side of it:
     // floor whose only way in leads through the goal is floor no player will
@@ -815,6 +817,7 @@ function placeCollectibles(open, cfg, g, path, rand, lv, coinCount, pickupKinds)
         && (lv.holes || []).every(h => Math.hypot(x - h.x, z - h.z) >= h.r + R + 0.15)
         && (lv.bumpers || []).every(b => Math.hypot(x - b.x, z - b.z) >= b.r + R + 0.15)
         && (lv.springs || []).every(p => Math.max(Math.abs(x - p.x) - p.w / 2, Math.abs(z - p.z) - p.d / 2) >= R)
+        && (lv.crushers || []).every(c => Math.max(Math.abs(x - c.x) - c.w / 2, Math.abs(z - c.z) - c.d / 2) >= R)
         && sweeps.every(sw => Math.abs(x - sw.x) > sw.w / 2 + R || Math.abs(z - sw.z) > sw.d / 2 + R);
     const used = new Set();
     const take = (pool) => {
@@ -1040,6 +1043,107 @@ function placeSprings(open, cfg, g, path, rand, count, taken) {
     return out;
 }
 
+// WORLD 5. Straight route cells, with which of their side faces are walls --
+// the shared starting point of magnets and rails, which both live on a wall
+// beside the corridor.
+// Where a cell's wall face is, on the side `sgn` of axis x (alongX false) or
+// z: half a corridor from the centre -- except on the board's edge, where the
+// face is the boundary rail's, at the edge itself (the rail stands outside).
+function faceAt(cfg, g, i, j, alongX, sgn) {
+    if (alongX) {
+        if ((j === 0 && sgn < 0) || (j === cfg.rows - 1 && sgn > 0)) return sgn * BOARD_D / 2;
+        return g.cz(j) + sgn * (g.pz - g.t) / 2;
+    }
+    if ((i === 0 && sgn < 0) || (i === cfg.cols - 1 && sgn > 0)) return sgn * BOARD_W / 2;
+    return g.cx(i) + sgn * (g.px - g.t) / 2;
+}
+function sideWalls(open, cfg, g, path, from = 2, to = 2) {
+    const out = [];
+    for (let n = from; n < path.length - to; n++) {
+        const [pi, pj] = path[n - 1], [i, j] = path[n], [ni, nj] = path[n + 1];
+        if ((i - pi) + ',' + (j - pj) !== (ni - i) + ',' + (nj - j)) continue;
+        const alongX = i !== pi;
+        // [face, outward sign]: N is -z, S is +z, W is -x, E is +x.
+        const faces = alongX ? [['N', -1], ['S', 1]] : [['W', -1], ['E', 1]];
+        for (const [face, sgn] of faces) if (!open[j][i][face]) out.push({ i, j, alongX, sgn });
+    }
+    return out;
+}
+
+// MAGNETS sit on the wall beside a straight run, pulling across the corridor.
+function placeMagnets(open, cfg, g, path, rand, count) {
+    const cands = sideWalls(open, cfg, g, path, 2, 2);
+    shuffle(cands, rand);
+    const out = [];
+    const free = Math.min(g.px, g.pz) - g.t;
+    const reach = r2(Math.min(1.0, free * 1.05));
+    for (const c of cands) {
+        if (out.length >= count) break;
+        const cx = g.cx(c.i), cz = g.cz(c.j);
+        // The face is across the corridor from the centre: along z for an x run.
+        const face = faceAt(cfg, g, c.i, c.j, c.alongX, c.sgn);
+        const fx = c.alongX ? cx : face, fz = c.alongX ? face : cz;
+        if (out.some(o => Math.hypot(o.x - fx, o.z - fz) < reach * 2.2)) continue;
+        out.push({ x: r2(fx), z: r2(fz), nx: c.alongX ? 0 : -c.sgn, nz: c.alongX ? -c.sgn : 0, reach, _cell: c.i + ',' + c.j });
+    }
+    return out;
+}
+
+// CRUSHERS hang over straight route cells, spanning the corridor.
+function placeCrushers(open, cfg, g, path, rand, count, taken) {
+    const out = [];
+    const cells = [];
+    for (let n = 3; n < path.length - 2; n++) {
+        const [pi, pj] = path[n - 1], [i, j] = path[n], [ni, nj] = path[n + 1];
+        if ((i - pi) + ',' + (j - pj) !== (ni - i) + ',' + (nj - j)) continue;
+        if (taken.has(i + ',' + j)) continue;
+        cells.push({ i, j, alongX: i !== pi });
+    }
+    shuffle(cells, rand);
+    for (const c of cells) {
+        if (out.length >= count) break;
+        if (out.some(o => Math.hypot(o.x - g.cx(c.i), o.z - g.cz(c.j)) < Math.min(g.px, g.pz) * 1.9)) continue;
+        const depth = 0.6;
+        const cr = {
+            x: r2(g.cx(c.i)), z: r2(g.cz(c.j)),
+            w: r2(c.alongX ? depth : g.px - g.t), d: r2(c.alongX ? g.pz - g.t : depth),
+            periodMs: 3600 + Math.round(rand() * 8) * 100, phase: r2(rand()), _cell: c.i + ',' + c.j
+        };
+        for (let k = 0; k < 20 && H.firstSlamMs(cr) < 1800; k++) cr.phase = r2((cr.phase + 0.13) % 1);
+        if (H.firstSlamMs(cr) < 1800) continue;
+        out.push(cr);
+    }
+    return out;
+}
+
+// ELECTRIC RAILS are set into the wall face beside a straight run: brush that
+// wall while it is live and you are shocked; the middle of the corridor is
+// always safe.
+function placeRails(open, cfg, g, path, rand, count, taken) {
+    const cands = sideWalls(open, cfg, g, path, 2, 2).filter(c => !taken.has(c.i + ',' + c.j));
+    shuffle(cands, rand);
+    const out = [];
+    const T = 0.04;
+    for (const c of cands) {
+        if (out.length >= count) break;
+        const cx = g.cx(c.i), cz = g.cz(c.j);
+        // Set INTO the wall: from the face inward by T.
+        const face = faceAt(cfg, g, c.i, c.j, c.alongX, c.sgn) + c.sgn * T / 2;
+        const fx = c.alongX ? cx : face, fz = c.alongX ? face : cz;
+        if (out.some(o => Math.hypot(o.x - fx, o.z - fz) < 0.5)) continue;
+        const len = (c.alongX ? g.px : g.pz) - g.t;
+        const rail = {
+            x: r2(fx), z: r2(fz), w: r2(c.alongX ? len : T), d: r2(c.alongX ? T : len),
+            nx: c.alongX ? 0 : -c.sgn, nz: c.alongX ? -c.sgn : 0,
+            periodMs: 2600 + Math.round(rand() * 8) * 100, phase: r2(rand()), _cell: c.i + ',' + c.j
+        };
+        for (let k = 0; k < 20 && H.firstLiveMs(rail) < 1500; k++) rail.phase = r2((rail.phase + 0.13) % 1);
+        if (H.firstLiveMs(rail) < 1500) continue;
+        out.push(rail);
+    }
+    return out;
+}
+
 // Gates go on a DOORWAY the solution path crosses -- the boundary between two
 // cells the player has to pass between, not a bar standing in the middle of a
 // corridor. A gate on a branch nobody takes is scenery; a bar in a corridor wide
@@ -1129,7 +1233,7 @@ module.exports.holeRadiusFor = holeRadiusFor;
 // level by level. `route` is how much of the grid the solution path should
 // cover; it climbs too.
 //
-// Worlds 1-4 are built; world 5 (Foundry) follows as its traps are built.
+// Worlds 1-5 -- the launch worlds -- are built.
 const PICKUP_ROTATION = ['shield', 'magnet', 'slowmo'];
 const WORLDS = [
     {
@@ -1233,6 +1337,32 @@ const WORLDS = [
             { cols: 7, rows: 10, holes: 5, gates: 0, conveyors: 0, bumpers: 2, springs: 1, arms: 2, coins: 12, route: 0.5 }
         ],
         prize: 'plasticBall'
+    },
+    {
+        // THE FOUNDRY. Rusty plate and riveted steel turning, level by level,
+        // into a clean working foundry (blend rustworks -> foundry). New here:
+        // MAGNETS (L1), CRUSHERS (L4), ELECTRIC RAILS (L10). Holes and gates
+        // return as review.
+        world: 5, theme: 'rustworks', themeTo: 'foundry', ball: 0.24, wall: 0.26, braid: 0.25,
+        names: ['Scrap Yard', 'Pull', 'Lodestone', 'Drop Forge', 'Stamping Line',
+                'Heavy Press', 'Rolling Mill', 'Tool and Die', 'Night Shift', 'Live Wire'],
+        teaches: ['MAGNETS: they drag you toward the wall. Lean away.', 'More magnets.', 'Magnets and a gate.',
+                  'CRUSHERS: presses that shudder, then slam. Pass under while they are up.', 'Presses and magnets.', 'Presses and a gate.',
+                  'A finer grid.', 'More of everything.', 'The finest grid this ball fits.',
+                  'ELECTRIC RAILS: walls that spark, then shock. Keep off them while they are live.'],
+        levels: [
+            { cols: 7, rows: 11, holes: 4, gates: 0, conveyors: 0, magnets: 2, crushers: 0, rails: 0, coins: 7,  route: 0.35 },
+            { cols: 7, rows: 11, holes: 5, gates: 0, conveyors: 0, magnets: 3, crushers: 0, rails: 0, coins: 8,  route: 0.45 },
+            { cols: 7, rows: 11, holes: 5, gates: 1, conveyors: 0, magnets: 3, crushers: 0, rails: 0, coins: 8,  route: 0.5 },
+            { cols: 7, rows: 11, holes: 5, gates: 0, conveyors: 0, magnets: 2, crushers: 2, rails: 0, coins: 9,  route: 0.4 },
+            { cols: 7, rows: 11, holes: 6, gates: 0, conveyors: 0, magnets: 2, crushers: 2, rails: 0, coins: 9,  route: 0.45 },
+            { cols: 7, rows: 12, holes: 6, gates: 1, conveyors: 0, magnets: 2, crushers: 3, rails: 0, coins: 10, route: 0.45 },
+            { cols: 8, rows: 12, holes: 6, gates: 0, conveyors: 0, magnets: 3, crushers: 3, rails: 0, coins: 10, route: 0.5 },
+            { cols: 8, rows: 12, holes: 7, gates: 0, conveyors: 0, magnets: 3, crushers: 3, rails: 0, coins: 11, route: 0.5 },
+            { cols: 8, rows: 12, holes: 7, gates: 1, conveyors: 0, magnets: 3, crushers: 3, rails: 0, coins: 11, route: 0.55 },
+            { cols: 7, rows: 11, holes: 5, gates: 0, conveyors: 0, magnets: 2, crushers: 2, rails: 4, coins: 12, route: 0.5 }
+        ],
+        prize: 'chromePolish'
     }
 ];
 
@@ -1395,9 +1525,35 @@ function buildLevel(cfg, n, index, seed) {
         .concat(springs.map(s => s.lane))
         .concat(base.arms.map(a => { const k = 2 * (H.armReach(a) + cfg.ball + 0.5 - holeClear); return { x: a.x, z: a.z, w: k, d: k }; }));
 
+    // World 5. Magnets on walls beside straight runs; crushers over other
+    // straight cells; rails into walls the others leave alone. Rails go into
+    // the level before the holes, so every hole is placed against them.
+    const foundryTaken = new Set();
+    const magnets = (cfg.magnets ? placeMagnets(open, cfg, g, path, rand, cfg.magnets * 3) : [])
+        .filter(m => sweepRects.every(sw => apart({ x: m.x, z: m.z, w: m.reach * 2, d: m.reach * 2 }, sw, 0)))
+        .slice(0, cfg.magnets || 0);
+    magnets.forEach(m => foundryTaken.add(m._cell));
+    const crushers = (cfg.crushers ? placeCrushers(open, cfg, g, path, rand, cfg.crushers * 3, foundryTaken) : [])
+        .filter(c => sweepRects.every(sw => apart(c, sw, cfg.ball)))
+        .slice(0, cfg.crushers || 0);
+    crushers.forEach(c => foundryTaken.add(c._cell));
+    const rails = [];
+    for (const r of (cfg.rails ? placeRails(open, cfg, g, path, rand, cfg.rails * 4, foundryTaken) : [])) {
+        if (rails.length >= cfg.rails) break;
+        if (!sweepRects.every(sw => apart(r, sw, cfg.ball))) continue;
+        // A magnet must never reach a rail: no pulling the ball into a shock.
+        if (magnets.some(m => H.distanceToRect(r, m.x, m.z) < m.reach + cfg.ball)) continue;
+        base.rails = rails.concat(r);
+        if (solvable(base)) rails.push(r);
+    }
+    base.rails = rails;
+    const world5Keepouts = magnets.map(m => { const k = 2 * (m.reach + 0.2); return { x: m.x, z: m.z, w: k, d: k }; })
+        .concat(crushers.map(c => ({ x: c.x, z: c.z, w: c.w + 0.3, d: c.d + 0.3 })))
+        .concat(rails.map(r => { const c = r._cell.split(',').map(Number); return { x: g.cx(c[0]), z: g.cz(c[1]), w: g.px, d: g.pz }; }));
+
     const holes = [];
     const openSpecs = base.gates.map(gt => ({ x: gt.x, z: gt.z, w: gt.w, d: gt.d }));
-    for (const h of placeHoles(open, cfg, g, path, rand, cfg.holes * 3, gates, ice.concat(conveyors, fans.map(fanRects), icicleRects, world3Keepouts, world4Keepouts), cfg)) {
+    for (const h of placeHoles(open, cfg, g, path, rand, cfg.holes * 3, gates, ice.concat(conveyors, fans.map(fanRects), icicleRects, world3Keepouts, world4Keepouts, world5Keepouts), cfg)) {
         if (holes.length >= cfg.holes) break;
         base.holes.push(h);
         // Solvable is not enough -- see orphanArea(). A hole that seals a branch
@@ -1416,7 +1572,7 @@ function buildLevel(cfg, n, index, seed) {
     const goldMs = Math.round(dist / 1.5 * 1000);
 
     // Collectibles last: they go where the finished level leaves room.
-    const placed = { ...base, holes, gates, springs: springs.map(s => s.pad) };
+    const placed = { ...base, holes, gates, springs: springs.map(s => s.pad), crushers };
     const pickupKinds = n === 0 ? [] : [PICKUP_ROTATION[(n - 1) % PICKUP_ROTATION.length]];
     const { coins, pickups } = placeCollectibles(open, cfg, g, path, rand, placed, cfg.coins || 0, pickupKinds);
 
@@ -1446,6 +1602,10 @@ function buildLevel(cfg, n, index, seed) {
     if (base.bumpers.length) lv.bumpers = base.bumpers;
     if (springs.length) lv.springs = springs.map(s => s.pad);
     if (base.arms.length) lv.arms = base.arms;
+    const strip = ({ _cell, ...o }) => o;
+    if (magnets.length) lv.magnets = magnets.map(strip);
+    if (crushers.length) lv.crushers = crushers.map(strip);
+    if (rails.length) lv.rails = rails.map(strip);
     lv.coins = coins;
     if (pickups.length) lv.pickups = pickups;
     return lv;
@@ -1518,6 +1678,9 @@ function buildAll() {
                     && (built.bumpers || []).length === (cfg.bumpers || 0)
                     && (built.springs || []).length === (cfg.springs || 0)
                     && (built.arms || []).length === (cfg.arms || 0)
+                    && (built.magnets || []).length === (cfg.magnets || 0)
+                    && (built.crushers || []).length === (cfg.crushers || 0)
+                    && (built.rails || []).length === (cfg.rails || 0)
                     && built.coins.length === cfg.coins) { lv = built; break; }
             }
             if (!lv) lv = fallback;
@@ -1596,6 +1759,9 @@ function renderLevel(lv) {
         ['bumpers', lv.bumpers, ['x', 'z', 'r']],
         ['springs', lv.springs, ['x', 'z', 'w', 'd', 'dir', 'periodMs', 'phase']],
         ['arms', lv.arms, ['x', 'z', 'len', 'periodMs', 'phase', 'dir']],
+        ['magnets', lv.magnets, ['x', 'z', 'nx', 'nz', 'reach']],
+        ['crushers', lv.crushers, ['x', 'z', 'w', 'd', 'periodMs', 'phase']],
+        ['rails', lv.rails, ['x', 'z', 'w', 'd', 'nx', 'nz', 'periodMs', 'phase']],
         ['coins', lv.coins, ['x', 'z']],
         ['pickups', lv.pickups, ['x', 'z', 'kind']]
     ].filter(([, arr]) => arr);

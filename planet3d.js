@@ -38,10 +38,14 @@ export function starfield(count, seed) {
 // from three axes (lavaPlanet), and the pattern scaled to the sphere so every
 // planet, big or small, shows about the same number of continents. Shared
 // with the solar system (solarSystem3d.js).
-const PLANET_PATTERN = { plain: 'rock', rock: 'rock', lavaCracks: 'lavaPlanet', woodToDirt: 'rock', foamMat: 'beachBall' };
+const PLANET_PATTERN = { plain: 'rock', rock: 'rock', lavaCracks: 'lavaPlanet', woodToDirt: 'rock', foamMat: 'beachBall', treadPlate: 'steelPlanet' };
 export function makePlanetMaterial(theme, r) {
     const surfaceTheme = { ...theme, floorPattern: PLANET_PATTERN[theme.floorPattern] || 'rock', floorTextures: null };
     const mat = makeFloorMaterial(surfaceTheme, 10);
+    // A shiny metal floor makes a planet a mirror ball with one blown
+    // highlight; a world seen from orbit is mostly matte.
+    mat.metalness = Math.min(mat.metalness, 0.3);
+    mat.roughness = Math.max(mat.roughness, 0.55);
     const su = mat.userData.surfaceUniforms;
     if (su) { su.mrScale.value = (theme.patternScale || 1) * 0.55 * (PLANET_R / r); su.mrGritAmt.value = 0; }
     return mat;

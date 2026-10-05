@@ -128,6 +128,40 @@ export const MAZE_THEMES = {
         gateColor: '#6d5bd0',
         backdropColor: '#1d1830'
     },
+    // WORLD 5, THE FOUNDRY: levels say theme 'rustworks', themeTo 'foundry'
+    // and a blend. Diamond tread plate underfoot and riveted steel walls,
+    // rusty in the first levels and clean, working steel with hazard-striped
+    // tops by the last (mazeSurface3d.js treadPlate / steelPanels; the rust
+    // fades with the blend). The marble is hot orange, the one warm thing on
+    // grey steel.
+    'rustworks': {
+        id: 'rustworks',
+        name: 'Rustworks',
+        rarity: 'rare',
+        floorColor: '#7d7a76', floorColor2: '#8a4a22', floorRoughness: 0.75, floorMetalness: 0.35,
+        floorPattern: 'treadPlate',
+        wallColor: '#6a6560', wallColor2: '#7b3a18', wallRoughness: 0.6, wallMetalness: 0.4,
+        wallPattern: 'steelPanels',
+        marbleColor: '#ff6a2a', marbleRoughness: 0.25, marbleMetalness: 0.1,
+        holeColor: '#0b0c0e',
+        goalColor: '#7dff4f',
+        gateColor: '#c99a22',
+        backdropColor: '#1d1a17'
+    },
+    'foundry': {
+        id: 'foundry',
+        name: 'The Foundry',
+        rarity: 'epic',
+        floorColor: '#9aa1a8', floorColor2: '#5a6068', floorRoughness: 0.45, floorMetalness: 0.6,
+        floorPattern: 'treadPlate',
+        wallColor: '#4a5058', wallColor2: '#2c3036', wallRoughness: 0.4, wallMetalness: 0.6,
+        wallPattern: 'steelPanels',
+        marbleColor: '#ff6a2a', marbleRoughness: 0.25, marbleMetalness: 0.1,
+        holeColor: '#08090b',
+        goalColor: '#7dff4f',
+        gateColor: '#e0b020',
+        backdropColor: '#14171b'
+    },
     'slate': {
         id: 'slate',
         name: 'Cold Storage',

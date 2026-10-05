@@ -10,7 +10,9 @@ import { resolveMazeTheme, resolveLevelTheme, makeWallGeometry, makeBallMaterial
 import { tickSurfaces } from './mazeSurface3d.js';
 import { conveyorAt, conveyorAccel, windAt, windAccel, icicleHits, icicleState, windStrength,
          flareHits, flareState, gateBurning, moltenGateHits, geyserAccel, geyserState,
-         bumperKick, springUnder, springLaunch, springShot, springState, armAngle, armSpin, ARM_HUB_R, ARM_HALF_T } from './mazeHazards.js';
+         bumperKick, springUnder, springLaunch, springShot, springState, armAngle, armSpin, ARM_HUB_R, ARM_HALF_T,
+         magnetAccel, crusherState, crusherBottom, crusherVelocity, crusherHits, railHits, railState } from './mazeHazards.js';
+import { CRUSH_HEAD_H } from './foundryProps3d.js';
 import { ARM_Y0, ARM_Y1 } from './toyProps3d.js';
 import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from './mazePickups.js';
 import { buildLevelProps } from './mazeProps3d.js';
@@ -138,6 +140,8 @@ let iceRects = [];
 // World 4: the arms' kinematic blades, which shot each spring last fired
 // at the ball, and when each bumper last kicked (for its flash and sound).
 let armBodies = [];
+// World 5: the presses' kinematic heads.
+let crusherBodies = [];
 let springShots = [];
 let bumperKicks = 0;
 let props = null;                // belts, coins, pickups (mazeProps3d.js)
@@ -600,6 +604,17 @@ function buildWorld(lv, wallSpecs) {
         return { a, body };
     });
 
+    // World 5. A press head is kinematic, like a gate, moved up and down by
+    // updateGates with its true speed. Up, it hangs above the walls and the
+    // ball passes under; down, it is a wall.
+    crusherBodies = (lv.crushers || []).map(c => {
+        const body = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, material: solidMat });
+        body.addShape(new CANNON.Box(new CANNON.Vec3(c.w / 2, CRUSH_HEAD_H / 2, c.d / 2)));
+        body.position.set(c.x, FLOOR_Y + crusherBottom(c, 0) + CRUSH_HEAD_H / 2, c.z);
+        w.addBody(body);
+        return { c, body };
+    });
+
     const ball = new CANNON.Body({ mass: 1, material: ballMat });
     ball.addShape(new CANNON.Sphere(lv.ballRadius));
     // Angular damping keeps the marble from spinning up into an unstoppable
@@ -760,7 +775,7 @@ function advance(elapsedMs) {
     const simMs = phase === 'running' ? elapsedMs * timeScale(pickupState) : elapsedMs;
     const steps = Math.min(Math.max(1, Math.round((simMs / 1000) / FIXED_STEP)), MAX_CATCHUP_STEPS);
     for (let i = 0; i < steps; i++) {
-        if (phase === 'running') { applyConveyor(FIXED_STEP); applyWind(FIXED_STEP); applyGeysers(FIXED_STEP); applyToys(); }
+        if (phase === 'running') { applyConveyor(FIXED_STEP); applyWind(FIXED_STEP); applyGeysers(FIXED_STEP); applyToys(); applyFoundry(FIXED_STEP); }
         world.step(FIXED_STEP);
     }
 
@@ -779,6 +794,10 @@ function advance(elapsedMs) {
 // set alongside purely so contacts resolve as a push (see mazeHazards.js's
 // gateVelocity comment).
 function updateGates() {
+    for (const { c, body } of crusherBodies) {
+        body.position.set(c.x, FLOOR_Y + crusherBottom(c, runClockMs) + CRUSH_HEAD_H / 2, c.z);
+        body.velocity.set(0, crusherVelocity(c, runClockMs) * timeScale(pickupState), 0);
+    }
     for (const { a, body } of armBodies) {
         body.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -armAngle(a, runClockMs));
         body.angularVelocity.set(0, -armSpin(a) * timeScale(pickupState), 0);
@@ -900,6 +919,26 @@ function applyToys() {
     }
 }
 
+// World 5, once per substep. A magnet pulls the ball toward its wall
+// (unless world 4's Plastic Ball is spent on this level, spent the first
+// time a field takes hold); a press coming down on the ball crushes it --
+// checked here, before the step, so the press never shoves the ball out
+// from under itself first.
+function applyFoundry(dt) {
+    if (!level || !ballBody || phase !== 'running') return;
+    const p = ballBody.position;
+    if (level.magnets) {
+        const a = magnetAccel(level.magnets, p.x, p.z);
+        if ((a.ax || a.az) && usePrizeFor('magnets')) {
+            if (props) props.magnetsOff(true);            // the fields go grey
+        } else if (a.ax || a.az) {
+            ballBody.velocity.x += a.ax * dt;
+            ballBody.velocity.z += a.az * dt;
+        }
+    }
+    if (level.crushers && crusherHits(level.crushers, runClockMs, p.x, p.z, level.ballRadius)) knockOut('CRUSHED');
+}
+
 // Spin the star, and pop it in on arrival. The pop overshoots past full size
 // before settling, because a scale that eases straight to 1.0 reads as the
 // object fading in rather than as it landing.
@@ -942,6 +981,9 @@ function checkOutcomes() {
     // level; a molten gate burns while it closes.
     if (level.flares && flareHits(level.flares, runClockMs, p.x, p.z, level.ballRadius) && !usePrizeFor('flares')) { knockOut('BURNED'); return; }
     if (level.gates && moltenGateHits(level.gates, runClockMs, p.x, p.z, level.ballRadius)) { knockOut('BURNED BY A MOLTEN GATE'); return; }
+    // World 5: a live rail shocks a ball touching its wall.
+    if (level.rails && railHits(level.rails, runClockMs, p.x, p.z, level.ballRadius)) { knockOut('SHOCKED'); return; }
+    if (level.crushers && crusherHits(level.crushers, runClockMs, p.x, p.z, level.ballRadius)) { knockOut('CRUSHED'); return; }
 
     // Coins and pickups, after the hole check so a ball going down a hole
     // does not also bank the coin on its lip.
@@ -1323,6 +1365,7 @@ function teardownLevel() {
     // records once.
     gates = [];
     armBodies = [];
+    crusherBodies = [];
     springShots = [];
     iceRects = [];
     winStar = null;
@@ -1475,6 +1518,14 @@ window.__mazeDebug = {
     } : null),
     // Roll the ball: set its velocity (units/s) without moving it.
     setBallVelocity: (vx, vz) => { if (!ballBody) return false; ballBody.velocity.set(vx, 0, vz); return true; },
+    world5: () => (level ? {
+        magnets: (level.magnets || []).length,
+        pull: ballBody && level.magnets ? magnetAccel(level.magnets, ballBody.position.x, ballBody.position.z) : null,
+        crushers: (level.crushers || []).map(c => crusherState(c, runClockMs).state),
+        crusherBodyY: crusherBodies.map(({ body }) => body.position.y),
+        rails: (level.rails || []).map(r => railState(r, runClockMs).state),
+        prizeOn: Object.keys(prizeOn).filter(k => prizeOn[k])
+    } : null),
     world4: () => (level ? {
         bumpers: (level.bumpers || []).length,
         kicks: bumperKicks,

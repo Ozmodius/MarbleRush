@@ -110,7 +110,8 @@ function reachableFloor(lv, gateSpecs) {
     const solid = (x, z) => Math.abs(x) > hw - R || Math.abs(z) > hd - R
         || solids.some(w => Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R)
         || HZ.inPost(HZ.postSpecs(lv), x, z, R);
-    const holed = (x, z) => (lv.holes || []).some(h => Math.hypot(x - h.x, z - h.z) <= h.r);
+    // Electric rails are solved as if always live: fatal, like holes.
+    const holed = (x, z) => (lv.holes || []).some(h => Math.hypot(x - h.x, z - h.z) <= h.r) || !!HZ.inRailZone(lv.rails, x, z, R);
     // THE EXIT ABSORBS. mazeGame.js's checkOutcomes wins the run the moment the
     // ball centre enters the goal disc, so the ball never comes out the far side
     // of it. Floor whose only way in leads through the goal is floor nobody will
@@ -201,7 +202,10 @@ function analyse(lv, H) {
     const inWall = (x, z) => solids.some(w =>
         Math.abs(x - w.x) <= w.w / 2 + R && Math.abs(z - w.z) <= w.d / 2 + R) || H.inPost(posts, x, z, R);
     const outside = (x, z) => Math.abs(x) > hw - R || Math.abs(z) > hd - R;
-    const inHole = (x, z) => lv.holes.some(h => Math.hypot(x - h.x, z - h.z) <= h.r);
+    // ELECTRIC RAILS are solved as if always live: the band where a ball
+    // would touch one is fatal, like a hole. They are live only part of the
+    // time, so a level solvable this way is solvable at every moment.
+    const inHole = (x, z) => lv.holes.some(h => Math.hypot(x - h.x, z - h.z) <= h.r) || !!H.inRailZone(lv.rails, x, z, R);
     const free = (x, z) => !outside(x, z) && !inWall(x, z) && !inHole(x, z);
 
     const nx = Math.round(lv.size.w / GRID), nz = Math.round(lv.size.d / GRID);
@@ -455,6 +459,52 @@ function checkExtras(lv, H, P) {
         check(reachableAt(ar.x, ar.z, reach + a.R), `${atag} is UNREACHABLE`);
     });
 
+    // MAGNETS -- pushing, under half of full tilt (hazard test). Placement:
+    // on a wall, reaching no hole, no rail, not the start or the goal.
+    (Array.isArray(lv.magnets) ? lv.magnets : []).forEach((m, n) => {
+        const mtag = `${tag}: magnet ${n} at (${m.x},${m.z})`;
+        check(Number.isFinite(m.reach) && m.reach > 0 && m.reach <= 1.5, `${mtag} needs a reach in (0, 1.5]`);
+        check(Math.abs(Math.hypot(m.nx, m.nz) - 1) < 1e-9 && (m.nx === 0 || m.nz === 0), `${mtag} needs an axis-aligned unit normal`);
+        // It sits on a wall face: just behind it is wall, just in front floor.
+        // (or on the boundary: the rails stand just outside the board)
+        const behind = { x: m.x - m.nx * 0.03, z: m.z - m.nz * 0.03 };
+        check(lv.walls.some(w => H.distanceToRect(w, behind.x, behind.z) === 0) || Math.abs(behind.x) > a.hw || Math.abs(behind.z) > a.hd, `${mtag} is not on a wall`);
+        check(!a.inWall(m.x + m.nx * (a.R + 0.03), m.z + m.nz * (a.R + 0.03)), `${mtag} does not face open floor`);
+        for (const h of lv.holes) check(Math.hypot(m.x - h.x, m.z - h.z) >= m.reach + h.r + a.R * 0.5, `${mtag} reaches the hole at (${h.x},${h.z}) -- a magnet must never drag the ball toward a hole`);
+        (lv.rails || []).forEach((r, k) => check(H.distanceToRect(r, m.x, m.z) >= m.reach + a.R, `${mtag} reaches rail ${k} -- no dragging the ball into a shock`));
+        check(Math.hypot(m.x - lv.start.x, m.z - lv.start.z) > m.reach + a.R, `${mtag} reaches the START`);
+        check(Math.hypot(m.x - lv.goal.x, m.z - lv.goal.z) > m.reach + lv.goal.r, `${mtag} reaches the GOAL`);
+        check(reachableAt(m.x, m.z, m.reach), `${mtag} is UNREACHABLE`);
+    });
+
+    // CRUSHERS -- timed, like gates: up most of the time and always warning
+    // before a slam. Never over a hole, the start, the goal or a gate's sweep.
+    (Array.isArray(lv.crushers) ? lv.crushers : []).forEach((c, n) => {
+        const ctag = `${tag}: crusher ${n} at (${c.x},${c.z})`;
+        check(Number.isFinite(c.w) && c.w > 0 && Number.isFinite(c.d) && c.d > 0 && Math.min(c.w, c.d) <= 0.8, `${ctag} needs a size, at most 0.8 deep -- a press must be passable in its up time`);
+        check(Number.isFinite(c.periodMs) && c.periodMs >= H.CRUSH_MIN_PERIOD, `${ctag} needs a periodMs of at least ${H.CRUSH_MIN_PERIOD}`);
+        check(H.firstSlamMs(c) >= 1500, `${ctag} first slams ${H.firstSlamMs(c)}ms into a run`);
+        check(H.distanceToRect(c, lv.start.x, lv.start.z) > a.R * 2, `${ctag} is over the START`);
+        check(H.distanceToRect(c, lv.goal.x, lv.goal.z) > lv.goal.r + a.R, `${ctag} is over the GOAL`);
+        for (const h of lv.holes) check(H.distanceToRect(c, h.x, h.z) > h.r + a.R, `${ctag} is over the hole at (${h.x},${h.z})`);
+        sweeps.forEach(sw => check(!overlap(c, sw, a.R), `${ctag} is over a gate's sweep`));
+        const live = [...rf.seen].some(k => { const [i, j] = k.split('_').map(Number); return H.distanceToRect(c, rf.px(i), rf.pz(j)) === 0; });
+        check(live, `${ctag} is UNREACHABLE`);
+    });
+
+    // ELECTRIC RAILS -- solved around as fatal (analyse, reachableFloor);
+    // here: set into a wall, warning before every live spell, reachable.
+    (Array.isArray(lv.rails) ? lv.rails : []).forEach((r, n) => {
+        const rtag = `${tag}: rail ${n} at (${r.x},${r.z})`;
+        check(Number.isFinite(r.periodMs) && r.periodMs >= H.RAIL_MIN_PERIOD, `${rtag} needs a periodMs of at least ${H.RAIL_MIN_PERIOD}`);
+        check(H.firstLiveMs(r) >= 1500, `${rtag} goes live ${H.firstLiveMs(r)}ms into a run`);
+        const inBoundary = Math.abs(r.x) - r.w / 2 >= a.hw - 1e-6 || Math.abs(r.z) - r.d / 2 >= a.hd - 1e-6;
+        check(inBoundary || lv.walls.some(w => Math.abs(r.x - w.x) + r.w / 2 <= w.w / 2 + 1e-6 && Math.abs(r.z - w.z) + r.d / 2 <= w.d / 2 + 1e-6),
+            `${rtag} is not set inside a wall`);
+        check(Math.hypot(lv.start.x - r.x, lv.start.z - r.z) > 0.8, `${rtag} is at the START`);
+        check(reachableAt(r.x + r.nx * 0.01, r.z + r.nz * 0.01, a.R + H.RAIL_TOUCH + 0.1), `${rtag} is UNREACHABLE -- nothing can ever touch it`);
+    });
+
     // COINS AND PICKUPS. Every one must be collectible by a ball standing on
     // reachable floor, without that ball being over a hole, and must not sit
     // where a gate sweeps (a coin you can only take by being crushed is a
@@ -477,6 +527,8 @@ function checkExtras(lv, H, P) {
         check(Math.hypot(it.x - lv.goal.x, it.z - lv.goal.z) > lv.goal.r + it.reach, `${itag} is on the GOAL`);
         (lv.springs || []).forEach((p, k) => check(H.distanceToRect(p, it.x, it.z) >= a.R, `${itag} sits on spring ${k} -- taking it would mean riding the launch`));
         (lv.bumpers || []).forEach((b, k) => check(Math.hypot(it.x - b.x, it.z - b.z) >= b.r + a.R, `${itag} is inside bumper ${k}`));
+        (lv.crushers || []).forEach((c, k) => check(H.distanceToRect(c, it.x, it.z) >= a.R, `${itag} is under crusher ${k}`));
+        check(!H.inRailZone(lv.rails, it.x, it.z, a.R), `${itag} can only be taken by touching a rail`);
         check(Math.hypot(it.x - lv.start.x, it.z - lv.start.z) > a.R + it.reach, `${itag} is on the START -- collected before the run begins`);
     }
     (lv.pickups || []).forEach((p, n) => check(P.POWERUP_KINDS.includes(p.kind), `${tag}: pickup ${n} has unknown kind '${p.kind}' (have: ${P.POWERUP_KINDS.join(', ')})`));
@@ -749,7 +801,8 @@ async function run() {
         fans: l => (l.fans || []).length, icicles: l => (l.icicles || []).length,
         flares: l => (l.flares || []).length, moltenGates: l => (l.gates || []).filter(g => g.molten).length,
         geysers: l => (l.geysers || []).length,
-        bumpers: l => (l.bumpers || []).length, springs: l => (l.springs || []).length, arms: l => (l.arms || []).length };
+        bumpers: l => (l.bumpers || []).length, springs: l => (l.springs || []).length, arms: l => (l.arms || []).length,
+        magnets: l => (l.magnets || []).length, crushers: l => (l.crushers || []).length, rails: l => (l.rails || []).length };
     const metBefore = new Set();
     for (const w of Object.keys(worldRanges).sort((a, b) => a - b)) {
         const lvls = DATA.levels.filter(l => String(l.world) === w);

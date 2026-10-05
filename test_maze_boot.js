@@ -78,10 +78,16 @@ const check = (c, m) => { if (!c) failures.push(m); };
             && /Clear World 1/.test(await page.textContent('#worldSheetNote')), 'a built but locked world shows its levels, locked, and says what opens it');
         // The first world not built yet: one past the last world in the data.
         const comingN = Math.max(...levels.map(l => l.world)) + 1;
-        const comingName = (await import('./worlds.js')).worldName(comingN);
-        await page.locator('#worldLabel_' + comingN).click({ force: true });
-        check((await page.textContent('#worldSheetName')).trim() === comingName && await page.locator('.level-node').count() === 0
-            && /Coming/.test(await page.textContent('#worldSheetNote')), 'tapping a world not built yet says it is coming, with no levels');
+        const W = await import('./worlds.js');
+        if (comingN <= W.LAUNCH_WORLDS) {
+            await page.locator('#worldLabel_' + comingN).click({ force: true });
+            check((await page.textContent('#worldSheetName')).trim() === W.worldName(comingN) && await page.locator('.level-node').count() === 0
+                && /Coming/.test(await page.textContent('#worldSheetNote')), 'tapping a world not built yet says it is coming, with no levels');
+        } else {
+            // Every launch world is built: the system shows exactly those, none "coming".
+            check(await page.locator('.world-label').count() === W.LAUNCH_WORLDS && await page.locator('.world-label.is-coming').count() === 0,
+                'with every launch world built, the system shows them all and none as coming');
+        }
         // A tap on the planet itself (just above its label) picks it too.
         const anchor = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
         await page.mouse.click(anchor.x, anchor.y - 30);
@@ -337,6 +343,61 @@ const check = (c, m) => { if (!c) failures.push(m); };
             check(Math.hypot(a1.x - a0.x, a1.z - a0.z) > 0.1, `a blade sweeps a ball in its way (moved ${Math.hypot(a1.x - a0.x, a1.z - a0.z).toFixed(3)})`);
             check(await dbg('phase') === 'running', 'a blade shoves; it does not end the run');
             check(Math.hypot(a1.x - ar.x, a1.z - ar.z) < 2, 'and the ball stays in the room');
+        }
+
+        // --- world 5: magnets, crushers, electric rails -----------------------
+        const lvM = levels.find(l => (l.magnets || []).length);
+        if (lvM) {
+            check(await dbg('startLevelForTest', lvM.id), `can build ${lvM.id}`);
+            await page.tap('#mazeStartBtn');
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const m = lvM.magnets[0];
+            const at = { x: m.x + m.nx * 0.55, z: m.z + m.nz * 0.55 };
+            const m0 = await dbg('placeBall', at.x, at.z);
+            const m1 = await dbg('advanceFrames', 20);
+            const toward = (m0.x - m1.x) * m.nx + (m0.z - m1.z) * m.nz;
+            check(toward > 0.05, `a magnet drags the ball toward its wall (moved ${toward.toFixed(3)})`);
+            check(await dbg('phase') === 'running', 'a magnet pulls; it does not end the run');
+        }
+        const lvC = levels.find(l => (l.crushers || []).length);
+        if (lvC) {
+            check(await dbg('startLevelForTest', lvC.id), `can build ${lvC.id}`);
+            await page.tap('#mazeStartBtn');
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const c = lvC.crushers[0], ts = H.firstSlamMs(c);
+            await dbg('setRunClock', ts - 1500);
+            await dbg('placeBall', c.x, c.z);
+            await dbg('advanceFrames', 3);
+            check(await dbg('phase') === 'running', 'under a press that is up is safe');
+            const y = (await dbg('world5')).crusherBodyY[0];
+            check(y > 0.7, `the press body hangs above the ball while up (y ${y.toFixed(2)})`);
+            await dbg('setRunClock', ts - 20);
+            await dbg('placeBall', c.x, c.z);
+            await dbg('advanceFrames', 12);
+            check(await dbg('phase') === 'falling' && /CRUSHED/.test(await page.textContent('#mazeStatus')),
+                `a press coming down crushes the ball under it (phase ${await dbg('phase')}, status "${await page.textContent('#mazeStatus')}")`);
+        }
+        const lvR = levels.find(l => (l.rails || []).length);
+        if (lvR) {
+            check(await dbg('startLevelForTest', lvR.id), `can build ${lvR.id}`);
+            await page.tap('#mazeStartBtn');
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const r = lvR.rails[0], tl = H.firstLiveMs(r), R = lvR.ballRadius;
+            const thick = Math.min(r.w, r.d);
+            const touch = { x: r.x + r.nx * (thick / 2 + R + 0.01), z: r.z + r.nz * (thick / 2 + R + 0.01) };
+            await dbg('setRunClock', tl - 900);
+            await dbg('placeBall', touch.x, touch.z);
+            await dbg('advanceFrames', 2);
+            check(await dbg('phase') === 'running', 'touching a dead rail is safe');
+            await dbg('setRunClock', tl + 30);
+            await dbg('placeBall', touch.x, touch.z);
+            await dbg('advanceFrames', 2);
+            check(await dbg('phase') === 'falling' && /SHOCKED/.test(await page.textContent('#mazeStatus')), 'touching a live rail shocks the ball');
+            await page.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { timeout: 5000 }).catch(() => {});
+            await dbg('setRunClock', tl + 30);
+            await dbg('placeBall', r.x + r.nx * (thick / 2 + R + 0.2), r.z + r.nz * (thick / 2 + R + 0.2));
+            await dbg('advanceFrames', 2);
+            check(await dbg('phase') === 'running', 'the middle of the corridor beside a live rail is safe');
         }
 
         // --- progress survives a reload ----------------------------------
