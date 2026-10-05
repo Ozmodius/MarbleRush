@@ -11,6 +11,7 @@ import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from 
 import { buildLevelProps } from './mazeProps3d.js';
 import { sfx as uiSfx } from './sfx.js';
 import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
+import { ballSetup, PRIZES } from './shopCatalog.js';
 import { tierForMs, isUnlocked, basePayout as payoutFor, goldBonus as goldBonusFor } from './progressStore.js';
 import { setGameplayActive, features, showMidgameAd, happytime, reportGameCompleted } from './platform.js';
 
@@ -128,10 +129,14 @@ let winStarMs = 0;               // time since the star appeared, drives pop + s
 let iceRects = [];
 let props = null;                // belts, coins, pickups (mazeProps3d.js)
 let pickupState = null;          // this attempt's coins and power-ups (mazePickups.js)
-// Power-ups bought before the level and not yet spent. Set by the shop /
-// level-select UI through setRunCharges(); survives restarts of the same level
-// (a bought charge is spent when fired, not when an attempt ends).
-let runCharges = {};
+// The ball this level is played with: the selected marble plus upgrades
+// (shopCatalog.js ballSetup), read from the progress store when the level is
+// built. Bought power-ups live in the store's inventory and are spent there.
+let ballSpec = ballSetup('classic', {});
+// The world prize answering a trap in this level (shopCatalog.js PRIZES), and
+// whether one use of it has been spent on this level visit. A use covers every
+// retry of the level, so it is reset when a level is built, not on restart.
+let prizeOn = {};
 let floorBody = null;            // material swapped per frame when the ball is on ice
 let solidMaterial = null;
 let iceMaterial = null;
@@ -510,7 +515,7 @@ function buildLevelMeshes(lv, theme) {
     // can rely on the ball reading against their own floor, instead of hoping
     // it does against 4+ marble skins they have never seen together.
     const ballGeo = track(new THREE.SphereGeometry(lv.ballRadius, 28, 20));
-    const ballMat = track(makeBallMaterial(theme));
+    const ballMat = track(makeBallMaterial(theme, ballSpec.look));
     ballMesh = new THREE.Mesh(ballGeo, ballMat);
     ballMesh.castShadow = true;
     group.add(ballMesh);
@@ -533,8 +538,11 @@ function buildWorld(lv, wallSpecs) {
     // Low restitution: a marble in a wooden labyrinth thuds, it does not bounce.
     // Modest friction so it rolls rather than skids, which is what makes small
     // corrective tilts feel like they do something.
-    w.addContactMaterial(new CANNON.ContactMaterial(solidMat, ballMat, { friction: 0.28, restitution: 0.12 }));
-    w.addContactMaterial(new CANNON.ContactMaterial(iceMat, ballMat, { friction: ICE_FRICTION, restitution: 0.12 }));
+    // Grip and bounce are the marble's (shopCatalog.js); Classic's are the
+    // 0.28 / 0.12 every level was tuned on. Ice stays ice whatever the marble:
+    // only the Rubber Coat prize changes that (updateFloorSurface).
+    w.addContactMaterial(new CANNON.ContactMaterial(solidMat, ballMat, { friction: ballSpec.grip, restitution: ballSpec.bounce }));
+    w.addContactMaterial(new CANNON.ContactMaterial(iceMat, ballMat, { friction: ICE_FRICTION, restitution: ballSpec.bounce }));
 
     // ICE IS A MATERIAL SWAP ON THE ONE FLOOR BODY, not extra geometry.
     //
@@ -580,8 +588,10 @@ function buildWorld(lv, wallSpecs) {
     ball.addShape(new CANNON.Sphere(lv.ballRadius));
     // Angular damping keeps the marble from spinning up into an unstoppable
     // top on a long straight; linear damping is near-zero so it still coasts.
-    ball.linearDamping = 0.02;
-    ball.angularDamping = 0.22;
+    // Both from the marble; never below Classic's (test_shop.js), which is
+    // what keeps a bought marble from being a faster one.
+    ball.linearDamping = ballSpec.damping;
+    ball.angularDamping = ballSpec.spin;
     w.addBody(ball);
 
     world = w;
@@ -686,7 +696,9 @@ function advance(elapsedMs) {
         const { tilt, gravity } = computeTilt(manual ? manualReading() : latestReading,
             manual ? { beta: 0, gamma: 0 } : neutral, smoothed, {
             screenAngle: manual ? 0 : screenAngle(),
-            sensitivity: getMazeSensitivity(),
+            // A marble's response reaches full tilt with less lean; mazeTilt
+            // still clamps at MAX_TILT_DEG, so full tilt pulls no harder.
+            sensitivity: getMazeSensitivity() * ballSpec.response,
             dtMs: elapsedMs,
             g: GRAVITY
         });
@@ -762,9 +774,24 @@ function updateGates() {
 // blend two friction values with nothing sensible to blend them to.
 function updateFloorSurface() {
     if (!floorBody || !solidMaterial) return;
-    const want = (iceRects.length && isOnIce(iceRects, ballBody.position.x, ballBody.position.z))
-        ? iceMaterial : solidMaterial;
+    let onIce = !!(iceRects.length && isOnIce(iceRects, ballBody.position.x, ballBody.position.z));
+    if (onIce && usePrizeFor('ice')) onIce = false;   // Rubber Coat: ice grips like floor
+    const want = onIce ? iceMaterial : solidMaterial;
     if (floorBody.material !== want) floorBody.material = want;
+}
+
+// A world prize answering `trap`, if the player has one: spends one use the
+// first time the trap is met on this level visit (status line says so), and
+// answers true for the rest of it. The prize HELPS, never is required
+// (docs/PLAN.md) -- without one, this answers false and the trap is the trap.
+function usePrizeFor(trap) {
+    const id = Object.keys(PRIZES).find(k => PRIZES[k].trap === trap);
+    if (!id) return false;
+    if (prizeOn[id]) return true;
+    if (!store || !store.usePrize(id)) return false;
+    prizeOn[id] = true;
+    setStatus(PRIZES[id].name.toUpperCase());
+    return true;
 }
 
 // A belt under the ball's centre drags it toward the belt's speed, once per
@@ -824,7 +851,7 @@ function checkOutcomes() {
                 // A bought shield is spent from the purchase, so a restart does
                 // not re-arm it; a shield picked up in the maze comes back
                 // with the maze.
-                if (runCharges.shield > 0) runCharges.shield--;
+                if (pickupState.boughtShield && store) { store.useCharge('shield'); pickupState.boughtShield = false; }
                 ballBody.position.set(back.x, FLOOR_Y + level.ballRadius + 0.02, back.z);
                 ballBody.velocity.setZero();
                 ballBody.angularVelocity.setZero();
@@ -864,12 +891,14 @@ function fall() {
     // WHY the run ended. collisionResponse=false keeps the body in the sim (so
     // gravity still applies) while it stops colliding with anything.
     ballBody.collisionResponse = false;
+    renderPowerups();   // the run is over: hide the tap-to-fire buttons
     try { uiSfx.close(); } catch (e) { /* ignore */ }
     setStatus('DOWN THE HOLE');
 }
 
 function win() {
     phase = 'won';
+    renderPowerups();
     setGameplayActive(false);
     const ms = Math.round(performance.now() - runStartedAt);
     // The progress store decides what this clear is worth (progressStore.js):
@@ -910,7 +939,9 @@ function restart() {
     updateGates();
     // Every attempt starts with every coin and pickup back in place, and any
     // bought charges still unspent.
-    pickupState = createRunPickups(level, runCharges);
+    const owned = store ? store.get().charges : {};
+    pickupState = createRunPickups(level, owned, ballSpec);
+    pickupState.boughtShield = pickupState.shield;
     if (props) props.reset();
     renderCoins();
     renderPowerups();
@@ -945,18 +976,23 @@ function renderPowerups() {
     if (pickupState.shield) live.push('SHIELD');
     if (pickupState.slowmoMs > 0) live.push(`SLOW ${Math.ceil(pickupState.slowmoMs / 1000)}`);
     if (pickupState.magnetMs > 0) live.push(`MAGNET ${Math.ceil(pickupState.magnetMs / 1000)}`);
-    for (const [k, n] of Object.entries(pickupState.held)) if (n > 0) live.push(`${k.toUpperCase()} x${n}`);
     e.textContent = live.join('  ');
+    // One tap button per bought power-up still held, with its count.
+    for (const kind of ['slowmo', 'magnet']) {
+        const b = el('mazeUse_' + kind);
+        if (!b) continue;
+        const n = pickupState.held[kind] || 0;
+        b.style.display = n > 0 && phase === 'running' ? '' : 'none';
+        const c = b.querySelector('.count');
+        if (c) c.textContent = String(n);
+    }
 }
 
-// Power-ups bought before the level (docs/PLAN.md): { shield, slowmo, magnet }
-// counts. Called by the shop / level select before startLevel.
-export function setRunCharges(charges) { runCharges = { ...(charges || {}) }; }
-// Fire a bought charge mid-run (a HUD tap). Spends it from the purchase too, so
-// a restart does not refund it. Returns whether anything fired.
+// Fire a bought power-up mid-run (a HUD tap). Spent from the store's
+// inventory at once, so a restart does not refund it.
 export function useRunCharge(kind) {
     if (phase !== 'running' || !pickupState || !useCharge(pickupState, kind)) return false;
-    runCharges[kind] = Math.max(0, (runCharges[kind] || 0) - 1);
+    if (store) store.useCharge(kind);
     renderPowerups();
     return true;
 }
@@ -1100,6 +1136,9 @@ function startLevel(levelId) {
     teardownLevel();
 
     level = lv;
+    const prog = progressNow();
+    ballSpec = ballSetup(prog.marble, prog.upgrades);
+    prizeOn = {};
     const theme = resolveMazeTheme(lv.theme);
     scene.background = new THREE.Color(theme.backdropColor);
 
@@ -1393,6 +1432,11 @@ function showClearResult(res, ms) {
 const PRIZE_NAMES = { rubberCoat: 'RUBBER COAT  —  grip on ice' };
 function prizeName(id) { return PRIZE_NAMES[id] || id; }
 
+// For the store and profile pages (shopUi.js): the levels, and a way to
+// redraw the level list after something was bought.
+export function getLevels() { return allLevels.slice(); }
+export function refreshLevelSelect() { renderLevelSelect(); requestRender(); }
+
 export function initMazeControls() {
     bindTap('mazeStartBtn', () => { startRun(); });
     // EXIT from a level goes back to the level list; there is no other screen
@@ -1414,6 +1458,8 @@ export function initMazeControls() {
         });
     });
     bindTap('mazeReplayBtn', () => { afterBreak(() => restart()); });
+    bindTap('mazeUse_slowmo', () => { useRunCharge('slowmo'); });
+    bindTap('mazeUse_magnet', () => { useRunCharge('magnet'); });
     bindTap('mazeRecenterBtn', () => {
         recenterPending = true;
         setStatus('RECENTERED');

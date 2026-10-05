@@ -39,8 +39,10 @@ export const POWERUP_KINDS = Object.keys(POWERUPS);
 const SAFE_CLEARANCE_R = 1.5;
 
 // Fresh state for one attempt. `charges` are bought power-ups still unspent
-// ({ slowmo: 1, ... }); a bought shield is armed immediately instead.
-export function createRunPickups(level, charges = {}) {
+// ({ slowmo: 1, ... }); a bought shield is armed immediately instead. `mods`
+// are the player's upgrades (shopCatalog.js ballSetup): durationScale
+// lengthens slow-mo and magnet, coinReach widens every coin pickup.
+export function createRunPickups(level, charges = {}, mods = {}) {
     const held = {};
     for (const k of POWERUP_KINDS) if (k !== 'shield' && charges[k] > 0) held[k] = charges[k] | 0;
     return {
@@ -51,14 +53,16 @@ export function createRunPickups(level, charges = {}) {
         slowmoMs: 0,
         magnetMs: 0,
         held,
+        durationScale: Number.isFinite(mods.durationScale) && mods.durationScale >= 1 ? mods.durationScale : 1,
+        coinReach: Number.isFinite(mods.coinReach) && mods.coinReach >= 0 ? mods.coinReach : 0,
         safe: level && level.start ? { x: level.start.x, z: level.start.z } : { x: 0, z: 0 }
     };
 }
 
 export function activate(state, kind) {
     if (kind === 'shield') state.shield = true;
-    else if (kind === 'slowmo') state.slowmoMs = POWERUPS.slowmo.durationMs;
-    else if (kind === 'magnet') state.magnetMs = POWERUPS.magnet.durationMs;
+    else if (kind === 'slowmo') state.slowmoMs = POWERUPS.slowmo.durationMs * (state.durationScale || 1);
+    else if (kind === 'magnet') state.magnetMs = POWERUPS.magnet.durationMs * (state.durationScale || 1);
 }
 
 // Fire a bought charge. Returns false if there is none left.
@@ -93,9 +97,8 @@ export function stepPickups(state, level, ball, dtMs) {
         }
     });
 
-    const coinReach = state.magnetMs > 0
-        ? Math.max(POWERUPS.magnet.reach, ball.r + COIN_RADIUS)
-        : ball.r + COIN_RADIUS;
+    const base = ball.r + COIN_RADIUS + (state.coinReach || 0);
+    const coinReach = state.magnetMs > 0 ? Math.max(POWERUPS.magnet.reach, base) : base;
     (level.coins || []).forEach((c, i) => {
         if (state.coinsTaken.has(i)) return;
         if (Math.hypot(ball.x - c.x, ball.z - c.z) <= coinReach) {

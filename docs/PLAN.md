@@ -33,6 +33,16 @@ This file records the decisions so they travel with the code.
   is never required** (decided 2026-10-05). Every level is verified solvable
   without it. Prizes change how the ball reacts to one trap kind, never its
   radius or top speed (the plastic ball keeps its size; it just ignores magnets).
+- **World prizes are uses, and the store sells refills** (decided 2026-10-05).
+  Clearing a world grants 3 uses of its prize; one use covers one level (spent
+  the first time its trap is met there, good for every retry). The store sells
+  refills only once the prize is earned. Still never required.
+- **Store and profile** (built 2026-10-05). The store sells the four upgrade
+  tracks (Grip, Air Brake, Power Time, Coin Reach; three tiers each), single
+  power-ups, and prize refills. The profile picks the marble for the next game
+  (Classic, Steel, Rubber, Glass; the last three bought there) and shows
+  progress and what you carry. All prices and effects are in shopCatalog.js;
+  test_shop.js holds the never-faster, never-smaller rule.
 - **Coins and power-ups in every maze; power-ups also bought before a level**
   (decided 2026-10-05). Coins and pickups are placed by the seeded generator,
   and the verifier checks every one is reachable and clear of holes. Power-ups

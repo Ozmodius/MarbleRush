@@ -82,6 +82,15 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(P.useCharge(s, 'slowmo') && P.useCharge(s, 'slowmo') && !P.useCharge(s, 'slowmo'), 'two bought slow-mos fire twice, then no more');
     check(!P.useCharge(s, 'magnet'), 'cannot fire a charge that was not bought');
 
+    // 7. upgrades: Power Time and Coin Reach
+    s = P.createRunPickups(level, {}, { durationScale: 1.6, coinReach: 0.2 });
+    P.activate(s, 'slowmo');
+    check(Math.abs(s.slowmoMs - P.POWERUPS.slowmo.durationMs * 1.6) < 1e-6, 'Power Time lengthens slow-mo');
+    ev = P.stepPickups(s, level, { x: 1 - (R + P.COIN_RADIUS) - 0.15, z: 0, r: R }, 16);
+    check(ev.some(e => e.type === 'coin'), 'Coin Reach collects from further away');
+    s = P.createRunPickups(level, {}, { durationScale: 0.2, coinReach: -1 });
+    check(s.durationScale === 1 && s.coinReach === 0, 'mods can only help: a bad scale or reach is ignored');
+
     // 6. nothing touched the level
     check(JSON.stringify(level) === frozen, 'pickups must never modify the level');
 

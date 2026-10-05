@@ -165,7 +165,19 @@ export function makeWallGeometry(theme, specs, { height, floorY = 0, reach, seed
     });
 }
 
-export function makeBallMaterial(theme) {
+// The ball wears the chosen marble's look (shopCatalog.js MARBLES) when it has
+// one; Classic has none and wears the theme's marble colour, picked per theme
+// to stand out on that theme's floor.
+export function makeBallMaterial(theme, look = null) {
+    if (look) {
+        return new THREE.MeshStandardMaterial({
+            color: new THREE.Color(look.color),
+            roughness: Number.isFinite(look.roughness) ? look.roughness : 0.3,
+            metalness: Number.isFinite(look.metalness) ? look.metalness : 0,
+            emissive: new THREE.Color(look.emissive || '#000000'),
+            emissiveIntensity: Number.isFinite(look.emissiveIntensity) ? look.emissiveIntensity : 0
+        });
+    }
     return new THREE.MeshStandardMaterial({
         color: new THREE.Color(theme.marbleColor),
         roughness: theme.marbleRoughness,

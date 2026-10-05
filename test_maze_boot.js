@@ -138,6 +138,59 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(after[1].next && !after[1].locked, 'after a reload, level 2 is unlocked and next');
         check((await page.textContent('#mazeWallet')).trim() === '121', `after a reload, the wallet still holds 121, shows ${await page.textContent('#mazeWallet')}`);
 
+        // --- the store and profile ----------------------------------------
+        // A fresh page with a seeded save: enough coins to shop.
+        const shopCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+        await shopCtx.addInitScript(() => {
+            if (sessionStorage.getItem('seeded')) return;
+            sessionStorage.setItem('seeded', '1');
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 2000, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: [], charges: { slowmo: 1 } }));
+        });
+        const shop = await shopCtx.newPage();
+        shop.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
+        const sdbg = (fn, ...args) => shop.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
+        await shop.goto(base);
+        await shop.waitForSelector('#mazeSelect', { state: 'visible', timeout: 30000 });
+        await shop.tap('#openStoreBtn');
+        await shop.waitForSelector('#storeView', { state: 'visible' });
+        const rowBuy = (title) => shop.locator('.shop-row', { has: shop.locator('.shop-rowtitle', { hasText: new RegExp('^' + title + '$') }) }).locator('.shop-buy');
+        await rowBuy('Air Brake').tap();
+        await rowBuy('Shield').tap();
+        let sp = await sdbg('progress');
+        check(sp.upgrades.brakes === 1 && sp.charges.shield === 1 && sp.wallet === 2000 - 200 - 80,
+            `buying Air Brake and a Shield is saved and charged: ${JSON.stringify({ u: sp.upgrades, c: sp.charges, w: sp.wallet })}`);
+        check((await shop.textContent('#storeWallet')).trim() === '1,720', 'the store wallet updates after buying');
+        await shop.tap('#storeBackBtn');
+        await shop.tap('#openProfileBtn');
+        await shop.waitForSelector('#profileView', { state: 'visible' });
+        await shop.locator('.marble-card', { has: shop.locator('.marble-name', { hasText: 'Rubber' }) }).locator('.marble-action').tap();
+        sp = await sdbg('progress');
+        check(sp.marble === 'rubber' && sp.marbles.includes('rubber') && sp.wallet === 1720 - 900, `buying Rubber selects it: ${sp.marble}, wallet ${sp.wallet}`);
+        check((await shop.textContent('#profileMarbleName')).trim() === 'Rubber', 'the profile shows Rubber as the next marble');
+        await shop.tap('#profileBackBtn');
+
+        // The next game uses it all.
+        await shop.tap('.maze-levelrow.is-next');
+        await shop.tap('#mazeStartBtn');
+        await shop.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+        await sdbg('advanceFrames', 1);
+        check(await sdbg('ballColor') === '#e0563f', `the ball wears the Rubber marble, got ${await sdbg('ballColor')}`);
+        check(/SHIELD/.test(await shop.textContent('#mazePowerups')), 'a bought shield is armed at the start of the run');
+        check(await shop.isVisible('#mazeUse_slowmo'), 'a held slow-mo shows its tap button');
+        await shop.tap('#mazeUse_slowmo');
+        await sdbg('advanceFrames', 1);
+        check(/SLOW/.test(await shop.textContent('#mazePowerups')) && !(await sdbg('progress')).charges.slowmo,
+            'tapping slow-mo fires it and spends it from the inventory');
+        const lvA = levels[0];
+        await sdbg('placeBall', lvA.holes[0].x, lvA.holes[0].z);
+        await sdbg('advanceFrames', 2);
+        check(await sdbg('phase') === 'running', 'the bought shield saves the ball from the hole');
+        check(!(await sdbg('progress')).charges.shield, 'the shield is spent from the inventory once it saves you');
+        await shop.reload();
+        await shop.waitForSelector('#mazeSelect', { state: 'visible', timeout: 30000 });
+        check((await sdbg('progress')).marble === 'rubber', 'the marble choice survives a reload');
+        await shopCtx.close();
+
         check(!errors.length, 'no page errors:\n   ' + errors.join('\n   '));
     } finally {
         await browser.close();
@@ -148,6 +201,6 @@ const check = (c, m) => { if (!c) failures.push(m); };
         console.error('FAIL: maze boot\n - ' + failures.join('\n - '));
         process.exitCode = 1;
     } else {
-        console.log('PASS: maze boot -- the page boots to level select with only level 1 open, a run steers the right way on keys, collects coins, falls and restarts, conveyors carry the ball, a clear is banked by the progress store, and it all survives a reload');
+        console.log('PASS: maze boot -- the page boots to level select with only level 1 open, a run steers the right way on keys, collects coins, falls and restarts, conveyors carry the ball, a clear is banked by the progress store, the store and profile buy and select, bought power-ups and the marble reach the run, and it all survives a reload');
     }
 })().catch(e => { console.error(e); process.exitCode = 1; });

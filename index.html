@@ -31,7 +31,43 @@
     <h1>MARBLE RUSH</h1>
     <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="mazeWallet">0</span></span>
   </header>
+  <nav class="maze-selectnav">
+    <button id="openProfileBtn" class="maze-btn" type="button">PROFILE</button>
+    <button id="openStoreBtn" class="maze-btn" type="button">STORE</button>
+  </nav>
   <div id="mazeSelectList" class="maze-selectlist"></div>
+</section>
+
+<!-- STORE -->
+<section id="storeView" class="maze-select" style="display:none">
+  <header class="maze-selecthead">
+    <button id="storeBackBtn" class="maze-btn maze-btn-small" type="button" aria-label="Back to levels">◀</button>
+    <h1>STORE</h1>
+    <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="storeWallet">0</span></span>
+  </header>
+  <p id="storeMsg" class="shop-msg" role="status"></p>
+  <div id="storeList" class="maze-selectlist"></div>
+</section>
+
+<!-- PROFILE -->
+<section id="profileView" class="maze-select" style="display:none">
+  <header class="maze-selecthead">
+    <button id="profileBackBtn" class="maze-btn maze-btn-small" type="button" aria-label="Back to levels">◀</button>
+    <h1>PROFILE</h1>
+    <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="profileWallet">0</span></span>
+  </header>
+  <p id="profileMsg" class="shop-msg" role="status"></p>
+  <div class="maze-selectlist">
+    <div class="profile-hero">
+      <span id="profileMarble"></span>
+      <div><p class="shop-section">NEXT GAME</p><p id="profileMarbleName" class="profile-marblename"></p></div>
+    </div>
+    <div id="profileStats" class="profile-stats"></div>
+    <p class="shop-section">MARBLES</p>
+    <div id="profileMarbles" class="marble-grid"></div>
+    <p class="shop-section">CARRYING</p>
+    <div id="profileInventory" class="profile-inventory"></div>
+  </div>
 </section>
 
 <!-- IN-LEVEL HUD -->
@@ -44,6 +80,11 @@
   </div>
   <div id="mazeStatus" class="maze-status"></div>
   <div id="mazePowerups" class="maze-powerups"></div>
+  <!-- Bought power-ups, fired with a tap; shown only while some are held. -->
+  <div class="maze-charges">
+    <button id="mazeUse_slowmo" class="maze-btn maze-charge" type="button" style="display:none"><span class="pu-dot pu-slowmo"></span>SLOW-MO <span class="count"></span></button>
+    <button id="mazeUse_magnet" class="maze-btn maze-charge" type="button" style="display:none"><span class="pu-dot pu-magnet"></span>MAGNET <span class="count"></span></button>
+  </div>
   <div class="maze-bottombar">
     <button id="mazeStartBtn" class="maze-btn maze-btn-big" type="button">START</button>
     <button id="mazeReplayBtn" class="maze-btn" type="button" style="display:none">REPLAY</button>

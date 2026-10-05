@@ -21,8 +21,8 @@ Arrow keys / WASD or drag to tilt on desktop; the phone's tilt sensor on a phone
 ## Test and build
 
 ```sh
-npm test                      # levels, hazards, tilt, walls, pickups, progress store
-npm run test:browser          # boot the page in Chromium and play level 1
+npm test                      # levels, hazards, tilt, walls, pickups, progress store, shop
+npm run test:browser          # boot the page in Chromium, play level 1, shop, pick a marble
 npm run levels                # regenerate mazeLevels.json (seeded, reproduces exactly)
 npm run build:crazygames      # flat bundle + dist/marble-rush-crazygames.zip
 npm run test:browser:bundle   # the browser test against that bundle
@@ -41,6 +41,8 @@ npm run test:browser:bundle   # the browser test against that bundle
 | `mazeTilt.js` | Tilt angle math (pure) |
 | `mazeWalls3d.js`, `mazeSurface3d.js`, `mazeTheme3d.js`, `mazeThemes.js` | Wall shapes, procedural surfaces, theme materials, theme catalog |
 | `mazeProps3d.js` | Belts, coins, pickups as meshes |
+| `shopCatalog.js` | Marbles, upgrades, power-ups, prize refills: prices and effects (pure) |
+| `shopUi.js` | The store and profile pages |
 | `sfx.js` | Synthesized UI sounds |
 | `platform.js` | CrazyGames SDK, ads, save data; the only file that knows the platform. Still carries some Ball Smack-only features (rooms, invites, login) |
 | `mazeLevels.json` | The levels, verified by `test_maze_levels.js` |

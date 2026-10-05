@@ -21,11 +21,18 @@
 // player who edits their own save cheats only themselves; these rules exist so
 // the HONEST game behaves -- a replay must not pay a first clear twice.
 
+import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT } from './shopCatalog.js';
+
 export const SAVE_KEY = 'marbleRush.progress.v1';
 export const SAVE_VERSION = 1;
 
 export function freshProgress() {
-    return { v: SAVE_VERSION, wallet: 0, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: [], charges: {} };
+    return {
+        v: SAVE_VERSION, wallet: 0, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: [], charges: {},
+        // The shop (shopCatalog.js). Added after the first saves existed, so
+        // parseProgress fills them in for a save that predates them.
+        marbles: ['classic'], marble: 'classic', upgrades: {}, prizeUses: {}
+    };
 }
 
 // Read a saved string into a valid progress object. Anything unreadable or
@@ -45,9 +52,19 @@ export function parseProgress(text) {
     }
     if (Array.isArray(raw.goldClaimed)) p.goldClaimed = raw.goldClaimed.filter(x => typeof x === 'string');
     if (Array.isArray(raw.prizes)) p.prizes = raw.prizes.filter(x => typeof x === 'string');
-    if (raw.charges && typeof raw.charges === 'object') {
-        for (const [k, n] of Object.entries(raw.charges)) if (Number.isFinite(n) && n > 0) p.charges[k] = Math.floor(n);
-    }
+    const counts = (src, known) => {
+        const out = {};
+        if (src && typeof src === 'object') {
+            for (const [k, n] of Object.entries(src)) if (known[k] && Number.isFinite(n) && n > 0) out[k] = Math.floor(n);
+        }
+        return out;
+    };
+    p.charges = counts(raw.charges, CHARGES);
+    p.prizeUses = counts(raw.prizeUses, PRIZES);
+    p.upgrades = counts(raw.upgrades, UPGRADES);
+    for (const [k, n] of Object.entries(p.upgrades)) p.upgrades[k] = Math.min(n, UPGRADES[k].prices.length);
+    if (Array.isArray(raw.marbles)) p.marbles = ['classic', ...raw.marbles.filter(id => MARBLES[id] && id !== 'classic')];
+    p.marble = p.marbles.includes(raw.marble) ? raw.marble : 'classic';
     return p;
 }
 
@@ -113,7 +130,11 @@ export function applyClear(progress, levels, payouts, levelId, durationMs, coins
     if (goldFirst) p.goldClaimed.push(lv.id);
     p.highestIndex = Math.max(p.highestIndex, lv.index);
     let prize = null;
-    if (lv.prize && !p.prizes.includes(lv.prize)) { p.prizes.push(lv.prize); prize = lv.prize; }
+    if (lv.prize && !p.prizes.includes(lv.prize)) {
+        p.prizes.push(lv.prize);
+        p.prizeUses[lv.prize] = (p.prizeUses[lv.prize] || 0) + PRIZE_GRANT;
+        prize = lv.prize;
+    }
 
     return {
         progress: p,
@@ -132,6 +153,68 @@ export function spendFrom(progress, amount) {
     return { progress: p, ok: true };
 }
 
+// --- THE SHOP ---------------------------------------------------------------
+// Every purchase is one of these: check what it needs, take the price, give the
+// thing. Each returns { progress, ok, reason } with progress a new object, or
+// the input unchanged when ok is false. Prices come from shopCatalog.js only --
+// nothing a caller passes can set one.
+function purchase(progress, price, give, reason) {
+    if (reason) return { progress, ok: false, reason };
+    if (!(price >= 0) || price > progress.wallet) return { progress, ok: false, reason: 'short' };
+    const p = JSON.parse(JSON.stringify(progress));
+    p.wallet -= price;
+    give(p);
+    return { progress: p, ok: true };
+}
+
+export function buyMarble(progress, id) {
+    const m = MARBLES[id];
+    return purchase(progress, m ? m.price : NaN, p => { p.marbles.push(id); p.marble = id; },
+        !m ? 'unknown' : progress.marbles.includes(id) ? 'owned' : null);
+}
+
+// Choosing among marbles already owned is free.
+export function selectMarble(progress, id) {
+    if (!progress.marbles.includes(id)) return { progress, ok: false, reason: 'not-owned' };
+    const p = JSON.parse(JSON.stringify(progress));
+    p.marble = id;
+    return { progress: p, ok: true };
+}
+
+// Upgrades are bought a tier at a time, in order.
+export function upgradePrice(progress, id) {
+    const u = UPGRADES[id];
+    const tier = progress.upgrades[id] || 0;
+    return u && tier < u.prices.length ? u.prices[tier] : null;
+}
+export function buyUpgrade(progress, id) {
+    const price = upgradePrice(progress, id);
+    return purchase(progress, price === null ? NaN : price, p => { p.upgrades[id] = (p.upgrades[id] || 0) + 1; },
+        !UPGRADES[id] ? 'unknown' : price === null ? 'maxed' : null);
+}
+
+export function buyCharge(progress, id) {
+    const c = CHARGES[id];
+    return purchase(progress, c ? c.price : NaN, p => { p.charges[id] = (p.charges[id] || 0) + 1; }, !c ? 'unknown' : null);
+}
+
+// Refills of a world prize: only once the world has given it.
+export function buyPrizeRefill(progress, id) {
+    const z = PRIZES[id];
+    return purchase(progress, z ? z.refill.price : NaN, p => { p.prizeUses[id] = (p.prizeUses[id] || 0) + z.refill.uses; },
+        !z ? 'unknown' : !progress.prizes.includes(id) ? 'not-earned' : null);
+}
+
+// Spend one owned power-up charge or prize use (fired in a run). False if
+// there is none to spend.
+export function consume(progress, bucket, id) {
+    if (!['charges', 'prizeUses'].includes(bucket) || !(progress[bucket][id] > 0)) return { progress, ok: false, reason: 'none' };
+    const p = JSON.parse(JSON.stringify(progress));
+    p[bucket][id]--;
+    if (!p[bucket][id]) delete p[bucket][id];
+    return { progress: p, ok: true };
+}
+
 // The store: the rules above plus a save adapter { load(key) -> Promise<string|null>,
 // save(key, string) -> boolean }. Every change is written through at once --
 // a phone game can be killed at any moment, and a clear must not be lost to it.
@@ -139,6 +222,10 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
     let progress = freshProgress();
     const persist = () => {
         try { adapter.save(SAVE_KEY, JSON.stringify(progress)); } catch (e) { console.warn('[progress] save failed:', e && e.message); }
+    };
+    const apply = (out) => {
+        if (out.ok) { progress = out.progress; persist(); }
+        return { ok: out.ok, reason: out.reason || null };
     };
     return {
         async load() {
@@ -158,6 +245,14 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             const out = spendFrom(progress, amount);
             if (out.ok) { progress = out.progress; persist(); }
             return out.ok;
-        }
+        },
+        // Shop actions: each returns { ok, reason } and saves on success.
+        buyMarble: id => apply(buyMarble(progress, id)),
+        selectMarble: id => apply(selectMarble(progress, id)),
+        buyUpgrade: id => apply(buyUpgrade(progress, id)),
+        buyCharge: id => apply(buyCharge(progress, id)),
+        buyPrizeRefill: id => apply(buyPrizeRefill(progress, id)),
+        useCharge: id => apply(consume(progress, 'charges', id)).ok,
+        usePrize: id => apply(consume(progress, 'prizeUses', id)).ok
     };
 }
