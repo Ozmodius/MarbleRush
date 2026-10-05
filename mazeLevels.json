@@ -597,7 +597,6 @@
       "goal": { "x": 3.6, "z": 6.13, "r": 0.53 },
       "minMs": 3694,
       "goldMs": 22167,
-      "milestone": {"category":"marble","id":"labyrinth"},
       "prize": "rubberCoat",
       "_shape": "5x8 carved maze, 20-cell route, 5 holes, ball 0.32. CONVEYOR BELTS: floor that carries the ball, with you or against you.",
       "walls": [

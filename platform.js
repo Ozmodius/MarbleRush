@@ -405,3 +405,28 @@ export async function showPlatformLogin() {
     try { return !!(await sdk.user.showAuthPrompt()); }
     catch (_) { return false; }   // cancelled, or a prompt already open
 }
+
+// ---------------------------------------------------------------------------
+// Save data (Marble Rush's progress store, progressStore.js)
+// ---------------------------------------------------------------------------
+// One string per key. On CrazyGames this is the SDK's data module, which keeps
+// a guest's save on the device and syncs a signed-in player's to the cloud --
+// the same calls either way, so a guest who signs in keeps their progress. On
+// the web (and on CrazyGames with no SDK) it is localStorage. Either can be
+// unavailable (private mode, blocked storage); reads then return null and
+// writes report false, and the game plays on with progress kept in memory.
+export async function loadSave(key) {
+    await initPlatform();
+    if (sdk && sdk.data) {
+        const v = call(s => s.data.getItem(key));
+        return typeof v === 'string' ? v : null;
+    }
+    try { return g.localStorage ? g.localStorage.getItem(key) : null; } catch (_) { return null; }
+}
+
+export function writeSave(key, value) {
+    if (sdk && sdk.data) {
+        return call(s => { s.data.setItem(key, value); return true; }) === true;
+    }
+    try { if (!g.localStorage) return false; g.localStorage.setItem(key, value); return true; } catch (_) { return false; }
+}

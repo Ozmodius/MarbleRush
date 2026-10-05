@@ -1144,11 +1144,6 @@ function buildAll() {
             index++;
         }
     }
-    // The ladder's summit carries the prestige reward. Attached here rather
-    // than in a world config so it always lands on the LAST level however many
-    // worlds exist -- when the 50-level drop moves milestones to 10/25/50 this
-    // becomes a list, not a rewrite.
-    levels[levels.length - 1].milestone = { category: 'marble', id: 'labyrinth' };
     // Each world's last level carries its prize (docs/PLAN.md): the thing that
     // helps -- never is required -- against a trap in the next world.
     for (const world of WORLDS) {
@@ -1192,7 +1187,6 @@ function renderLevel(lv) {
     L.push(`      "goal": ${obj(lv.goal, ['x', 'z', 'r'])},`);
     L.push(`      "minMs": ${lv.minMs},`);
     L.push(`      "goldMs": ${lv.goldMs},`);
-    if (lv.milestone) L.push(`      "milestone": ${JSON.stringify(lv.milestone)},`);
     if (lv.prize) L.push(`      "prize": ${JSON.stringify(lv.prize)},`);
     L.push(`      "_shape": ${JSON.stringify(lv._shape)},`);
     L.push('      "walls": [');

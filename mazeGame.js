@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { state } from './state.js';
-import { socket } from './socket.js';
-import { getScene, getCamera, onFrame, setExclusiveMode, requestRender } from './scene3d.js';
+import { getScene, getCamera, onFrame, setExclusiveMode, requestRender } from './sceneHost.js';
 import { gateFraction, gateVelocity, gateSpecAt, isOnIce, ICE_FRICTION } from './mazeHazards.js';
 import { makeIceMaterial, makeGateMaterial } from './mazeTheme3d.js';
 import { resolveMazeTheme, makeFloorMaterial, makeWallMaterial, makeWallGeometry, makeBallMaterial,
@@ -11,31 +9,24 @@ import { tickSurfaces } from './mazeSurface3d.js';
 import { conveyorAt, conveyorAccel } from './mazeHazards.js';
 import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from './mazePickups.js';
 import { buildLevelProps } from './mazeProps3d.js';
-import { COSMETICS } from './cosmetics.js';
-import { bindTap } from './inputTap.js';
-import { uiSfx } from './uiSfx.js';
-import { reportDiag } from './diagnostics.js';
-import { getMazeSensitivity } from './settings.js';
-import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG } from './mazeTilt.js';
+import { sfx as uiSfx } from './sfx.js';
+import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
+import { tierForMs, isUnlocked, basePayout as payoutFor, goldBonus as goldBonusFor } from './progressStore.js';
 import { setGameplayActive, features, showMidgameAd, happytime, reportGameCompleted } from './platform.js';
 
-// THE MARBLE MAZE -- a tilt-controlled side game, played from the menu.
+// MARBLE RUSH -- the maze itself: level select, building a level, the run.
 //
-// LOADING. This file imports `three` AND `cannon-es`, so under TRUE_3D_PLAN's
-// Hard Rule 3 it must never get a <script type="module"> tag in index.html.
-// main.js reaches it with a dynamic import() on first entry. Its own
-// `import './scene3d.js'` resolves to the instance main.js already loaded --
-// same specifier, no ?v query, therefore the same module instance and the same
-// renderer. (A ?v query here would silently mint a SECOND module graph with its
-// own state.js and its own WebGLRenderer. That bug has been hit before.)
+// Copied from 3dBallSmack's Marble Maze side game (CLAUDE.md) and cut loose
+// from it in Phase 0. What it used to borrow from Ball Smack now comes through
+// two seams:
+//   - sceneHost.js   the renderer, scene, camera and frame loop (this module
+//                    builds a GROUP per level into that scene);
+//   - the PROGRESS STORE (progressStore.js), handed in by main.js through
+//                    enterMaze(store): the ladder, best times, coins and the
+//                    wallet, all client-side -- there is no server.
 //
-// RENDERER. There is exactly one WebGLRenderer in this app and this mode
-// borrows it rather than allocating another -- a second live context is the
-// documented mobile GPU-OOM hazard, and a lost context here is unrecoverable.
-// So the maze is a GROUP added to the existing scene, shown while the rest of
-// the scene is hidden. See enter()/exit() for the full swap, including the
-// scene-level singletons (background/fog/environment) that are NOT per-group
-// and therefore have to be saved and restored by hand.
+// RENDERER. There is exactly one WebGLRenderer (sceneHost.js) -- a second live
+// context is the documented mobile GPU-OOM hazard.
 //
 // TILT. The gravity VECTOR rotates; the maze geometry never does. That keeps
 // every static body's quaternion frozen (cheap, and how this codebase likes
@@ -243,8 +234,6 @@ if (typeof window !== 'undefined') {
 }
 let recenterPending = false;
 
-// Saved scene-level state, restored verbatim on exit.
-let saved = null;
 
 // ---------------------------------------------------------------------------
 // Level data
@@ -266,6 +255,16 @@ function loadLevels() {
 // ---------------------------------------------------------------------------
 // Build
 // ---------------------------------------------------------------------------
+
+// The maze's own replacements for Ball Smack's diagnostics and input helpers.
+function reportDiag(event, info) { console.warn('[maze]', event, info || ''); }
+// A tap on a button: click covers mouse, touch and keyboard activation alike.
+function bindTap(target, fn) {
+    const node = typeof target === 'string' ? document.getElementById(target) : target;
+    if (node) node.addEventListener('click', (e) => { e.preventDefault(); fn(e); });
+}
+// Tilt sensitivity. A settings screen is later work; until then, the default.
+function getMazeSensitivity() { return DEFAULT_SENSITIVITY; }
 
 function track(obj) { disposables.push(obj); return obj; }
 
@@ -843,9 +842,8 @@ function checkOutcomes() {
     if (pickupState) {
         const events = stepPickups(pickupState, level, { x: p.x, z: p.z, r: level.ballRadius }, lastFrameMs);
         for (const e of events) {
-            if (e.type === 'coin') props.takeCoin(e.index);
-            else { props.takePickup(e.index); setStatus(e.kind.toUpperCase()); }
-            try { uiSfx.open(); } catch (err) { /* ignore */ }
+            if (e.type === 'coin') { props.takeCoin(e.index); uiSfx.coin(); }
+            else { props.takePickup(e.index); setStatus(e.kind.toUpperCase()); uiSfx.open(); }
         }
         if (events.length) renderCoins();
         renderPowerups();
@@ -873,15 +871,12 @@ function fall() {
 function win() {
     phase = 'won';
     setGameplayActive(false);
-    // Submit BEFORE the celebration: the server re-validates everything and is
-    // the authority on whether this counted. The client reports only which
-    // level and how long -- never a tier, never a reward -- so there is nothing
-    // in this payload worth lying about.
     const ms = Math.round(performance.now() - runStartedAt);
-    // Coins ride along; Phase 0's progress store (recordClear) replaces this
-    // emit, and banks them only on a clear -- a run abandoned or fallen is
-    // worth nothing, which is what makes a coin down a risky branch a choice.
-    socket.emit('mazeClearLevel', { levelId: level.id, durationMs: ms, coins: pickupState ? pickupState.coins : 0 });
+    // The progress store decides what this clear is worth (progressStore.js):
+    // the ladder, the time floor, and first-time-only pay. Coins bank only
+    // here, on a clear -- a run that falls is worth nothing, which is what
+    // makes a coin down a risky branch a choice.
+    const result = store ? store.recordClear(level.id, ms, pickupState ? pickupState.coins : 0) : null;
     // Level gravity back to straight down. Tilt is only sampled while the phase
     // is 'running', so without this the world keeps the exact lean the player
     // happened to be holding at the moment they won, and the ball wanders back
@@ -889,9 +884,7 @@ function win() {
     world.gravity.set(0, -GRAVITY, 0);
     mazeGroup.rotation.set(0, 0, 0);
     try { uiSfx.open(); } catch (e) { /* ignore */ }
-    // Provisional text. The server's mazeClearAccepted replaces it with the
-    // tier it actually awarded -- the client never decides that.
-    setStatus('CLEARED  ' + formatTime(ms));
+    showClearResult(result, ms);
     showWinStar(true);
     showEl('mazeWinPanel', true);
     showEl('mazeReplayBtn', true);
@@ -976,16 +969,12 @@ export function useRunCharge(kind) {
 // Level select
 // ---------------------------------------------------------------------------
 
-// The server's ledger, fetched on entry. Kept as the client's view only -- the
-// server re-validates every clear against its own copy, so nothing here is
-// trusted for anything but drawing the list.
-let progress = { cleared: {}, goldClaimed: [], highestIndex: 0 };
+// The progress store (progressStore.js), handed in by enterMaze. Everything
+// the level list shows is read from it; nothing here keeps a second copy.
+let store = null;
 let allLevels = [];
-// The payout table from the SAME file the server reads. Held here only to tell
-// the player what a level is worth before they play it -- the server computes
-// the credit from its own copy and this one is never sent anywhere. Empty
-// defaults mean an old/broken file shows no reward rather than a wrong one.
 let payouts = { goldBonusPct: 0, byWorld: {} };
+function progressNow() { return store ? store.get() : { cleared: {}, goldClaimed: [], highestIndex: 0, wallet: 0, prizes: [] }; }
 
 // Thousands separators, matching marbleWorks.js's formatBearings. Duplicated
 // rather than imported on purpose: importing it would pull the entire shop UI
@@ -994,33 +983,12 @@ function formatBearings(n) {
     return Number(n).toLocaleString('en-US');
 }
 
-function basePayout(lv) {
-    const v = Number((payouts.byWorld || {})[String(lv && lv.world)]);
-    return Number.isFinite(v) && v > 0 ? Math.round(v) : 0;
-}
-
-function goldBonus(lv) {
-    const b = basePayout(lv) * (Number(payouts.goldBonusPct) || 0);
-    return Number.isFinite(b) && b > 0 ? Math.round(b) : 0;
-}
-
-function isUnlockedLevel(lv) {
-    // Exactly the server's rule (index <= highestIndex + 1), so the list can
-    // never offer a level the server would then refuse -- an unlocked-looking
-    // row that errors on tap is worse than an honestly locked one.
-    return lv.index <= (progress.highestIndex || 0) + 1;
-}
+function basePayout(lv) { return payoutFor(payouts, lv); }
+function goldBonus(lv) { return goldBonusFor(payouts, lv); }
+function isUnlockedLevel(lv) { return isUnlocked(progressNow(), lv); }
 
 function tierIcon(tier) {
     return tier === 'gold' ? '\u{1F947}' : tier === 'silver' ? '\u{1F948}' : tier === 'bronze' ? '\u{1F949}' : '';
-}
-
-function tierForMs(lv, ms) {
-    if (!Number.isFinite(ms)) return null;
-    if (ms <= lv.goldMs) return 'gold';
-    if (ms <= lv.goldMs * 1.5) return 'silver';
-    if (ms <= lv.goldMs * 2.25) return 'bronze';
-    return null;
 }
 
 // The second line of a level row. It answers one question -- "what is still on
@@ -1036,24 +1004,16 @@ function levelMeta(lv, done, unlocked) {
 
     const base = basePayout(lv);
     const bonus = goldBonus(lv);
-    const goldTaken = (progress.goldClaimed || []).includes(lv.id);
+    const goldTaken = (progressNow().goldClaimed || []).includes(lv.id);
     if (!done && base > 0) parts.push('+' + formatBearings(base));
     if (done && !goldTaken && bonus > 0) parts.push('+' + formatBearings(bonus) + ' for gold under ' + formatTime(lv.goldMs));
 
     return parts.join('  ·  ');
 }
 
-// A milestone's display name, read from the LIVE catalog so an admin-edited
-// override shows the edited name. Falls back to the id rather than to a blank
-// string: an unlock banner with no item in it is worse than an ugly one.
-function nameOfCosmetic(ref) {
-    const entry = COSMETICS[ref.category] && COSMETICS[ref.category][ref.id];
-    return (entry && entry.name) || ref.id;
-}
-
 function renderWallet() {
     const e = el('mazeWallet');
-    if (e) e.textContent = formatBearings(state.wallet || 0) + ' ⌾';
+    if (e) e.textContent = formatBearings(progressNow().wallet || 0);
 }
 
 function renderLevelSelect() {
@@ -1071,6 +1031,7 @@ function renderLevelSelect() {
 
     // The first level you have NOT cleared -- highlighted, so there is always
     // one obvious thing to tap and no reading required.
+    const progress = progressNow();
     const nextIdx = (progress.highestIndex || 0) + 1;
 
     for (const w of worlds) {
@@ -1251,13 +1212,12 @@ window.__mazeDebug = {
         return { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z };
     },
     // Put the ball on the goal and let the ORDINARY frame path notice. Nothing
-    // downstream is faked: checkOutcomes -> win -> mazeClearLevel -> the
-    // server's validation -> mazeClearAccepted -> the select's re-render all
-    // run exactly as they do for a player. Only the several minutes of tilting
-    // are skipped, which is the one part a headless browser has no way to
-    // perform. Deliberately does NOT touch runStartedAt, so a test that warps
-    // too early gets the server's real sub-floor rejection rather than a
-    // convenient pass.
+    // downstream is faked: checkOutcomes -> win -> the progress store's
+    // recordClear -> the status line all run exactly as they do for a player.
+    // Only the several minutes of tilting are skipped, which is the one part a
+    // headless browser has no way to perform. Deliberately does NOT touch
+    // runStartedAt, so a test that warps too early gets the store's real
+    // sub-floor rejection rather than a convenient pass.
     // The win celebration, so a test can tell "the star exists" apart from "the
     // star is on screen and turning" -- it is built hidden at level load, so
     // merely finding it in the scene proves nothing about the payoff firing.
@@ -1286,10 +1246,9 @@ window.__mazeDebug = {
     // through six real clears to reach one would take a minute of wall-clock
     // per assertion.
     //
-    // It grants nothing and can cheat nothing. The ladder that matters is the
-    // SERVER's -- mazeClearLevel refuses any level more than one step past the
-    // profile's furthest clear no matter which level the client built -- so the
-    // worst this does is let someone look at a level early.
+    // It grants nothing: the progress store refuses a clear of any level more
+    // than one step past the furthest cleared, whichever level was built, so
+    // the worst this does is let someone look at a level early.
     startLevelForTest: (levelId) => {
         const lv = allLevels.find(l => l.id === levelId);
         if (!active || !lv) return false;
@@ -1310,6 +1269,14 @@ window.__mazeDebug = {
         phase = wasPhase;
         return { x: ballBody.position.x, z: ballBody.position.z };
     },
+    // Age the current run by `ms` of wall clock. The run timer reads the real
+    // clock (it is what a player's time IS), and a test that waited out a
+    // level's minMs would be a test clocked on a throttled sandbox's rAF.
+    // Grants nothing the store does not still check.
+    ageRun: (ms) => { if (phase === 'running') runStartedAt -= ms; return phase === 'running'; },
+    // The progress the store holds now -- what a clear actually banked.
+    progress: () => (store ? JSON.parse(JSON.stringify(store.get())) : null),
+    coinsTaken: () => (pickupState ? pickupState.coins : null),
     warpToGoal: () => {
         if (!active || !world || !level || phase !== 'running') return false;
         ballBody.velocity.set(0, 0, 0);
@@ -1320,8 +1287,12 @@ window.__mazeDebug = {
     }
 };
 
-export async function enterMaze() {
+// Take the screen: load the levels, hook the frame loop, show level select.
+// `progressStore` is the loaded store from main.js. Resolves false (with the
+// reason on the status line) if the levels cannot be loaded.
+export async function enterMaze(progressStore) {
     if (active) return true;
+    store = progressStore || null;
 
     scene = getScene();
     const camera = getCamera();
@@ -1329,44 +1300,14 @@ export async function enterMaze() {
 
     let data;
     try { data = await loadLevels(); }
-    catch (e) { window.showCrashToast && window.showCrashToast('Could not load the maze. Check your connection and try again.'); return false; }
+    catch (e) { setStatus('COULD NOT LOAD THE LEVELS. RELOAD TO TRY AGAIN.'); return false; }
 
     allLevels = Array.isArray(data.levels) ? data.levels : [];
     if (!allLevels.length) return false;
     payouts = (data.payouts && typeof data.payouts === 'object') ? data.payouts : { goldBonusPct: 0, byWorld: {} };
+    if (store && store.setLevels) store.setLevels(allLevels, payouts);
 
-    // Save every SCENE-LEVEL singleton before touching it. These are not part
-    // of any group, so hiding the board does not hide them and restoring the
-    // board does not bring them back -- they have to be handled by hand.
-    saved = {
-        background: scene.background,
-        fog: scene.fog,
-        environment: scene.environment,
-        environmentIntensity: scene.environmentIntensity,
-        fov: camera.fov,
-        hidden: []
-    };
-    for (const child of scene.children) {
-        if (child.isLight) continue;
-        if (child.visible) { saved.hidden.push(child); child.visible = false; }
-    }
-
-    // DOM takeover, mirroring how a match presents itself. The maze cannot be a
-    // menu PANE: #gameWrapper (which owns the canvas) is z-index 100 and
-    // #mainMenuOverlay is 500, so a maze drawn behind the menu would be
-    // invisible. It takes the screen the way a match does instead.
-    const menu = el('mainMenuOverlay');
-    if (menu) menu.style.display = 'none';
-    const wrapper = el('gameWrapper');
-    if (wrapper) wrapper.style.display = 'flex';
-    const inGameUi = el('ui');
-    if (inGameUi) inGameUi.style.display = 'none';
-    // Hides the match chrome that also lives in #boardContainer (roster eye,
-    // chat overlay, admin anim-test HUD) -- see the .maze-mode rule in style.css.
-    const boardContainer = el('boardContainer');
-    if (boardContainer) boardContainer.classList.add('maze-mode');
     active = true;
-    state.mazeActive = true;
     phase = 'idle';
     lastStepTime = 0;
     smoothed = null;
@@ -1375,69 +1316,11 @@ export async function enterMaze() {
     setExclusiveMode(exclusive);
 
     // Entering lands on LEVEL SELECT, never straight into a run: which level
-    // you are playing should always be something you chose. Progress is
-    // requested rather than assumed -- it is stripped from the public profile
-    // broadcast (it grows with the level count), so this is the only way to
-    // learn it.
-    socket.emit('requestMazeProgress');
+    // you are playing should always be something you chose.
+    reportMazeCompletion();
     showLevelSelect();
     requestRender();
     return true;
-}
-
-export function exitMaze() {
-    if (!active) return;
-    setGameplayActive(false);
-    clearManual();
-    if (sensorCheckTimer) { clearTimeout(sensorCheckTimer); sensorCheckTimer = null; }
-
-    // Order matters: stop being the exclusive mode FIRST, so the render gate
-    // and the camera go back to normal before the scene is put back. Leaving
-    // this on would hold a deliberately idle renderer at full frame rate.
-    active = false;
-    state.mazeActive = false;
-    phase = 'idle';
-    setExclusiveMode(null);
-    unbindOrientation();
-
-    if (mazeGroup && scene) scene.remove(mazeGroup);
-    disposeAll();
-    mazeGroup = null;
-    ballMesh = null;
-    ballBody = null;
-    world = null;
-
-    const camera = getCamera();
-    if (scene && saved) {
-        scene.background = saved.background;
-        scene.fog = saved.fog;
-        scene.environment = saved.environment;
-        scene.environmentIntensity = saved.environmentIntensity;
-        for (const child of saved.hidden) child.visible = true;
-        if (camera && saved.fov !== undefined) { camera.fov = saved.fov; camera.updateProjectionMatrix(); }
-    }
-    saved = null;
-
-    showEl('mazeHud', false);
-    // Both maze surfaces come down. Leaving the level select up would strand an
-    // opaque full-screen overlay over the board on the next match.
-    showEl('mazeSelect', false);
-    const boardContainer = el('boardContainer');
-    if (boardContainer) boardContainer.classList.remove('maze-mode');
-    const inGameUi = el('ui');
-    if (inGameUi) inGameUi.style.display = '';
-    const wrapper = el('gameWrapper');
-    if (wrapper) wrapper.style.display = 'none';
-    // '' rather than 'block', exactly like #ui above it: the signed-in menu is
-    // a full-height FLEX column (style.css's #mainMenuOverlay.menu-mode), and
-    // an inline display:block outranks that rule permanently, collapsing the
-    // flex chain that gives the Game Box / Shop grid a bounded height. The menu
-    // then overflows and drags the position:fixed .menu-footer up mid-screen.
-    // See main.js's handleLeaveRoom for the full account.
-    const menu = el('mainMenuOverlay');
-    if (menu) menu.style.display = '';
-
-    requestRender();
 }
 
 async function startRun() {
@@ -1470,89 +1353,52 @@ async function startRun() {
     else sensorCheckTimer = setTimeout(() => { sensorCheckTimer = null; showManualHint(); }, 900);
 }
 
-// Bound once at module load. The maze HUD is static markup in index.html (like
-// every other overlay), so its controls exist before this module is ever
-// imported and can be wired unconditionally.
 // The ladder is the game's only finite content, so its cleared share is what
-// platform.js reports as completion. Needs both halves -- the levels file and
-// the server's ledger -- and simply waits for whichever arrives second.
+// platform.js reports as completion.
 function reportMazeCompletion() {
     if (!allLevels.length) return;
     const ids = new Set(allLevels.map(l => l.id));
-    const done = Object.keys(progress.cleared || {}).filter(id => ids.has(id)).length;
+    const done = Object.keys(progressNow().cleared || {}).filter(id => ids.has(id)).length;
     reportGameCompleted(100 * done / allLevels.length);
 }
 
+// What a clear earned, on the status line. The tier and the pay come from the
+// progress store's answer -- one place decides them -- and the time shown is
+// THIS run's, with the old best beside it when that was faster.
+function showClearResult(res, ms) {
+    if (!res || !res.accepted) {
+        // Not counted (too fast for the level's floor, or out of ladder order):
+        // say the time, claim nothing.
+        setStatus('CLEARED  ' + formatTime(ms));
+        return;
+    }
+    // PLATFORM (no-ops on the web): a FIRST clear is a big moment.
+    if (res.firstClear) happytime();
+    reportMazeCompletion();
+    const icon = tierIcon(res.tier);
+    const beaten = Number.isFinite(res.bestMs) && res.bestMs < res.runMs ? '   Best ' + formatTime(res.bestMs) : '';
+    // A replay that paid nothing says nothing about pay: a "+0" on every
+    // re-run would read as the game being broken.
+    const paid = res.earned > 0 ? '   +' + formatBearings(res.earned) : '';
+    setStatus('CLEARED  ' + formatTime(res.runMs) + (icon ? '  ' + icon : '') + beaten + paid);
+    if (res.prize) {
+        // Its own line, after a beat, so it is not lost in the time and pay.
+        setTimeout(() => { if (phase === 'won') setStatus('PRIZE  ' + prizeName(res.prize)); }, 1400);
+        try { uiSfx.open(); } catch (e) { /* ignore */ }
+    }
+}
+
+// Display names for world prizes (docs/PLAN.md's world table). Falls back to
+// the id: a banner with no name in it is worse than an ugly one.
+const PRIZE_NAMES = { rubberCoat: 'RUBBER COAT  —  grip on ice' };
+function prizeName(id) { return PRIZE_NAMES[id] || id; }
+
 export function initMazeControls() {
-    // The server is the authority on progress; these two events are the only
-    // way the client learns it. Bound once, at module load.
-    socket.on('mazeProgress', (p) => {
-        if (!p) return;
-        progress = {
-            cleared: p.cleared || {}, goldClaimed: p.goldClaimed || [], highestIndex: p.highestIndex || 0
-        };
-        reportMazeCompletion();
-        if (active && el('mazeSelect') && el('mazeSelect').style.display !== 'none') renderLevelSelect();
-    });
-
-    socket.on('mazeClearAccepted', (res) => {
-        if (!res || !active) return;
-        // Fold the server's answer into the local view rather than re-fetching:
-        // it already told us everything the list needs.
-        if (!progress.cleared[res.levelId] || res.bestMs < progress.cleared[res.levelId].bestMs) {
-            progress.cleared[res.levelId] = { at: Date.now(), bestMs: res.bestMs };
-        }
-        progress.highestIndex = Math.max(progress.highestIndex || 0, res.highestIndex || 0);
-        if (res.goldFirst && !progress.goldClaimed.includes(res.levelId)) progress.goldClaimed.push(res.levelId);
-        // PLATFORM (no-ops on the web): a FIRST clear is a big moment; a
-        // replay is not, and the ladder's share is what "completion" means.
-        if (res.firstClear) happytime();
-        reportMazeCompletion();
-        // The TIER shown is the server's, not one the client worked out. Only
-        // one of them is the authority and it isn't this one.
-        //
-        // The banner reports THIS run's time (runMs), never bestMs: on a slower
-        // replay those differ, and showing the ledger's number would tell the
-        // player they had just run a time they did not run. The old best is
-        // appended instead, which is the thing they actually want to compare
-        // against.
-        // The BALANCE comes from the server's answer too, not from adding the
-        // payout to the local copy: two places computing one number is how a
-        // client ends up showing a total the server disagrees with. The
-        // authoritative profileUpdated lands moments later and agrees with
-        // this, because both were read from the same p.wallet.
-        if (Number.isFinite(res.wallet)) state.wallet = res.wallet;
-
-        const icon = tierIcon(res.tier);
-        const runMs = Number.isFinite(res.runMs) ? res.runMs : res.bestMs;
-        const beaten = Number.isFinite(res.bestMs) && res.bestMs < runMs
-            ? '   Best ' + formatTime(res.bestMs) : '';
-        // Only a run that actually paid says so. A replay earns nothing by
-        // design, and a cheerful "+0" on every re-run would read as the game
-        // being broken rather than as the anti-farm rule working.
-        const paid = Number.isFinite(res.earned) && res.earned > 0
-            ? '   +' + formatBearings(res.earned) + ' ⌾' : '';
-        setStatus('CLEARED  ' + formatTime(runMs) + (icon ? '  ' + icon : '') + beaten + paid);
-
-        if (res.milestone && res.milestone.id) {
-            const name = nameOfCosmetic(res.milestone);
-            // Its own line, and after a beat, so it does not get lost inside
-            // the time/tier/payout run -- this is the rarest thing the mode
-            // hands out and the only one no amount of Bearings can buy.
-            setTimeout(() => {
-                if (phase === 'won') setStatus('UNLOCKED  ' + name + '  —  earned, not for sale');
-            }, 1400);
-            try { uiSfx.open(); } catch (e) { /* ignore */ }
-        }
-    });
-
     bindTap('mazeStartBtn', () => { startRun(); });
-    bindTap('mazeExitBtn', () => { exitMaze(); });
-    bindTap('mazeSelectExitBtn', () => { exitMaze(); });
-    // The win panel's own EXIT. A separate element from the top-bar one rather
-    // than a moved node, because bindTap binds once at load and a control that
-    // relocates between screens would need re-binding every time.
-    bindTap('mazeWinExitBtn', () => { exitMaze(); });
+    // EXIT from a level goes back to the level list; there is no other screen
+    // to leave to yet.
+    bindTap('mazeExitBtn', () => { showLevelSelect(); });
+    bindTap('mazeWinExitBtn', () => { showLevelSelect(); });
     // CrazyGames: moving on from a CLEARED level is a natural break, so it may
     // carry a break ad first (platform.js throttles it; on the web it resolves
     // false at once). Never after a fall: that is mid-attempt, not a break.

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b1410">
+<title>Marble Rush</title>
+<link rel="stylesheet" href="style.css">
+<!--
+  Development page: serve the repo root (python3 -m http.server) and open /.
+  The importmap points at node_modules; scripts/buildCrazyGames.js rewrites
+  this page into the flat bundle (one script, no importmap, no folders).
+  BUILD:PLATFORM is where the build injects the platform flag and the SDK.
+-->
+<!-- BUILD:PLATFORM -->
+<script type="importmap">
+{ "imports": {
+    "three": "./node_modules/three/build/three.module.js",
+    "cannon-es": "./node_modules/cannon-es/dist/cannon-es.js"
+} }
+</script>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<div id="bootMsg" class="boot">LOADING…</div>
+
+<!-- LEVEL SELECT -->
+<section id="mazeSelect" class="maze-select" style="display:none">
+  <header class="maze-selecthead">
+    <h1>MARBLE RUSH</h1>
+    <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="mazeWallet">0</span></span>
+  </header>
+  <div id="mazeSelectList" class="maze-selectlist"></div>
+</section>
+
+<!-- IN-LEVEL HUD -->
+<section id="mazeHud" class="maze-hud" style="display:none">
+  <div class="maze-topbar">
+    <button id="mazeExitBtn" class="maze-btn maze-btn-small" type="button" aria-label="Back to levels">◀</button>
+    <span id="mazeLevelName" class="maze-levelname"></span>
+    <span class="maze-coins"><span class="coin-dot"></span><span id="mazeCoins"></span></span>
+    <button id="mazeRecenterBtn" class="maze-btn maze-btn-small" type="button" aria-label="Recenter tilt">⊙</button>
+  </div>
+  <div id="mazeStatus" class="maze-status"></div>
+  <div id="mazePowerups" class="maze-powerups"></div>
+  <div class="maze-bottombar">
+    <button id="mazeStartBtn" class="maze-btn maze-btn-big" type="button">START</button>
+    <button id="mazeReplayBtn" class="maze-btn" type="button" style="display:none">REPLAY</button>
+  </div>
+  <div id="mazeWinPanel" class="maze-winpanel" style="display:none">
+    <button id="mazeNextBtn" class="maze-btn maze-btn-big" type="button">NEXT</button>
+    <button id="mazeLevelsBtn" class="maze-btn" type="button">LEVELS</button>
+    <button id="mazeWinExitBtn" class="maze-btn" type="button" style="display:none">EXIT</button>
+  </div>
+</section>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
