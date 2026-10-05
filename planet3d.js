@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { makeFloorMaterial, makeWallMaterial, makeBallMaterial } from './mazeTheme3d.js';
+import { makeFloorMaterial, makeBallMaterial } from './mazeTheme3d.js';
 import { applySurface } from './mazeSurface3d.js';
 
 // THE HOME SCREEN'S PLANET: the current world as a big marble, turning slowly
@@ -94,17 +94,6 @@ export function buildPlanet(theme, look, tracked = []) {
     const atmoMat = atmosphere(glowColor);
     group.add(new THREE.Mesh(atmoGeo, atmoMat));
 
-    // A ring in the world's wall material, thin and tilted the other way: the
-    // walls of the maze, wrapped round the world it is built on.
-    const ringGeo = new THREE.RingGeometry(PLANET_R * 1.35, PLANET_R * 1.55, 128, 1).rotateX(-Math.PI / 2);
-    const ringMat = makeWallMaterial({ ...theme, wallPattern: theme.wallPattern === 'plain' ? 'rock' : theme.wallPattern });
-    if (ringMat.userData.surfaceUniforms) ringMat.userData.surfaceUniforms.mrGritAmt.value = 0;
-    ringMat.side = THREE.DoubleSide;
-    ringMat.transparent = true;
-    ringMat.opacity = 0.85;
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.rotation.set(0.42, 0, -0.18);
-    group.add(ring);
 
     // The moon: the marble the player will roll next.
     const moonGeo = new THREE.SphereGeometry(0.5, 48, 32);
@@ -119,7 +108,7 @@ export function buildPlanet(theme, look, tracked = []) {
     const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.12, sizeAttenuation: true, transparent: true, opacity: 0.8 });
     group.add(new THREE.Points(starGeo, starMat));
 
-    tracked.push(planetGeo, planetMat, atmoGeo, atmoMat, ringGeo, ringMat, moonGeo, moonMat, starGeo, starMat);
+    tracked.push(planetGeo, planetMat, atmoGeo, atmoMat, moonGeo, moonMat, starGeo, starMat);
 
     return {
         group,
