@@ -1203,7 +1203,12 @@ export function worldsInfo() {
     return out;
 }
 
+// How far the player has spun the solar system: kept here, not in the
+// system, so it survives the backdrop being rebuilt (a marble change, a trip
+// to another tab and back).
+let systemSpin = 0;
 function buildShowcase(kind) {
+    if (solar) systemSpin = solar.spin();
     teardownLevel();
     if (!scene) return;
     backdrop = kind;
@@ -1211,6 +1216,7 @@ function buildShowcase(kind) {
     if (kind === 'system') {
         scene.background = new THREE.Color('#07060a');
         solar = buildSolarSystem(worldsInfo(), tracked);
+        solar.setSpin(systemSpin);
         mazeGroup = solar.group;
     } else {
         const lv = nextLevel();
@@ -1259,9 +1265,11 @@ function computeMenuPose() {
         // aimed below the sun so the system sits in the top of the screen and
         // the world sheet (menus.js) has the bottom.
         const r = solar.radius;
-        const dist = Math.max(r / (Math.tan(fov / 2) * aspect), r * 0.7 / Math.tan(fov / 2)) * 0.96;
+        // The sheet is a short strip (one row of levels), so the system
+        // gets most of the screen: close in, and only a little above centre.
+        const dist = Math.max(r / (Math.tan(fov / 2) * aspect), r * 0.7 / Math.tan(fov / 2)) * 0.9;
         const el = 68 * Math.PI / 180;
-        const shift = r * 0.62;
+        const shift = r * 0.36;
         _camPos.set(0, Math.sin(el) * dist, Math.cos(el) * dist + shift);
         SYSTEM_LOOKAT.set(0, 0, shift);
         return { pos: _camPos, lookAt: SYSTEM_LOOKAT };

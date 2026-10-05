@@ -203,7 +203,11 @@ export function initMenus({ store, game }) {
             drag = { id: e.pointerId, x0: e.clientX, x: e.clientX, t: performance.now(), v: 0, moved: false };
         });
         canvas.addEventListener('pointermove', (e) => {
-            if (!drag || e.pointerId !== drag.id || current !== 'worlds') return;
+            // A mouse moving with no button held is hovering, not dragging --
+            // whatever drag was left over (a pointerup that never arrived)
+            // is over.
+            if (drag && !drag.ended && e.pointerType === 'mouse' && !(e.buttons & 1)) { end(e); return; }
+            if (!drag || drag.ended || e.pointerId !== drag.id || current !== 'worlds') return;
             if (!drag.moved && Math.abs(e.clientX - drag.x0) < DRAG_PX) return;
             if (!drag.moved) { drag.moved = true; try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ } }
             const now = performance.now(), dx = e.clientX - drag.x;
@@ -214,17 +218,19 @@ export function initMenus({ store, game }) {
             drag.v = drag.v * 0.6 + (-dx * RAD_PER_PX / dt) * 0.4;
             drag.x = e.clientX; drag.t = now;
         });
+        // The ended drag stays put until the next press replaces it, so the
+        // click that follows its pointerup can still see it was a drag. (A
+        // timer clearing it once let a slow device wipe out the NEXT drag.)
         const end = (e) => {
-            if (!drag || e.pointerId !== drag.id) return;
+            if (!drag || drag.ended || e.pointerId !== drag.id) return;
             // A pause before letting go means no fling.
             if (drag.moved) game.releaseWorlds(performance.now() - drag.t > 120 ? 0 : drag.v);
-            drag.wasDrag = drag.moved;
-            setTimeout(() => { drag = null; }, 0);
+            drag.ended = true;
         };
         canvas.addEventListener('pointerup', end);
         canvas.addEventListener('pointercancel', end);
         canvas.addEventListener('click', (e) => {
-            if (current !== 'worlds' || (drag && drag.wasDrag)) return;
+            if (current !== 'worlds' || (drag && drag.moved)) return;
             pickWorld(game.pickWorld(e.clientX, e.clientY));
         });
     }

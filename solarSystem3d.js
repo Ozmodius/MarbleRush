@@ -111,6 +111,7 @@ export function buildSolarSystem(worlds, tracked = []) {
         spinBy(d) { held = true; spinV = 0; spin += d; },
         release(v) { held = false; spinV = Math.max(-4, Math.min(4, v || 0)); },
         spin: () => spin,
+        setSpin(v) { spin = Number(v) || 0; spinV = 0; },
         select(n) { for (const p of planets) p.ring.visible = p.n === n; },
         // Which world's planet a ray hits, or null.
         pick(raycaster) {
