@@ -152,3 +152,52 @@ export function distanceToRect(rect, x, z) {
 // patch, but deliberately not zero: a frictionless sphere never spins up, so it
 // would slide as a dead weight and look like a bug rather than like ice.
 export const ICE_FRICTION = 0.02;
+
+// ---------------------------------------------------------------------------
+// CONVEYORS -- a PUSHING trap (docs/PLAN.md), and the template for every other.
+// ---------------------------------------------------------------------------
+//
+// A conveyor is a floor rect { x, z, w, d, dir, speed } that drags the ball
+// toward `speed` along `dir` ('+x' | '-x' | '+z' | '-z') while its centre is
+// on the belt. Tested against the centre, like ice, for the same reason: the
+// patch edge is then the line the middle of the marble crosses.
+//
+// THE SOUNDNESS ARGUMENT. The verifier proves levels by reachability, and a
+// push cannot be BFS'd. So a push is held strictly weaker than the player:
+// the most a belt can accelerate the ball, CONVEYOR_MAX_ACCEL, is well under
+// what full tilt gives a rolling ball. Whatever the belt does, the player can
+// still drive against it, so every place reachable without the belt is still
+// reachable with it, and the verifier's answer stands unchanged. A belt makes
+// a corridor harder, never closed. test_maze_hazards.js holds the ratio.
+//
+// The drag acts only along the belt's axis and only toward the belt's speed:
+// a ball already moving with the belt at its speed feels nothing, so a belt
+// never launches the ball faster than it runs.
+export const CONVEYOR_MAX_ACCEL = 3.6;      // world units / s^2
+export const CONVEYOR_GRIP = 6;             // how hard the belt chases its speed, 1/s
+export const CONVEYOR_MAX_SPEED = 3;        // the fastest a level may author a belt
+
+const DIRS = { '+x': [1, 0], '-x': [-1, 0], '+z': [0, 1], '-z': [0, -1] };
+
+export function conveyorDir(belt) { return DIRS[belt && belt.dir] || null; }
+
+// The belt under the ball's centre, or null. If belts touch, the first wins;
+// the generator never lays overlapping belts.
+export function conveyorAt(belts, x, z) {
+    if (!belts || !belts.length) return null;
+    for (const b of belts) {
+        if (Math.abs(x - b.x) <= b.w / 2 && Math.abs(z - b.z) <= b.d / 2) return b;
+    }
+    return null;
+}
+
+// Acceleration the belt applies this instant, given the ball's velocity.
+// Returns { ax, az } in world units / s^2, never longer than CONVEYOR_MAX_ACCEL.
+export function conveyorAccel(belt, vx, vz) {
+    const d = conveyorDir(belt);
+    if (!d) return { ax: 0, az: 0 };
+    const speed = Math.min(CONVEYOR_MAX_SPEED, Math.max(0, Number(belt.speed) || 0));
+    const along = vx * d[0] + vz * d[1];
+    const a = Math.max(-CONVEYOR_MAX_ACCEL, Math.min(CONVEYOR_MAX_ACCEL, (speed - along) * CONVEYOR_GRIP));
+    return { ax: a * d[0], az: a * d[1] };
+}

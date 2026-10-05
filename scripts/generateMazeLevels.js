@@ -703,6 +703,113 @@ function placeIce(open, cfg, g, path, rand, count) {
     return out;
 }
 
+// CONVEYORS GO ON STRAIGHTS THE ROUTE RUNS ALONG -- the same run-ups ice
+// uses, for a related reason: a belt only matters where the ball has to travel
+// with it or against it. Laid along the corridor's axis, never across it, and
+// the direction alternates: a belt that helps tempts the player to carry speed
+// into the next decision, a belt that opposes makes them commit tilt to climb
+// it. Either is skill; neither can close the corridor, because a belt is held
+// weaker than full tilt (mazeHazards.js CONVEYOR_MAX_ACCEL).
+function placeConveyors(open, cfg, g, path, rand, count) {
+    const runs = [];
+    let n = 1;
+    while (n < path.length - 2) {
+        const dir = (path[n + 1][0] - path[n][0]) + ',' + (path[n + 1][1] - path[n][1]);
+        let m = n + 1;
+        while (m < path.length - 2
+            && ((path[m + 1][0] - path[m][0]) + ',' + (path[m + 1][1] - path[m][1])) === dir) m++;
+        // Cells n..m are in a straight line; m is where it turns, and the turn
+        // cell stays plain floor, like ice's corner -- otherwise the next
+        // run's belt starts in the same cell and two belts overlap pulling
+        // different ways. So n..m-1, two cells at least. Never the start or
+        // goal cell either (never spawn on a belt; never let one decide the win).
+        if (m - n >= 2) runs.push({ from: n, to: m - 1, dir });
+        n = m;
+    }
+    shuffle(runs, rand);
+    const out = [];
+    for (const run of runs) {
+        if (out.length >= count) break;
+        const cells = path.slice(run.from, run.to + 1);
+        const xs = cells.map(([i]) => g.cx(i)), zs = cells.map(([, j]) => g.cz(j));
+        const corridor = Math.min(g.px, g.pz) - g.t;
+        const alongX = run.dir.split(',')[0] !== '0';
+        const sign = Number(alongX ? run.dir.split(',')[0] : run.dir.split(',')[1]);
+        const forward = out.length % 2 === 0;
+        out.push({
+            x: r2((Math.min(...xs) + Math.max(...xs)) / 2),
+            z: r2((Math.min(...zs) + Math.max(...zs)) / 2),
+            // Centre to centre of the end cells, plus a quarter cell each end,
+            // so a two-cell belt is a cell and a half long and stops well clear
+            // of the turn.
+            w: r2(alongX ? Math.max(...xs) - Math.min(...xs) + g.px * 0.5 : corridor * 0.8),
+            d: r2(alongX ? corridor * 0.8 : Math.max(...zs) - Math.min(...zs) + g.pz * 0.5),
+            dir: (forward ? (sign > 0 ? '+' : '-') : (sign > 0 ? '-' : '+')) + (alongX ? 'x' : 'z'),
+            speed: 2.2
+        });
+    }
+    return out;
+}
+
+// COINS: some on the route (a trail that reads as "this way"), more in dead
+// ends and off-route branches, which is the point -- a coin is the reason to
+// take the branch the maze is daring you down. PICKUPS go in dead ends first:
+// a power-up should cost a detour. Every one sits at a cell centre where the
+// ball can actually stand, clear of holes and gate sweeps; the verifier checks
+// the same rules.
+function placeCollectibles(open, cfg, g, path, rand, lv, coinCount, pickupKinds) {
+    const onPath = new Set(path.map(([i, j]) => i + ',' + j));
+    const start = path[0], goal = path[path.length - 1];
+    const deadEnds = [], offPath = [], route = [];
+    for (let j = 0; j < cfg.rows; j++) {
+        for (let i = 0; i < cfg.cols; i++) {
+            if ((i === start[0] && j === start[1]) || (i === goal[0] && j === goal[1])) continue;
+            const k = i + ',' + j;
+            if (onPath.has(k)) route.push([i, j]);
+            else if (neighbours(open, cfg.cols, cfg.rows, i, j).length === 1) deadEnds.push([i, j]);
+            else offPath.push([i, j]);
+        }
+    }
+    shuffle(deadEnds, rand); shuffle(offPath, rand); shuffle(route, rand);
+    const R = lv.ballRadius;
+    const { seen } = reachable(lv, (lv.gates || []).map(gt => ({ x: gt.x, z: gt.z, w: gt.w, d: gt.d })));
+    const standable = (x, z) => seen.has(Math.round((x + lv.size.w / 2) / 0.06) + '_' + Math.round((z + lv.size.d / 2) / 0.06));
+    const sweeps = (lv.gates || []).map(gt => {
+        const a = gt.x, b = gt.x + (gt.axis === 'x' ? gt.travel : 0);
+        const c = gt.z, e = gt.z + (gt.axis === 'z' ? gt.travel : 0);
+        return { x: (a + b) / 2, z: (c + e) / 2, w: Math.abs(b - a) + gt.w, d: Math.abs(e - c) + gt.d };
+    });
+    const ok = (x, z) => standable(x, z)
+        && (lv.holes || []).every(h => Math.hypot(x - h.x, z - h.z) >= h.r + R + 0.15)
+        && sweeps.every(sw => Math.abs(x - sw.x) > sw.w / 2 + R || Math.abs(z - sw.z) > sw.d / 2 + R);
+    const used = new Set();
+    const take = (pool) => {
+        for (const [i, j] of pool) {
+            const k = i + ',' + j;
+            if (used.has(k)) continue;
+            const x = r2(g.cx(i)), z = r2(g.cz(j));
+            if (!ok(x, z)) continue;
+            used.add(k);
+            return { x, z };
+        }
+        return null;
+    };
+    const pickups = [];
+    for (const kind of pickupKinds) {
+        const at = take(deadEnds) || take(offPath);
+        if (at) pickups.push({ ...at, kind });
+    }
+    const coins = [];
+    // Roughly a third on the route, the rest off it.
+    const pools = [deadEnds, offPath, route];
+    for (let n = 0; coins.length < coinCount && n < coinCount * 4; n++) {
+        const at = take(pools[n % 3]) || take(deadEnds) || take(offPath) || take(route);
+        if (!at) break;
+        coins.push(at);
+    }
+    return { coins, pickups };
+}
+
 // Gates go on a DOORWAY the solution path crosses -- the boundary between two
 // cells the player has to pass between, not a bar standing in the middle of a
 // corridor. A gate on a branch nobody takes is scenery; a bar in a corridor wide
@@ -783,30 +890,46 @@ module.exports.holeRadiusFor = holeRadiusFor;
 // only as much as the finer corridor requires -- that is the whole relationship
 // between the two, and why "smaller marble" and "bigger maze" are one decision
 // rather than two.
+// TEN LEVELS PER WORLD, and a world introduces its three traps on levels 1, 4
+// and 10 (docs/PLAN.md); the levels between practise what was introduced.
+// test_maze_levels.js holds the introduction slots.
+//
+// The ball is fixed for the world -- radius belongs to the world -- and the
+// grid grows within it as far as that ball fits, so density still climbs
+// level by level. `route` is how much of the grid the solution path should
+// cover; it climbs too.
+//
+// Only world 1 is built so far; worlds 2-5 (Glacier, Magma Works, Toy Box,
+// Foundry) follow as their traps are built.
+const PICKUP_ROTATION = ['shield', 'magnet', 'slowmo'];
 const WORLDS = [
-    { world: 1, theme: 'workshop', cols: 4, rows: 6,  wall: 0.35, ball: 0.38, braid: 0.35,
-      holes: 4, ice: 0, gates: 0,
-      teaches: 'Open holes, and the tilt mapping itself.' },
-    { world: 2, theme: 'workshop', cols: 5, rows: 8,  wall: 0.32, ball: 0.30, braid: 0.30,
-      holes: 7, ice: 0, gates: 2,
-      teaches: 'MOVING GATES: bars that slide across a corridor and withdraw, forever.' },
-    { world: 3, theme: 'slate',    cols: 6, rows: 9,  wall: 0.30, ball: 0.28, braid: 0.25,
-      holes: 10, ice: 2, gates: 1,
-      teaches: 'ICE: laid on the run-up to a turn, so speed carried in is speed you cannot shed.' },
-    { world: 4, theme: 'neon',     cols: 7, rows: 10, wall: 0.26, ball: 0.26, braid: 0.18,
-      holes: 13, ice: 3, gates: 3,
-      teaches: 'Everything at once, on the tightest grid the marble fits.' }
+    {
+        world: 1, theme: 'workshop', ball: 0.32, wall: 0.33, braid: 0.3,
+        names: ['First Roll', 'Threading', 'The Long Way', 'Sliding Door', 'Clockwork',
+                'Metronome', 'Shift Work', 'Dovetail', 'Sawdust', 'Assembly Line'],
+        teaches: ['HOLES, and the tilt mapping itself.', 'Holes off the route.', 'A longer route.',
+                  'MOVING GATES: bars that slide across a doorway and withdraw, forever.', 'Gates.', 'Gates.',
+                  'Gates and holes together.', 'A finer grid.', 'The finest grid this ball fits.',
+                  'CONVEYOR BELTS: floor that carries the ball, with you or against you.'],
+        // grid, holes, gates, conveyors, coins, route fraction
+        levels: [
+            { cols: 4, rows: 6, holes: 2, gates: 0, conveyors: 0, coins: 5,  route: 0.35 },
+            { cols: 4, rows: 6, holes: 3, gates: 0, conveyors: 0, coins: 6,  route: 0.4 },
+            { cols: 4, rows: 6, holes: 4, gates: 0, conveyors: 0, coins: 7,  route: 0.5 },
+            { cols: 4, rows: 7, holes: 3, gates: 1, conveyors: 0, coins: 7,  route: 0.35 },
+            { cols: 4, rows: 7, holes: 4, gates: 1, conveyors: 0, coins: 8,  route: 0.45 },
+            { cols: 5, rows: 7, holes: 4, gates: 1, conveyors: 0, coins: 8,  route: 0.45 },
+            { cols: 5, rows: 7, holes: 5, gates: 2, conveyors: 0, coins: 9,  route: 0.5 },
+            { cols: 5, rows: 8, holes: 5, gates: 2, conveyors: 0, coins: 10, route: 0.45 },
+            { cols: 5, rows: 8, holes: 6, gates: 2, conveyors: 0, coins: 10, route: 0.55 },
+            { cols: 5, rows: 8, holes: 5, gates: 1, conveyors: 2, coins: 12, route: 0.5 }
+        ],
+        prize: 'rubberCoat'
+    }
 ];
 
-const NAMES = {
-    1: ['First Roll', 'Threading', 'The Long Way'],
-    2: ['Clockwork', 'Metronome', 'Shift Work'],
-    3: ['First Slip', 'Black Ice', 'Glass Floor'],
-    4: ['Cold Open', 'Pressure', 'Last Gate']
-};
-
-
 function buildLevel(cfg, n, index, seed) {
+    // cfg is the world merged with this level's slot (see buildAll).
     const rand = mulberry32(seed);
     const open = carve(cfg.cols, cfg.rows, rand);
     braid(open, cfg.cols, cfg.rows, rand, cfg.braid);
@@ -884,9 +1007,24 @@ function buildLevel(cfg, n, index, seed) {
     // control, never where it can go.
     const ice = cfg.ice ? placeIce(open, cfg, g, path, rand, cfg.ice) : [];
 
+    // Belts after gates (a bar must not slide across a belt -- the ball would
+    // be shoved by both at once) and before holes (a hole must not sit on a
+    // belt, the same reason one must not sit under ice).
+    const sweptOf = gt => {
+        const a = gt.x, b = gt.x + (gt.axis === 'x' ? gt.travel : 0);
+        const c = gt.z, e = gt.z + (gt.axis === 'z' ? gt.travel : 0);
+        return { x: (a + b) / 2, z: (c + e) / 2, w: Math.abs(b - a) + gt.w, d: Math.abs(e - c) + gt.d };
+    };
+    const overlaps = (p, q, pad) => Math.abs(p.x - q.x) < (p.w + q.w) / 2 + pad && Math.abs(p.z - q.z) < (p.d + q.d) / 2 + pad;
+    const conveyors = (cfg.conveyors ? placeConveyors(open, cfg, g, path, rand, cfg.conveyors * 4) : [])
+        .filter(c => gates.every(gt => !overlaps(c, sweptOf(gt), cfg.ball)))
+        .filter(c => ice.every(r => !overlaps(c, r, 0)))
+        .filter((c, n, all) => all.slice(0, n).every(o => !overlaps(c, o, cfg.ball)))
+        .slice(0, cfg.conveyors);
+
     const holes = [];
     const openSpecs = base.gates.map(gt => ({ x: gt.x, z: gt.z, w: gt.w, d: gt.d }));
-    for (const h of placeHoles(open, cfg, g, path, rand, cfg.holes * 3, gates, ice, cfg)) {
+    for (const h of placeHoles(open, cfg, g, path, rand, cfg.holes * 3, gates, ice.concat(conveyors), cfg)) {
         if (holes.length >= cfg.holes) break;
         base.holes.push(h);
         // Solvable is not enough -- see orphanArea(). A hole that seals a branch
@@ -904,53 +1042,52 @@ function buildLevel(cfg, n, index, seed) {
     const minMs = Math.max(2500, Math.round(dist / 9 * 1000));
     const goldMs = Math.round(dist / 1.5 * 1000);
 
+    // Collectibles last: they go where the finished level leaves room.
+    const placed = { ...base, holes, gates };
+    const pickupKinds = n === 0 ? [] : [PICKUP_ROTATION[(n - 1) % PICKUP_ROTATION.length]];
+    const { coins, pickups } = placeCollectibles(open, cfg, g, path, rand, placed, cfg.coins || 0, pickupKinds);
+
     const lv = {
-        id: `w${cfg.world}_0${n + 1}`,
+        id: `w${cfg.world}_${String(n + 1).padStart(2, '0')}`,
         world: cfg.world,
         index,
-        name: NAMES[cfg.world][n],
+        name: cfg.names[n],
         theme: cfg.theme,
         ballRadius: cfg.ball,
         size: { w: BOARD_W, d: BOARD_D },
         start: base.start,
         goal: base.goal,
         minMs, goldMs,
-        _shape: `${cfg.cols}x${cfg.rows} carved maze, ${path.length}-cell route, ${holes.length} holes, ball ${cfg.ball}. ${cfg.teaches}`,
+        _shape: `${cfg.cols}x${cfg.rows} carved maze, ${path.length}-cell route, ${holes.length} holes, ball ${cfg.ball}. ${cfg.teaches[n]}`,
         walls,
         holes
     };
     if (ice.length) lv.ice = ice;
     if (gates.length) lv.gates = gates;
+    if (conveyors.length) lv.conveyors = conveyors;
+    lv.coins = coins;
+    if (pickups.length) lv.pickups = pickups;
     return lv;
 }
 
-// HOW LONG A LEVEL'S ROUTE SHOULD BE, as a fraction of its grid's cells, by
-// slot within the world.
+// HOW LONG A LEVEL'S ROUTE SHOULD BE is each level slot's `route`: a fraction
+// of its grid's cells. The carve is random, and a corner-to-corner route
+// through one runs anywhere from a quarter of the cells to four fifths
+// depending on the seed, so taking the first seed that passed every filter set
+// each level's length by accident (one world once got SHORTER as the player
+// advanced). Seeds are ranked by closeness to the target instead. A fraction
+// of the grid rather than a count, because the grid grows level to level.
 //
-// The carve is random, and a corner-to-corner route through one runs anywhere
-// from a quarter of the cells to four fifths depending on the seed. Taking the
-// first seed that passed every filter therefore set each level's length by
-// accident, and it showed: Cold Open came out at 46 cells against Last Gate's
-// 30, so world 4 got SHORTER as the player advanced through it, and its opening
-// level was the longest in the game.
-//
-// A fraction of the grid rather than an absolute count, because the grid is what
-// grows between worlds -- the same fraction reads as the same "how much of this
-// board did I cross".
-//
-// Deliberately per-world rather than one ramp across all twelve: each world
-// opens on a shorter level and builds, because each also introduces something
-// (gates, then ice, then everything at once) and wants room to teach it before
-// it asks for endurance too. So world 3's opener is shorter than world 2's
-// closer. That dip is the point, not a bug in the numbers.
-const ROUTE_FRACTION = [0.35, 0.45, 0.55];
+// Each trap's introduction level dips back to a shorter route: it wants room
+// to teach before it asks for endurance too. That dip is the point.
 
 function buildAll() {
     const levels = [];
     let index = 1;
-    for (const cfg of WORLDS) {
-        for (let n = 0; n < 3; n++) {
-            const target = ROUTE_FRACTION[n] * cfg.cols * cfg.rows;
+    for (const world of WORLDS) {
+        for (let n = 0; n < world.levels.length; n++) {
+            const cfg = { ...world, ...world.levels[n], ice: world.levels[n].ice || 0 };
+            const target = cfg.route * cfg.cols * cfg.rows;
             // Rank the candidate seeds by how close their route lands to the
             // target BEFORE building any of them. Route length is a property of
             // the carve alone -- carve, braid, shortest path, nothing else -- so
@@ -958,7 +1095,7 @@ function buildAll() {
             // then runs in preference order instead of in seed order.
             const ranked = [];
             for (let attempt = 0; attempt < 40; attempt++) {
-                const seed = cfg.world * 1000 + n * 17 + 7 + attempt * 101;
+                const seed = cfg.world * 1000 + n * 17 + 7 + attempt * 101 + cfg.cols * 7919 + cfg.rows * 104729;
                 const rand = mulberry32(seed);
                 const open = carve(cfg.cols, cfg.rows, rand);
                 braid(open, cfg.cols, cfg.rows, rand, cfg.braid);
@@ -991,7 +1128,9 @@ function buildAll() {
                 if (!fallback) fallback = built;
                 if (built.holes.length === cfg.holes
                     && (built.gates || []).length === cfg.gates
-                    && (built.ice || []).length === cfg.ice) { lv = built; break; }
+                    && (built.ice || []).length === cfg.ice
+                    && (built.conveyors || []).length === cfg.conveyors
+                    && built.coins.length === cfg.coins) { lv = built; break; }
             }
             if (!lv) lv = fallback;
             if (!lv) {
@@ -1010,6 +1149,12 @@ function buildAll() {
     // worlds exist -- when the 50-level drop moves milestones to 10/25/50 this
     // becomes a list, not a rewrite.
     levels[levels.length - 1].milestone = { category: 'marble', id: 'labyrinth' };
+    // Each world's last level carries its prize (docs/PLAN.md): the thing that
+    // helps -- never is required -- against a trap in the next world.
+    for (const world of WORLDS) {
+        const last = levels.filter(l => l.world === world.world).pop();
+        if (last && world.prize) last.prize = world.prize;
+    }
     return levels;
 }
 
@@ -1048,23 +1193,25 @@ function renderLevel(lv) {
     L.push(`      "minMs": ${lv.minMs},`);
     L.push(`      "goldMs": ${lv.goldMs},`);
     if (lv.milestone) L.push(`      "milestone": ${JSON.stringify(lv.milestone)},`);
+    if (lv.prize) L.push(`      "prize": ${JSON.stringify(lv.prize)},`);
     L.push(`      "_shape": ${JSON.stringify(lv._shape)},`);
     L.push('      "walls": [');
     L.push(list(lv.walls, ['x', 'z', 'w', 'd']));
     L.push('      ],');
-    L.push('      "holes": [');
-    L.push(list(lv.holes, ['x', 'z', 'r']));
-    L.push(lv.ice || lv.gates ? '      ],' : '      ]');
-    if (lv.ice) {
-        L.push('      "ice": [');
-        L.push(list(lv.ice, ['x', 'z', 'w', 'd']));
-        L.push(lv.gates ? '      ],' : '      ]');
-    }
-    if (lv.gates) {
-        L.push('      "gates": [');
-        L.push(list(lv.gates, ['x', 'z', 'w', 'd', 'axis', 'travel', 'periodMs', 'phase']));
-        L.push('      ]');
-    }
+    // Optional arrays, each written only when present, commas between them.
+    const blocks = [
+        ['holes', lv.holes, ['x', 'z', 'r']],
+        ['ice', lv.ice, ['x', 'z', 'w', 'd']],
+        ['gates', lv.gates, ['x', 'z', 'w', 'd', 'axis', 'travel', 'periodMs', 'phase']],
+        ['conveyors', lv.conveyors, ['x', 'z', 'w', 'd', 'dir', 'speed']],
+        ['coins', lv.coins, ['x', 'z']],
+        ['pickups', lv.pickups, ['x', 'z', 'kind']]
+    ].filter(([, arr]) => arr);
+    blocks.forEach(([key, arr, keys], n) => {
+        L.push(`      "${key}": [`);
+        if (arr.length) L.push(list(arr, keys));
+        L.push(n === blocks.length - 1 ? '      ]' : '      ],');
+    });
     L.push('    }');
     return L.join('\n');
 }

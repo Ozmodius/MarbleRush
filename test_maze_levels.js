@@ -269,6 +269,81 @@ function analyse(lv, H) {
     return { startFree, goalFree, reachable, inWall, inHole, outside, hw, hd, R, inertGates };
 }
 
+// Conveyors, coins and pickups. Separate from the main loop only to keep that
+// loop readable; same analysis, same reachable floor.
+function checkExtras(lv, H, P) {
+    const tag = `level ${lv.id}`;
+    const a = analyse(lv, H);
+    const openSpecs = openSpecsOf(lv, H);
+    const rf = reachableFloor(lv, openSpecs);
+    const sweeps = (lv.gates || []).map(g => H.gateSweptSpec(g));
+    const overlap = (p, q, pad = 0) => Math.abs(p.x - q.x) < (p.w + q.w) / 2 + pad && Math.abs(p.z - q.z) < (p.d + q.d) / 2 + pad;
+
+    // CONVEYORS -- a pushing trap. Reachability is untouched because a belt is
+    // weaker than full tilt (test_maze_hazards.js holds that), so what is left
+    // to check is placement: what a belt must never do to a ball that cannot
+    // yet have reacted.
+    (Array.isArray(lv.conveyors) ? lv.conveyors : []).forEach((c, n) => {
+        const ctag = `${tag}: conveyor ${n} at (${c.x},${c.z})`;
+        check(Number.isFinite(c.w) && c.w > 0 && Number.isFinite(c.d) && c.d > 0, `${ctag} needs positive w and d`);
+        check(!!H.conveyorDir(c), `${ctag} needs dir '+x', '-x', '+z' or '-z', got ${JSON.stringify(c.dir)}`);
+        check(Number.isFinite(c.speed) && c.speed > 0 && c.speed <= H.CONVEYOR_MAX_SPEED,
+            `${ctag} needs a speed in (0, ${H.CONVEYOR_MAX_SPEED}], got ${c.speed}`);
+        check(Math.abs(c.x) + c.w / 2 <= a.hw + 1e-6 && Math.abs(c.z) + c.d / 2 <= a.hd + 1e-6, `${ctag} extends outside the level bounds`);
+        check(H.distanceToRect(c, lv.start.x, lv.start.z) > a.R, `${ctag} covers the START -- a run must not begin already moving`);
+        check(H.distanceToRect(c, lv.goal.x, lv.goal.z) > lv.goal.r, `${ctag} touches the GOAL -- a belt must not decide the win`);
+        for (const h of lv.holes) {
+            check(H.distanceToRect(c, h.x, h.z) > a.R,
+                `${ctag} has the hole at (${h.x},${h.z}) on it -- a ball being carried over a hole cannot avoid it. A belt may lead TO a hole, never carry over one.`);
+        }
+        sweeps.forEach(sw => check(!overlap(c, sw, a.R), `${ctag} lies under a gate's sweep -- the ball would be shoved by the bar and the belt at once`));
+        (lv.ice || []).forEach(r => check(!overlap(c, r), `${ctag} overlaps ice`));
+        // Two belts touching would hand the ball from one push to another with
+        // no plain floor between to react on -- and overlapping, the first
+        // in the list silently wins (conveyorAt), so what is drawn lies.
+        lv.conveyors.slice(0, n).forEach((o, k) => check(!overlap(c, o, a.R), `${ctag} touches conveyor ${k} -- belts need plain floor between them`));
+        const live = [...rf.seen].some(k => {
+            const [i, j] = k.split('_').map(Number);
+            return H.conveyorAt([c], rf.px(i), rf.pz(j)) === c;
+        });
+        check(live, `${ctag} is UNREACHABLE -- decoration, not a trap`);
+    });
+
+    // COINS AND PICKUPS. Every one must be collectible by a ball standing on
+    // reachable floor, without that ball being over a hole, and must not sit
+    // where a gate sweeps (a coin you can only take by being crushed is a
+    // trap pretending to be a reward). Start and goal stay clear: a coin on
+    // the goal would be collected by winning, which is no decision at all.
+    const reachableAt = (x, z, reach) => {
+        const ci = Math.round((x + a.hw) / GRID), cj = Math.round((z + a.hd) / GRID);
+        const span = Math.ceil(reach / GRID);
+        for (let i = ci - span; i <= ci + span; i++) {
+            for (let j = cj - span; j <= cj + span; j++) {
+                if (rf.seen.has(i + '_' + j) && Math.hypot(rf.px(i) - x, rf.pz(j) - z) <= reach) return true;
+            }
+        }
+        return false;
+    };
+    const items = [
+        ...(lv.coins || []).map((c, n) => ({ ...c, what: `coin ${n}`, reach: a.R + P.COIN_RADIUS })),
+        ...(lv.pickups || []).map((p, n) => ({ ...p, what: `pickup ${n} (${p.kind})`, reach: a.R + P.PICKUP_RADIUS }))
+    ];
+    check(Array.isArray(lv.coins), `${tag}: needs a coins array (empty is allowed)`);
+    for (const it of items) {
+        const itag = `${tag}: ${it.what} at (${it.x},${it.z})`;
+        check(Math.abs(it.x) <= a.hw && Math.abs(it.z) <= a.hd, `${itag} is outside the level`);
+        check(reachableAt(it.x, it.z, it.reach), `${itag} is UNREACHABLE -- no floor the ball can stand on is within reach of it`);
+        for (const h of lv.holes) {
+            check(Math.hypot(it.x - h.x, it.z - h.z) >= h.r + a.R,
+                `${itag} is over or at the lip of the hole at (${h.x},${h.z}) -- taking it would mean falling in`);
+        }
+        sweeps.forEach(sw => check(H.distanceToRect(sw, it.x, it.z) > a.R, `${itag} lies in a gate's sweep`));
+        check(Math.hypot(it.x - lv.goal.x, it.z - lv.goal.z) > lv.goal.r + it.reach, `${itag} is on the GOAL`);
+        check(Math.hypot(it.x - lv.start.x, it.z - lv.start.z) > a.R + it.reach, `${itag} is on the START -- collected before the run begins`);
+    }
+    (lv.pickups || []).forEach((p, n) => check(P.POWERUP_KINDS.includes(p.kind), `${tag}: pickup ${n} has unknown kind '${p.kind}' (have: ${P.POWERUP_KINDS.join(', ')})`));
+}
+
 async function run() {
     // The hazard geometry comes from the GAME's own module, not from a copy
     // reimplemented here. A verifier that modelled gates even slightly
@@ -276,6 +351,7 @@ async function run() {
     // then makes impossible -- the precise failure this file exists to prevent.
     const H = await import('./mazeHazards.js');
     THEMES = (await import('./mazeThemes.js')).MAZE_THEMES;
+    const P = await import('./mazePickups.js');
 
     check(DATA.schemaVersion === 1, `unexpected schemaVersion ${DATA.schemaVersion}`);
     check(Array.isArray(DATA.levels) && DATA.levels.length > 0, 'mazeLevels.json must contain at least one level');
@@ -465,6 +541,11 @@ async function run() {
         }
     }
 
+    // (per-level trap, coin and pickup checks run in checkExtras below)
+    for (const lv of DATA.levels) {
+        if (lv.size && lv.walls && lv.holes && lv.start && lv.goal) checkExtras(lv, H, P);
+    }
+
     // --- LADDER INTEGRITY ----------------------------------------------------
     // The server gates a clear on `index <= highestCleared + 1`, so the index
     // sequence IS the progression rule. A duplicate index would let one clear
@@ -502,12 +583,43 @@ async function run() {
             `${DATA.levels[i].id}: ball radius ${DATA.levels[i].ballRadius} is LARGER than the previous level's ${DATA.levels[i - 1].ballRadius} -- difficulty must not go backwards`);
     }
 
+    // --- WORLDS ----------------------------------------------------------
+    // Ten levels a world at most, ids w<world>_<slot>, and a world introduces
+    // a new trap kind only on its levels 1, 4 and 10 (docs/PLAN.md). A trap
+    // first met on level 6 is a trap nobody taught.
+    const INTRO_SLOTS = [1, 4, 10];
+    const TRAP_KINDS = { holes: l => l.holes.length, gates: l => (l.gates || []).length,
+        ice: l => (l.ice || []).length, conveyors: l => (l.conveyors || []).length };
+    for (const w of Object.keys(worldRanges)) {
+        const lvls = DATA.levels.filter(l => String(l.world) === w);
+        check(lvls.length <= 10, `world ${w} has ${lvls.length} levels; a world is at most 10`);
+        const known = new Set();
+        lvls.forEach((lv, n) => {
+            const slot = n + 1;
+            check(lv.id === `w${w}_${String(slot).padStart(2, '0')}`, `${lv.id}: id should be w${w}_${String(slot).padStart(2, '0')} (world ${w}, level ${slot})`);
+            for (const [kind, count] of Object.entries(TRAP_KINDS)) {
+                if (count(lv) > 0 && !known.has(kind)) {
+                    check(INTRO_SLOTS.includes(slot),
+                        `${lv.id}: introduces ${kind} on level ${slot} of its world -- new traps arrive only on levels ${INTRO_SLOTS.join(', ')}`);
+                    known.add(kind);
+                }
+            }
+        });
+        const last = lvls[lvls.length - 1];
+        if (lvls.length === 10) check(typeof last.prize === 'string' && last.prize, `world ${w}: its 10th level must carry the world's prize`);
+        lvls.slice(0, -1).forEach(l => check(!l.prize, `${l.id}: only a world's last level carries a prize`));
+    }
+
     if (failures.length) {
         console.error('FAIL: maze level validation\n - ' + failures.join('\n - '));
         process.exitCode = 1;
     } else {
         const gateCount = DATA.levels.reduce((n, l) => n + ((l.gates || []).length), 0);
         const iceCount = DATA.levels.reduce((n, l) => n + ((l.ice || []).length), 0);
+        const beltCount = DATA.levels.reduce((n, l) => n + ((l.conveyors || []).length), 0);
+        const coinCount = DATA.levels.reduce((n, l) => n + ((l.coins || []).length), 0);
+        const pickupCount = DATA.levels.reduce((n, l) => n + ((l.pickups || []).length), 0);
+        console.log(`PASS: ${beltCount} conveyor(s) stay off holes, start, goal and gate sweeps; ${coinCount} coin(s) and ${pickupCount} pickup(s) are all reachable and clear of holes; traps arrive only on levels 1/4/10 of their world`);
         console.log(`PASS: all ${DATA.levels.length} maze level(s) are well-formed, in bounds, inside the shadow frustum, BFS-solvable at the real ball radius AND passable by a ball ${FIT_MARGIN_R * 100}% wider, leave no carved floor cut off, put every hole and all ${iceCount} ice patch(es) somewhere reachable, retract all ${gateCount} gate(s) clear of the floor when open, and form a gap-free ladder with non-increasing ball size`);
     }
 }

@@ -8,6 +8,9 @@ import { makeIceMaterial, makeGateMaterial } from './mazeTheme3d.js';
 import { resolveMazeTheme, makeFloorMaterial, makeWallMaterial, makeWallGeometry, makeBallMaterial,
          makeHoleMaterial, makeGoalMaterial } from './mazeTheme3d.js';
 import { tickSurfaces } from './mazeSurface3d.js';
+import { conveyorAt, conveyorAccel } from './mazeHazards.js';
+import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from './mazePickups.js';
+import { buildLevelProps } from './mazeProps3d.js';
 import { COSMETICS } from './cosmetics.js';
 import { bindTap } from './inputTap.js';
 import { uiSfx } from './uiSfx.js';
@@ -132,6 +135,12 @@ let gates = [];                  // [{ spec, body, mesh }]
 let winStar = null;
 let winStarMs = 0;               // time since the star appeared, drives pop + spin
 let iceRects = [];
+let props = null;                // belts, coins, pickups (mazeProps3d.js)
+let pickupState = null;          // this attempt's coins and power-ups (mazePickups.js)
+// Power-ups bought before the level and not yet spent. Set by the shop /
+// level-select UI through setRunCharges(); survives restarts of the same level
+// (a bought charge is spent when fired, not when an attempt ends).
+let runCharges = {};
 let floorBody = null;            // material swapped per frame when the ball is on ice
 let solidMaterial = null;
 let iceMaterial = null;
@@ -477,6 +486,13 @@ function buildLevelMeshes(lv, theme) {
     goal.position.set(lv.goal.x, FLOOR_Y + 0.015, lv.goal.z);
     group.add(goal);
 
+    // Belts, coins and pickups. Their geometries, materials and textures go on
+    // the disposables list like everything else built here.
+    const tracked = [];
+    props = buildLevelProps(lv, tracked);
+    tracked.forEach(track);
+    group.add(props.group);
+
     const wallSpecs = buildWalls(lv, group, theme);
     gates = buildGates(lv, group, theme);
     // Built up front and hidden, not created on the win. Building an extruded
@@ -649,6 +665,7 @@ function step() {
     // Lava pulses on the page clock, not the run clock: it is scenery, and it
     // should keep breathing on the ready screen and after a fall.
     tickSurfaces(now / 1000);
+    if (props) props.tick(now / 1000);
     advance(elapsedMs);
 }
 
@@ -661,7 +678,9 @@ function step() {
 // unpredictably under load -- the same throttling that makes
 // test_r3d_environment.js flaky. A tilt assertion clocked by a starved rAF
 // tests the sandbox's scheduler, not the maze.
+let lastFrameMs = 0;              // real ms of the frame being advanced, for pickup timers
 function advance(elapsedMs) {
+    lastFrameMs = elapsedMs;
     if (phase === 'running') {
         // Manual input is already in screen terms and needs no calibration.
         const manual = manualActive() || !sensorSeen;
@@ -690,7 +709,10 @@ function advance(elapsedMs) {
         // that kept sliding behind a "DOWN THE HOLE" banner would have moved on
         // by the time the ball is replaced, so the restart the player sees would
         // not be the level they just started.
-        runClockMs += elapsedMs;
+        // Slow-mo slows the WORLD -- ball, gates, belts -- not the run timer,
+        // which reads the wall clock (win()). So it is a steadier hand, never a
+        // faster time.
+        runClockMs += elapsedMs * timeScale(pickupState);
         updateGates();
         updateFloorSurface();
     } else if (phase === 'won') {
@@ -701,8 +723,12 @@ function advance(elapsedMs) {
     // Fixed timestep with a hand-rolled catch-up, exactly as diceBox3d.js does
     // and for the same reason: cannon's own accumulator bails out of substep
     // catch-up under CPU contention and leaves the sim permanently behind.
-    const steps = Math.min(Math.max(1, Math.round((elapsedMs / 1000) / FIXED_STEP)), MAX_CATCHUP_STEPS);
-    for (let i = 0; i < steps; i++) world.step(FIXED_STEP);
+    const simMs = phase === 'running' ? elapsedMs * timeScale(pickupState) : elapsedMs;
+    const steps = Math.min(Math.max(1, Math.round((simMs / 1000) / FIXED_STEP)), MAX_CATCHUP_STEPS);
+    for (let i = 0; i < steps; i++) {
+        if (phase === 'running') applyConveyor(FIXED_STEP);
+        world.step(FIXED_STEP);
+    }
 
     ballMesh.position.copy(ballBody.position);
     ballMesh.quaternion.copy(ballBody.quaternion);
@@ -742,6 +768,21 @@ function updateFloorSurface() {
     if (floorBody.material !== want) floorBody.material = want;
 }
 
+// A belt under the ball's centre drags it toward the belt's speed, once per
+// physics substep. The acceleration is capped below full tilt
+// (mazeHazards.js), which is what lets the verifier ignore belts entirely.
+// Applied as a velocity change rather than a force so it is independent of the
+// ball's mass -- a heavier character is not a belt-proof one.
+function applyConveyor(dt) {
+    if (!level || !level.conveyors || !ballBody) return;
+    const p = ballBody.position, v = ballBody.velocity;
+    const belt = conveyorAt(level.conveyors, p.x, p.z);
+    if (!belt) return;
+    const a = conveyorAccel(belt, v.x, v.z);
+    v.x += a.ax * dt;
+    v.z += a.az * dt;
+}
+
 // Spin the star, and pop it in on arrival. The pop overshoots past full size
 // before settling, because a scale that eases straight to 1.0 reads as the
 // object fading in rather than as it landing.
@@ -776,7 +817,38 @@ function checkOutcomes() {
 
     for (const h of level.holes) {
         const dx = p.x - h.x, dz = p.z - h.z;
-        if (dx * dx + dz * dz <= h.r * h.r) { fall(); return; }
+        if (dx * dx + dz * dz <= h.r * h.r) {
+            // A shield spends itself instead of the run: the ball is put back,
+            // stopped, on the last safe spot it rolled over (mazePickups.js).
+            const back = absorbFall(pickupState);
+            if (back) {
+                // A bought shield is spent from the purchase, so a restart does
+                // not re-arm it; a shield picked up in the maze comes back
+                // with the maze.
+                if (runCharges.shield > 0) runCharges.shield--;
+                ballBody.position.set(back.x, FLOOR_Y + level.ballRadius + 0.02, back.z);
+                ballBody.velocity.setZero();
+                ballBody.angularVelocity.setZero();
+                setStatus('SHIELD SAVED YOU');
+                renderPowerups();
+                return;
+            }
+            fall();
+            return;
+        }
+    }
+
+    // Coins and pickups, after the hole check so a ball going down a hole
+    // does not also bank the coin on its lip.
+    if (pickupState) {
+        const events = stepPickups(pickupState, level, { x: p.x, z: p.z, r: level.ballRadius }, lastFrameMs);
+        for (const e of events) {
+            if (e.type === 'coin') props.takeCoin(e.index);
+            else { props.takePickup(e.index); setStatus(e.kind.toUpperCase()); }
+            try { uiSfx.open(); } catch (err) { /* ignore */ }
+        }
+        if (events.length) renderCoins();
+        renderPowerups();
     }
 
     const gdx = p.x - level.goal.x, gdz = p.z - level.goal.z;
@@ -806,7 +878,10 @@ function win() {
     // level and how long -- never a tier, never a reward -- so there is nothing
     // in this payload worth lying about.
     const ms = Math.round(performance.now() - runStartedAt);
-    socket.emit('mazeClearLevel', { levelId: level.id, durationMs: ms });
+    // Coins ride along; Phase 0's progress store (recordClear) replaces this
+    // emit, and banks them only on a clear -- a run abandoned or fallen is
+    // worth nothing, which is what makes a coin down a risky branch a choice.
+    socket.emit('mazeClearLevel', { levelId: level.id, durationMs: ms, coins: pickupState ? pickupState.coins : 0 });
     // Level gravity back to straight down. Tilt is only sampled while the phase
     // is 'running', so without this the world keeps the exact lean the player
     // happened to be holding at the moment they won, and the ball wanders back
@@ -840,6 +915,12 @@ function restart() {
     // same route take the same time, which matters when gold pays.
     runClockMs = 0;
     updateGates();
+    // Every attempt starts with every coin and pickup back in place, and any
+    // bought charges still unspent.
+    pickupState = createRunPickups(level, runCharges);
+    if (props) props.reset();
+    renderCoins();
+    renderPowerups();
     phase = 'running';
     setStatus('');
     showWinStar(false);
@@ -859,6 +940,33 @@ function formatTime(ms) {
 function el(id) { return document.getElementById(id); }
 function showEl(id, show) { const e = el(id); if (e) e.style.display = show ? '' : 'none'; }
 function setStatus(text) { const e = el('mazeStatus'); if (e) e.textContent = text || ''; }
+function renderCoins() {
+    const e = el('mazeCoins');
+    if (e) e.textContent = pickupState ? `${pickupState.coins} / ${(level && level.coins || []).length}` : '';
+}
+// Which power-ups are live, and how many bought charges are left to fire.
+function renderPowerups() {
+    const e = el('mazePowerups');
+    if (!e || !pickupState) return;
+    const live = [];
+    if (pickupState.shield) live.push('SHIELD');
+    if (pickupState.slowmoMs > 0) live.push(`SLOW ${Math.ceil(pickupState.slowmoMs / 1000)}`);
+    if (pickupState.magnetMs > 0) live.push(`MAGNET ${Math.ceil(pickupState.magnetMs / 1000)}`);
+    for (const [k, n] of Object.entries(pickupState.held)) if (n > 0) live.push(`${k.toUpperCase()} x${n}`);
+    e.textContent = live.join('  ');
+}
+
+// Power-ups bought before the level (docs/PLAN.md): { shield, slowmo, magnet }
+// counts. Called by the shop / level select before startLevel.
+export function setRunCharges(charges) { runCharges = { ...(charges || {}) }; }
+// Fire a bought charge mid-run (a HUD tap). Spends it from the purchase too, so
+// a restart does not refund it. Returns whether anything fired.
+export function useRunCharge(kind) {
+    if (phase !== 'running' || !pickupState || !useCharge(pickupState, kind)) return false;
+    runCharges[kind] = Math.max(0, (runCharges[kind] || 0) - 1);
+    renderPowerups();
+    return true;
+}
 
 // ---------------------------------------------------------------------------
 // Enter / exit
@@ -1076,6 +1184,8 @@ function teardownLevel() {
     iceRects = [];
     winStar = null;
     winStarMs = 0;
+    props = null;
+    pickupState = null;
     floorBody = null;
     solidMaterial = null;
     iceMaterial = null;

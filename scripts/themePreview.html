@@ -30,6 +30,7 @@ import { resolveMazeTheme, makeFloorMaterial, makeWallMaterial, makeWallGeometry
          makeHoleMaterial, makeGoalMaterial, makeBallMaterial, makeIceMaterial } from '../mazeTheme3d.js';
 import { tickSurfaces } from '../mazeSurface3d.js';
 import { gateSpecAt } from '../mazeHazards.js';
+import { buildLevelProps } from '../mazeProps3d.js';
 
 const q = new URLSearchParams(location.search);
 const data = await (await fetch('../mazeLevels.json')).json();
@@ -85,6 +86,8 @@ for (const r of (lv.ice || [])) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(r.w, r.d), makeIceMaterial(theme));
     m.rotation.x = -Math.PI / 2; m.position.set(r.x, 0.006, r.z); scene.add(m);
 }
+const props = buildLevelProps(lv);
+scene.add(props.group);
 const holeMat = makeHoleMaterial(theme);
 for (const h of lv.holes) {
     const m = new THREE.Mesh(new THREE.CircleGeometry(h.r, 28), holeMat);
@@ -114,6 +117,7 @@ if (q.get('zoom')) {
 let frames = 0;
 renderer.setAnimationLoop((ms) => {
     tickSurfaces(ms / 1000);
+    props.tick(ms / 1000);
     renderer.render(scene, camera);
     if (++frames === 3) window.__previewReady = true;
 });

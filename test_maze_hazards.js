@@ -115,10 +115,47 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
         'ice friction must not be zero -- a frictionless sphere never spins up and slides like a dead weight');
     check(H.ICE_FRICTION < 0.28, 'ice must be slipperier than the ordinary floor');
 
+    // --- conveyors -------------------------------------------------------
+    // The soundness argument (mazeHazards.js): a belt is weaker than the
+    // player. Full tilt on a ROLLING solid sphere gives g*sin(tilt)*5/7 of
+    // acceleration (2/7 of the push goes into spin). GRAVITY is mazeGame.js's;
+    // MAX_TILT_DEG is mazeTilt.js's own.
+    const T = await import('./mazeTilt.js');
+    const GRAVITY = 30;
+    const tiltAccel = GRAVITY * Math.sin(T.MAX_TILT_DEG * Math.PI / 180) * 5 / 7;
+    check(H.CONVEYOR_MAX_ACCEL <= 0.5 * tiltAccel,
+        `a belt (${H.CONVEYOR_MAX_ACCEL}) must be at most half of full tilt (${tiltAccel.toFixed(2)}), or a player driving upstream barely moves and the verifier's reachability stops being honest`);
+
+    const belt = { x: 0, z: 0, w: 1, d: 4, dir: '+z', speed: H.CONVEYOR_MAX_SPEED };
+    check(H.conveyorAt([belt], 0.4, 1.9) === belt, 'a point on the belt is on the belt');
+    check(H.conveyorAt([belt], 0.6, 0) === null, 'just off the side is not on the belt');
+    check(H.conveyorAt(undefined, 0, 0) === null, 'a level with no belts must not throw');
+
+    const still = H.conveyorAccel(belt, 0, 0);
+    check(near(still.ax, 0) && near(still.az, H.CONVEYOR_MAX_ACCEL), `a still ball is pushed along +z at the cap, got ${JSON.stringify(still)}`);
+    const riding = H.conveyorAccel(belt, 0, H.CONVEYOR_MAX_SPEED);
+    check(near(riding.az, 0), 'a ball already at belt speed feels nothing -- a belt never launches the ball past its own speed');
+    const across = H.conveyorAccel(belt, 5, 0);
+    check(near(across.ax, 0), 'a belt never pushes sideways');
+    for (const dir of ['+x', '-x', '+z', '-z']) {
+        for (const v of [-9, -1, 0, 1, 9]) {
+            const a = H.conveyorAccel({ ...belt, dir }, v, -v);
+            check(Math.hypot(a.ax, a.az) <= H.CONVEYOR_MAX_ACCEL + 1e-9, `belt ${dir} at v=${v} exceeds the cap`);
+        }
+    }
+    // Drive the full length upstream at full tilt: the ball must get off the
+    // far end, and in a sane time, from a standing start on the belt.
+    let z = 1.9, vz = 0, t = 0;
+    while (z > -2 && t < 10) {
+        const a = H.conveyorAccel(belt, 0, vz).az - tiltAccel;
+        vz += a / 60; z += vz / 60; t += 1 / 60;
+    }
+    check(z <= -2 && t < 2.5, `full tilt against a belt must cross it upstream (4 units) in under 2.5s, took ${t.toFixed(2)}s`);
+
     if (failures.length) {
         console.error('FAIL: maze hazard math\n - ' + failures.join('\n - '));
         process.exitCode = 1;
     } else {
-        console.log('PASS: maze hazard math -- gates reopen exactly every period, never leave their authored travel, carry a velocity that is the true derivative of their motion (so cannon pushes the ball rather than ejecting it), and ice is a control change with no effect on reachability');
+        console.log('PASS: maze hazard math -- gates reopen exactly every period, never leave their authored travel, carry a velocity that is the true derivative of their motion (so cannon pushes the ball rather than ejecting it), ice is a control change with no effect on reachability, and conveyors are always weaker than the player');
     }
 })().catch(e => { console.error(e); process.exitCode = 1; });
