@@ -5,3 +5,4 @@ export const WORLD_NAMES = {
     6: 'Swamp', 7: 'Crypt', 8: 'Desert Temple', 9: 'Sky Islands', 10: 'Cosmos'
 };
 export function worldName(n) { return WORLD_NAMES[n] || ('World ' + n); }
+export const LAUNCH_WORLDS = 5;   // docs/PLAN.md: worlds 1-5 ship at launch; the system shows these

@@ -44,7 +44,8 @@ npm run test:browser:bundle   # the browser test against that bundle
 | `shopCatalog.js` | Marbles, upgrades, power-ups, prize refills: prices and effects (pure) |
 | `menus.js` | Bottom tab bar (Home, Gear, Worlds, Store) and the home screen's HUD |
 | `planet3d.js` | The home screen's planet: the current world as a marble, your marble as its moon |
-| `worlds.js` | World names |
+| `solarSystem3d.js` | The Worlds tab: launch worlds orbiting a sun, tap a planet to pick a world |
+| `worlds.js` | World names, and how many worlds the launch shows |
 | `shopUi.js` | The store and gear (profile) pages |
 | `sfx.js` | Synthesized UI sounds |
 | `platform.js` | CrazyGames SDK, ads, save data; the only file that knows the platform. Still carries some Ball Smack-only features (rooms, invites, login) |

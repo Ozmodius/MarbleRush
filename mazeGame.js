@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { getScene, getCamera, onFrame, setExclusiveMode, requestRender } from './sceneHost.js';
+import { getScene, getCamera, getRenderer, onFrame, setExclusiveMode, requestRender } from './sceneHost.js';
 import { gateFraction, gateVelocity, gateSpecAt, isOnIce, ICE_FRICTION } from './mazeHazards.js';
 import { makeIceMaterial, makeGateMaterial } from './mazeTheme3d.js';
 import { resolveMazeTheme, makeFloorMaterial, makeWallMaterial, makeWallGeometry, makeBallMaterial,
@@ -12,9 +12,10 @@ import { buildLevelProps } from './mazeProps3d.js';
 import { sfx as uiSfx } from './sfx.js';
 import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
 import { ballSetup, PRIZES } from './shopCatalog.js';
-import { worldName } from './worlds.js';
+import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { buildPlanet } from './planet3d.js';
-import { tierForMs, isUnlocked, basePayout as payoutFor, goldBonus as goldBonusFor } from './progressStore.js';
+import { buildSolarSystem } from './solarSystem3d.js';
+import { isUnlocked } from './progressStore.js';
 import { setGameplayActive, features, showMidgameAd, happytime, reportGameCompleted } from './platform.js';
 
 // MARBLE RUSH -- the maze itself: level select, building a level, the run.
@@ -668,10 +669,10 @@ function screenAngle() {
 function step() {
     // onFrame is append-only -- there is no offFrame -- so this callback lives
     // for the life of the page and MUST bail whenever the maze isn't up.
-    if (active && phase === 'menu' && planet) {
+    if (active && phase === 'menu' && (planet || solar)) {
         const t = performance.now() / 1000;
         tickSurfaces(t);
-        planet.tick(t);
+        (planet || solar).tick(t);
         return;
     }
     if (!active || !world || !ballBody) return;
@@ -1027,111 +1028,20 @@ function formatBearings(n) {
     return Number(n).toLocaleString('en-US');
 }
 
-function basePayout(lv) { return payoutFor(payouts, lv); }
-function goldBonus(lv) { return goldBonusFor(payouts, lv); }
-function isUnlockedLevel(lv) { return isUnlocked(progressNow(), lv); }
-
 function tierIcon(tier) {
     return tier === 'gold' ? '\u{1F947}' : tier === 'silver' ? '\u{1F948}' : tier === 'bronze' ? '\u{1F949}' : '';
 }
 
-// The second line of a level row. It answers one question -- "what is still on
-// the table here?" -- rather than listing everything known about the level,
-// because a first clear and a first gold each pay ONCE and a player who cannot
-// see which of those they still hold has no way to tell a fresh level from a
-// spent one.
-function levelMeta(lv, done, unlocked) {
-    if (!unlocked) return 'Clear level ' + (lv.index - 1) + ' to unlock';
-
-    const parts = [];
-    parts.push(done ? 'Best ' + formatTime(done.bestMs) : 'Gold under ' + formatTime(lv.goldMs));
-
-    const base = basePayout(lv);
-    const bonus = goldBonus(lv);
-    const goldTaken = (progressNow().goldClaimed || []).includes(lv.id);
-    if (!done && base > 0) parts.push('+' + formatBearings(base));
-    if (done && !goldTaken && bonus > 0) parts.push('+' + formatBearings(bonus) + ' for gold under ' + formatTime(lv.goldMs));
-
-    return parts.join('  ·  ');
-}
-
-function renderWallet() {
-    const e = el('mazeWallet');
-    if (e) e.textContent = formatBearings(progressNow().wallet || 0);
-}
-
-function renderLevelSelect() {
-    renderWallet();
-    const list = el('mazeSelectList');
-    if (!list) return;
-    list.innerHTML = '';
-
-    const worlds = [];
-    for (const lv of allLevels) {
-        let w = worlds.find(x => x.world === lv.world);
-        if (!w) { w = { world: lv.world, levels: [] }; worlds.push(w); }
-        w.levels.push(lv);
-    }
-
-    // The first level you have NOT cleared -- highlighted, so there is always
-    // one obvious thing to tap and no reading required.
-    const progress = progressNow();
-    const nextIdx = (progress.highestIndex || 0) + 1;
-
-    for (const w of worlds) {
-        const wrap = document.createElement('div');
-        wrap.className = 'maze-world';
-        const head = document.createElement('p');
-        head.className = 'maze-worldname';
-        head.textContent = 'WORLD ' + w.world + '  ·  ' + worldName(w.world).toUpperCase();
-        wrap.appendChild(head);
-
-        for (const lv of w.levels) {
-            const done = progress.cleared && progress.cleared[lv.id];
-            const unlocked = isUnlockedLevel(lv);
-            const row = document.createElement('button');
-            row.type = 'button';
-            row.className = 'maze-levelrow'
-                + (unlocked ? '' : ' is-locked')
-                + (done ? ' is-cleared' : '')
-                + (lv.index === nextIdx ? ' is-next' : '');
-            row.disabled = !unlocked;
-
-            const idx = document.createElement('span');
-            idx.className = 'maze-levelidx';
-            idx.textContent = done ? '✓' : String(lv.index);
-            row.appendChild(idx);
-
-            const main = document.createElement('span');
-            main.className = 'maze-levelmain';
-            const label = document.createElement('span');
-            label.className = 'maze-levellabel';
-            label.textContent = unlocked ? lv.name : 'Locked';
-            main.appendChild(label);
-            const meta = document.createElement('span');
-            meta.className = 'maze-levelmeta';
-            meta.textContent = levelMeta(lv, done, unlocked);
-            main.appendChild(meta);
-            row.appendChild(main);
-
-            const tier = document.createElement('span');
-            tier.className = 'maze-leveltier';
-            tier.textContent = done ? tierIcon(tierForMs(lv, done.bestMs)) : '';
-            row.appendChild(tier);
-
-            if (unlocked) bindTap(row, () => startLevel(lv.id));
-            wrap.appendChild(row);
-        }
-        list.appendChild(wrap);
-    }
-}
-
-// THE MENUS' BACKDROP. Outside a run the screen shows the world of the
-// player's NEXT level as a planet, with their chosen marble orbiting it as a
-// moon (planet3d.js). The menu screens themselves (home, gear, worlds, store)
-// are DOM drawn over it by menus.js.
+// THE MENUS' BACKDROP. Outside a run the screen shows one of two scenes:
+//   'planet'  the world of the player's NEXT level as a planet, their marble
+//             orbiting it as a moon (planet3d.js) -- home, gear, store;
+//   'system'  every launch world orbiting a sun (solarSystem3d.js) -- the
+//             WORLDS tab, where a planet is tapped to pick a world.
+// The menu screens themselves are DOM drawn over it by menus.js.
 let menuHandler = null;
 let planet = null;
+let solar = null;
+let backdrop = null;
 
 // The level the home screen offers: the first one not yet cleared, or the
 // last level once everything is.
@@ -1142,27 +1052,54 @@ export function nextLevel() {
 }
 
 let planetThemeOverride = null;   // test seam: __mazeDebug.planetTheme
-function buildShowcase() {
-    teardownLevel();
-    const lv = nextLevel();
-    if (!lv || !scene) return;
+
+// What each launch world looks like and whether it can be entered, for the
+// solar system: a built world wears its first level's theme; one not built
+// yet has none.
+export function worldsInfo() {
     const prog = progressNow();
-    ballSpec = ballSetup(prog.marble, prog.upgrades);
-    const theme = resolveMazeTheme(planetThemeOverride || lv.theme);
-    // Space, tinted by the world: its backdrop colour, much darker.
-    scene.background = new THREE.Color(theme.backdropColor).multiplyScalar(0.45);
+    const out = [];
+    for (let n = 1; n <= LAUNCH_WORLDS; n++) {
+        const lvls = allLevels.filter(l => l.world === n);
+        out.push({
+            n, name: worldName(n), levels: lvls,
+            theme: lvls.length ? resolveMazeTheme(lvls[0].theme) : null,
+            state: !lvls.length ? 'coming' : isUnlocked(prog, lvls[0]) ? 'open' : 'locked'
+        });
+    }
+    return out;
+}
+
+function buildShowcase(kind) {
+    teardownLevel();
+    if (!scene) return;
+    backdrop = kind;
     const tracked = [];
-    planet = buildPlanet(theme, ballSpec.look, tracked);
+    if (kind === 'system') {
+        scene.background = new THREE.Color('#07060a');
+        solar = buildSolarSystem(worldsInfo(), tracked);
+        mazeGroup = solar.group;
+    } else {
+        const lv = nextLevel();
+        if (!lv) return;
+        const prog = progressNow();
+        ballSpec = ballSetup(prog.marble, prog.upgrades);
+        const theme = resolveMazeTheme(planetThemeOverride || lv.theme);
+        // Space, tinted by the world: its backdrop colour, much darker.
+        scene.background = new THREE.Color(theme.backdropColor).multiplyScalar(0.45);
+        planet = buildPlanet(theme, ballSpec.look, tracked);
+        mazeGroup = planet.group;
+    }
     tracked.forEach(track);
-    mazeGroup = planet.group;
     scene.add(mazeGroup);
-    planet.tick(performance.now() / 1000);
+    (planet || solar).tick(performance.now() / 1000);
 }
 
 // Leave whatever is on screen for the menus, and show `tab` (menus.js).
 function enterMenus(tab) {
-    if (phase !== 'menu') {
-        buildShowcase();
+    const want = tab === 'worlds' ? 'system' : 'planet';
+    if (phase !== 'menu' || backdrop !== want) {
+        buildShowcase(want);
         phase = 'menu';
         showEl('mazeHud', false);
     }
@@ -1173,7 +1110,7 @@ function enterMenus(tab) {
 // Rebuild the backdrop after the marble or progress changed (menus.js).
 export function refreshShowcase() {
     if (phase !== 'menu') return;
-    buildShowcase();
+    buildShowcase(backdrop || 'planet');
     requestRender();
 }
 
@@ -1184,12 +1121,49 @@ function computeMenuPose() {
     const camera = getCamera();
     const fov = ((camera && camera.fov) || 48) * Math.PI / 180;
     const aspect = (camera && camera.aspect) || (768 / 1180);
+    if (solar) {
+        // From high above and in front, so the orbits read as wide ellipses,
+        // aimed below the sun so the system sits in the top of the screen and
+        // the world sheet (menus.js) has the bottom.
+        const r = solar.radius;
+        const dist = Math.max(r / (Math.tan(fov / 2) * aspect), r * 0.7 / Math.tan(fov / 2)) * 0.96;
+        const el = 68 * Math.PI / 180;
+        const shift = r * 0.62;
+        _camPos.set(0, Math.sin(el) * dist, Math.cos(el) * dist + shift);
+        SYSTEM_LOOKAT.set(0, 0, shift);
+        return { pos: _camPos, lookAt: SYSTEM_LOOKAT };
+    }
     const r = planet ? planet.radius : 5.3;
     const dist = Math.max(r / (Math.tan(fov / 2) * aspect), r / Math.tan(fov / 2));
     _camPos.set(0, dist * 0.18, dist);
     return { pos: _camPos, lookAt: MENU_LOOKAT };
 }
 const MENU_LOOKAT = new THREE.Vector3(0, -0.2, 0);
+const SYSTEM_LOOKAT = new THREE.Vector3();
+
+// THE SYSTEM'S TAPS AND LABELS (menus.js). Screen points are CSS pixels.
+const _ray = new THREE.Raycaster();
+const _ndc = new THREE.Vector2();
+const _proj = new THREE.Vector3();
+export function pickWorld(clientX, clientY) {
+    const r = getRenderer(), camera = getCamera();
+    if (!solar || !r || !camera) return null;
+    const rect = r.domElement.getBoundingClientRect();
+    _ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    _ray.setFromCamera(_ndc, camera);
+    return solar.pick(_ray);
+}
+export function selectWorld(n) { if (solar) solar.select(n); requestRender(); }
+export function worldAnchors() {
+    const r = getRenderer(), camera = getCamera();
+    if (!solar || !r || !camera) return [];
+    const rect = r.domElement.getBoundingClientRect();
+    camera.updateMatrixWorld();
+    return solar.anchors().map(a => {
+        _proj.copy(a.pos).add(new THREE.Vector3(0, -a.r * 1.1, 0)).project(camera);
+        return { n: a.n, x: rect.left + (_proj.x + 1) / 2 * rect.width, y: rect.top + (1 - _proj.y) / 2 * rect.height + 6 };
+    });
+}
 
 // The menus ask mazeGame for screens through these.
 export function setMenuHandler(fn) { menuHandler = fn; }
@@ -1259,6 +1233,8 @@ function teardownLevel() {
     winStarMs = 0;
     props = null;
     planet = null;
+    solar = null;
+    backdrop = null;
     pickupState = null;
     floorBody = null;
     solidMaterial = null;
@@ -1390,7 +1366,9 @@ window.__mazeDebug = {
     // Show the home planet in another theme (screenshots of worlds not built
     // yet). Display only.
     planetTheme: (id) => { planetThemeOverride = id || null; refreshShowcase(); return phase === 'menu'; },
-    menuPhase: () => phase === 'menu' && !!planet,
+    menuPhase: () => phase === 'menu' && !!(planet || solar),
+    backdrop: () => (phase === 'menu' ? backdrop : null),
+    worldAnchors: () => worldAnchors(),
     // The progress the store holds now -- what a clear actually banked.
     progress: () => (store ? JSON.parse(JSON.stringify(store.get())) : null),
     coinsTaken: () => (pickupState ? pickupState.coins : null),
@@ -1513,7 +1491,6 @@ function prizeName(id) { return PRIZE_NAMES[id] || id; }
 // For the store and profile pages (shopUi.js): the levels, and a way to
 // redraw the level list after something was bought.
 export function getLevels() { return allLevels.slice(); }
-export function refreshLevelSelect() { renderLevelSelect(); requestRender(); }
 
 export function initMazeControls() {
     bindTap('mazeStartBtn', () => { startRun(); });

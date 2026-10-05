@@ -54,13 +54,25 @@
   </div>
 </section>
 
-<!-- WORLDS: the level list -->
-<section id="mazeSelect" class="maze-select" style="display:none">
-  <header class="maze-selecthead">
+<!-- WORLDS: a solar system (solarSystem3d.js) behind this; tap a planet -->
+<section id="mazeSelect" class="worlds" style="display:none">
+  <header class="worlds-head">
     <h1>WORLDS</h1>
     <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="mazeWallet">0</span></span>
   </header>
-  <div id="mazeSelectList" class="maze-selectlist"></div>
+  <div id="worldLabels" class="world-labels"></div>
+  <div id="worldSheet" class="world-sheet">
+    <div class="world-sheethead">
+      <div>
+        <p id="worldSheetNum" class="world-sheetnum"></p>
+        <h2 id="worldSheetName" class="world-sheetname"></h2>
+      </div>
+      <span id="worldSheetDone" class="world-sheetdone"></span>
+    </div>
+    <p id="worldSheetNote" class="world-sheetnote"></p>
+    <div id="mazeSelectList" class="level-grid"></div>
+    <p id="worldSheetPrize" class="world-sheetprize"></p>
+  </div>
 </section>
 
 <!-- STORE -->

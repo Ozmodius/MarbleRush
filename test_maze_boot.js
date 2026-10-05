@@ -71,7 +71,17 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.tap('#tab_worlds');
         await page.waitForSelector('#mazeSelect', { state: 'visible' });
         check(await page.isHidden('#homeView'), 'one tab at a time');
-        const rows = await page.$$eval('.maze-levelrow', els => els.map(e => ({ next: e.classList.contains('is-next'), locked: e.disabled })));
+        check(await page.evaluate(() => window.__mazeDebug.backdrop()) === 'system', 'the worlds tab shows the solar system');
+        check((await page.textContent('#worldSheetName')).trim() === 'Workshop', 'the sheet opens on the world of the next level');
+        await page.locator('#worldLabel_2').click({ force: true });   // labels drift with their planets
+        check((await page.textContent('#worldSheetName')).trim() === 'Glacier' && await page.locator('.level-node').count() === 0
+            && /Coming/.test(await page.textContent('#worldSheetNote')), 'tapping a world not built yet says it is coming, with no levels');
+        // A tap on the planet itself (just above its label) picks it too.
+        const anchor = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
+        await page.mouse.click(anchor.x, anchor.y - 30);
+        check((await page.textContent('#worldSheetName')).trim() === 'Toy Box', 'tapping a planet on the canvas selects its world');
+        await page.locator('#worldLabel_1').click({ force: true });
+        const rows = await page.$$eval('.level-node', els => els.map(e => ({ next: e.classList.contains('is-next'), locked: e.disabled })));
         check(rows.length === levels.length, `level select should list all ${levels.length} levels, got ${rows.length}`);
         check(rows[0] && rows[0].next && !rows[0].locked, 'on a fresh save, level 1 is the highlighted next level');
         check(rows.slice(1).every(r => r.locked), 'on a fresh save, every other level is locked');
@@ -155,7 +165,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
         check((await page.textContent('#homeLevelNum')).trim() === 'LEVEL 2', 'after a clear and a reload, home offers level 2');
         await page.tap('#tab_worlds');
-        const after = await page.$$eval('.maze-levelrow', els => els.map(e => ({ cleared: e.classList.contains('is-cleared'), next: e.classList.contains('is-next'), locked: e.disabled })));
+        const after = await page.$$eval('.level-node', els => els.map(e => ({ cleared: e.classList.contains('is-cleared'), next: e.classList.contains('is-next'), locked: e.disabled })));
         check(after[0].cleared, 'after a reload, level 1 shows as cleared');
         check(after[1].next && !after[1].locked, 'after a reload, level 2 is unlocked and next');
         check((await page.textContent('#mazeWallet')).trim() === '121', `after a reload, the wallet still holds 121, shows ${await page.textContent('#mazeWallet')}`);

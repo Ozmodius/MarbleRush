@@ -393,3 +393,85 @@ html, body {
 }
 .home-goal { margin: 0; font-size: 0.85rem; color: var(--ink); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9); text-align: center; }
 .home-playbtn { min-width: 220px; font-size: 1.3rem; letter-spacing: 0.2em; padding: 16px 40px; box-shadow: 0 6px 24px rgba(240, 178, 58, 0.35); }
+
+/* --- worlds (solar system) ---------------------------------------------------- */
+/* Transparent over the system; only the header, labels and sheet take taps,
+   and a tap anywhere else lands on the canvas, where menus.js picks a planet. */
+.worlds { position: fixed; inset: 0 0 var(--tabbar-h) 0; pointer-events: none; }
+.worlds-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(14px + var(--safe-top)) 16px 14px;
+  background: linear-gradient(rgba(7, 6, 10, 0.85), rgba(7, 6, 10, 0));
+}
+.worlds-head h1 { margin: 0; font-size: 1.3rem; letter-spacing: 0.18em; }
+.world-labels { position: absolute; inset: 0; overflow: hidden; }
+.world-label {
+  position: absolute;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+  font: inherit;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  color: var(--ink);
+  background: rgba(10, 8, 7, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.world-label.is-selected { border-color: var(--accent); color: var(--accent); }
+.world-label.is-coming { color: var(--ink-dim); }
+.world-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: auto;
+  padding: 16px 16px 14px;
+  background: rgba(20, 15, 12, 0.94);
+  border-top: 1px solid var(--line);
+  border-radius: 18px 18px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+.world-sheethead { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.world-sheetnum { margin: 0; font-size: 0.72rem; letter-spacing: 0.22em; color: var(--accent); }
+.world-sheetname { margin: 0; font-size: 1.35rem; letter-spacing: 0.04em; text-wrap: balance; }
+.world-sheetdone { color: var(--ink-dim); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.world-sheetnote { margin: 0; font-size: 0.85rem; font-weight: 500; color: var(--ink-dim); min-height: 1.2em; }
+.world-sheetprize { margin: 0; font-size: 0.8rem; font-weight: 500; color: var(--ink-dim); display: flex; align-items: center; gap: 8px; }
+.world-sheetprize:empty { display: none; }
+.level-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.level-node {
+  position: relative;
+  aspect-ratio: 1;
+  max-width: 100%;
+  display: grid;
+  place-items: center;
+  font: inherit;
+  font-size: 1.05rem;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.level-node.is-cleared { background: rgba(63, 191, 127, 0.18); border-color: var(--good); }
+.level-node[data-tier="gold"] { border-color: #e3b02e; }
+.level-node[data-tier="silver"] { border-color: #b9c2cc; }
+.level-node[data-tier="bronze"] { border-color: #c27a3e; }
+.level-node.is-next { border-color: var(--accent); background: rgba(240, 178, 58, 0.22); box-shadow: 0 0 0 4px rgba(240, 178, 58, 0.18); }
+.level-node.is-locked { opacity: 0.35; cursor: default; }
+.level-node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.level-node .node-medal { position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%; }
+@media (prefers-reduced-motion: no-preference) {
+  .level-node.is-next { animation: nodePulse 1.8s ease-in-out infinite; }
+  @keyframes nodePulse { 50% { box-shadow: 0 0 0 7px rgba(240, 178, 58, 0.08); } }
+}

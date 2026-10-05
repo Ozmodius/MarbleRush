@@ -1,6 +1,8 @@
-import { tierForMs } from './progressStore.js';
+import { tierForMs, isUnlocked } from './progressStore.js';
 import { worldName } from './worlds.js';
+import { PRIZES } from './shopCatalog.js';
 import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
+import { onFrame, getRenderer } from './sceneHost.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
 // board mazeGame.js keeps as the backdrop, plus the home screen's top HUD.
@@ -9,9 +11,9 @@ import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 // the handler registered here with the tab to show, or null when a level
 // starts. This module only decides what is on screen.
 //
-// initMenus({ store, game }) once; `game` is mazeGame's
-// { setMenuHandler, showMenus, playLevel, nextLevel, getLevels,
-//   refreshLevelSelect, refreshShowcase }.
+// initMenus({ store, game }) once; `game` is mazeGame's module (showMenus,
+// playLevel, nextLevel, getLevels, worldsInfo, pickWorld, selectWorld,
+// worldAnchors, refreshShowcase, setMenuHandler).
 
 const TABS = {
     home: 'homeView',
@@ -22,6 +24,7 @@ const TABS = {
 
 let ctx = null;
 let current = null;
+let selectedWorld = null;
 const $ = id => document.getElementById(id);
 const fmt = n => Number(n).toLocaleString('en-US');
 
@@ -40,7 +43,7 @@ function show(tab) {
     if (tab === 'home') renderHome();
     else if (tab === 'gear') { clearShopMessages(); renderProfile(); }
     else if (tab === 'store') { clearShopMessages(); renderStore(); }
-    else if (tab === 'worlds') ctx.game.refreshLevelSelect();
+    else if (tab === 'worlds') renderWorlds();
     renderWallets();
 }
 
@@ -84,6 +87,97 @@ function renderHome() {
     renderWallets();
 }
 
+// --- WORLDS ------------------------------------------------------------------
+// The solar system is mazeGame's backdrop; this draws the name labels that
+// follow the planets, and the sheet for the selected world: its ten levels as
+// tappable nodes, each ringed in the medal its best time earned.
+
+function renderWorlds() {
+    const worlds = ctx.game.worldsInfo();
+    if (selectedWorld === null) {
+        const nl = ctx.game.nextLevel();
+        selectedWorld = nl ? nl.world : 1;
+    }
+    const labels = $('worldLabels');
+    labels.innerHTML = '';
+    for (const w of worlds) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.id = 'worldLabel_' + w.n;
+        b.className = 'world-label' + (w.n === selectedWorld ? ' is-selected' : '') + (w.state === 'coming' ? ' is-coming' : '');
+        b.textContent = w.n + '  ' + w.name.toUpperCase();
+        b.style.visibility = 'hidden';   // placed on the next frame
+        b.addEventListener('click', (e) => { e.preventDefault(); pickWorld(w.n); });
+        labels.append(b);
+    }
+    renderSheet(worlds.find(w => w.n === selectedWorld) || worlds[0]);
+    ctx.game.selectWorld(selectedWorld);
+    placeLabels();
+}
+
+function pickWorld(n) {
+    if (n === null || n === undefined) return;
+    selectedWorld = n;
+    for (const b of document.querySelectorAll('.world-label')) b.classList.toggle('is-selected', b.id === 'worldLabel_' + n);
+    ctx.game.selectWorld(n);
+    renderSheet(ctx.game.worldsInfo().find(w => w.n === n));
+}
+
+function renderSheet(w) {
+    const p = ctx.store.get();
+    $('worldSheetNum').textContent = 'WORLD ' + w.n;
+    $('worldSheetName').textContent = w.name;
+    const grid = $('mazeSelectList');
+    grid.innerHTML = '';
+    const done = w.levels.filter(l => p.cleared[l.id]).length;
+    $('worldSheetDone').textContent = w.levels.length ? `${done} / ${w.levels.length} cleared` : '';
+
+    const nextIdx = (p.highestIndex || 0) + 1;
+    const next = w.levels.find(l => l.index === nextIdx);
+    if (w.state === 'coming') $('worldSheetNote').textContent = 'Coming in an update. Its levels are still being built.';
+    else if (w.state === 'locked') $('worldSheetNote').textContent = `Clear World ${w.n - 1} to land here.`;
+    else if (next) $('worldSheetNote').textContent = `Next: ${next.name}  ·  gold under ${(next.goldMs / 1000).toFixed(1)}s`;
+    else $('worldSheetNote').textContent = 'Every level cleared. Replay any for a better medal.';
+
+    for (const lv of w.levels) {
+        const c = p.cleared[lv.id];
+        const tier = c ? tierForMs(lv, c.bestMs) : null;
+        const open = isUnlocked(p, lv);
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'level-node' + (c ? ' is-cleared' : '') + (open ? '' : ' is-locked') + (lv.index === nextIdx ? ' is-next' : '');
+        if (tier) b.dataset.tier = tier;
+        b.disabled = !open;
+        b.textContent = String(w.levels.indexOf(lv) + 1);
+        b.setAttribute('aria-label', `${lv.name}${c ? ', cleared' + (tier ? ', ' + tier : '') : ''}${open ? '' : ', locked'}`);
+        b.title = lv.name;
+        b.addEventListener('click', (e) => { e.preventDefault(); if (open) ctx.game.playLevel(lv.id); });
+        grid.append(b);
+    }
+
+    const prizeId = (w.levels[w.levels.length - 1] || {}).prize;
+    const prizeEl = $('worldSheetPrize');
+    prizeEl.innerHTML = '';
+    if (prizeId && PRIZES[prizeId]) {
+        const z = PRIZES[prizeId];
+        const badge = document.createElement('span');
+        badge.className = 'prize-badge';
+        prizeEl.append(badge, document.createTextNode(`Prize for level ${w.levels.length}: ${z.name}. ${z.blurb}${p.prizes.includes(prizeId) ? ' (earned)' : ''}`));
+    }
+}
+
+// Labels ride under their planets: re-placed every frame while WORLDS is up.
+function placeLabels() {
+    if (current !== 'worlds') return;
+    for (const a of ctx.game.worldAnchors()) {
+        const b = $('worldLabel_' + a.n);
+        if (!b) continue;
+        b.style.left = a.x + 'px';
+        b.style.top = a.y + 'px';
+        b.style.visibility = '';
+    }
+}
+
 export function initMenus({ store, game }) {
     ctx = { store, game };
     game.setMenuHandler((tab) => show(tab));
@@ -93,6 +187,12 @@ export function initMenus({ store, game }) {
     }
     const play = $('homePlayBtn');
     if (play) play.addEventListener('click', (e) => { e.preventDefault(); game.playLevel(); });
+    onFrame(placeLabels);
+    // A tap on the canvas while WORLDS is up picks the planet under it.
+    const canvas = getRenderer() && getRenderer().domElement;
+    if (canvas) canvas.addEventListener('click', (e) => {
+        if (current === 'worlds') pickWorld(game.pickWorld(e.clientX, e.clientY));
+    });
 }
 
 // After the marble changed: rebuild the backdrop so it shows the new one.

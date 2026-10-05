@@ -18,7 +18,7 @@ const PLANET_R = 3;
 const MOON_ORBIT = 4.7;
 
 // Seeded so the stars sit in the same places every visit.
-function starfield(count, seed) {
+export function starfield(count, seed) {
     let s = seed >>> 0;
     const rnd = () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
     const pos = new Float32Array(count * 3);
@@ -33,8 +33,30 @@ function starfield(count, seed) {
     return geo;
 }
 
+// A world's surface for a sphere of radius `r`: its own floor material, with
+// plain floors given rock so the sphere has terrain, lava seams projected
+// from three axes (lavaPlanet), and the pattern scaled to the sphere so every
+// planet, big or small, shows about the same number of continents. Shared
+// with the solar system (solarSystem3d.js).
+const PLANET_PATTERN = { plain: 'rock', rock: 'rock', lavaCracks: 'lavaPlanet' };
+export function makePlanetMaterial(theme, r) {
+    const surfaceTheme = { ...theme, floorPattern: PLANET_PATTERN[theme.floorPattern] || 'rock', floorTextures: null };
+    const mat = makeFloorMaterial(surfaceTheme, 10);
+    const su = mat.userData.surfaceUniforms;
+    if (su) { su.mrScale.value = (theme.patternScale || 1) * 0.55 * (PLANET_R / r); su.mrGritAmt.value = 0; }
+    return mat;
+}
+
+// The glow colour round a world: its lava glow if it has one, else a pale
+// tint of its floor.
+export function planetGlow(theme) {
+    return (theme.floorGlow > 0 || theme.wallGlow > 0)
+        ? theme.glowColor
+        : '#' + new THREE.Color(theme.floorColor).lerp(new THREE.Color('#ffffff'), 0.45).getHexString();
+}
+
 // A thin halo just outside the planet: brightest at the rim, nothing face-on.
-function atmosphere(color) {
+export function atmosphere(color) {
     return new THREE.ShaderMaterial({
         uniforms: { glow: { value: new THREE.Color(color) } },
         vertexShader: `varying vec3 vN; varying vec3 vV;
@@ -57,13 +79,7 @@ function atmosphere(color) {
 export function buildPlanet(theme, look, tracked = []) {
     const group = new THREE.Group();
 
-    // The world. Plain-floored themes get rock so the sphere has terrain.
-    const PLANET_PATTERN = { plain: 'rock', rock: 'rock', lavaCracks: 'lavaPlanet' };
-    const surfaceTheme = { ...theme, floorPattern: PLANET_PATTERN[theme.floorPattern] || 'rock' };
-    const planetMat = makeFloorMaterial({ ...surfaceTheme, floorTextures: null }, 10);
-    // Bigger features than on a level floor: continents, not pebbles.
-    const su = planetMat.userData.surfaceUniforms;
-    if (su) { su.mrScale.value = (theme.patternScale || 1) * 0.55; su.mrGritAmt.value = 0; }
+    const planetMat = makePlanetMaterial(theme, PLANET_R);
     const planetGeo = new THREE.SphereGeometry(PLANET_R, 128, 96);
     const planet = new THREE.Mesh(planetGeo, planetMat);
     const spinner = new THREE.Group();  // an axial tilt; the planet spins inside it
@@ -73,9 +89,7 @@ export function buildPlanet(theme, look, tracked = []) {
 
     // Atmosphere: the world's glow if it has one (lava), else a pale tint of
     // its floor, so even the Workshop has a soft edge against space.
-    const glowColor = (theme.floorGlow > 0 || theme.wallGlow > 0)
-        ? theme.glowColor
-        : '#' + new THREE.Color(theme.floorColor).lerp(new THREE.Color('#ffffff'), 0.45).getHexString();
+    const glowColor = planetGlow(theme);
     const atmoGeo = new THREE.SphereGeometry(PLANET_R * 1.08, 64, 48);
     const atmoMat = atmosphere(glowColor);
     group.add(new THREE.Mesh(atmoGeo, atmoMat));
