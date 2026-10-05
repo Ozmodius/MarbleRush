@@ -72,7 +72,7 @@ function railsFor(lv) {
             for (const c of f.canopies) {
                 canopies++;
                 const why = F.canopyConflict(lv, c, sweeps, R);
-                check(!why, `${tag}: a canopy at (${c.x.toFixed(2)},${c.z.toFixed(2)}) hangs over the ${why}`);
+                check(!why, `${tag}: a branch's leaves at (${c.x.toFixed(2)},${c.z.toFixed(2)}) hang over the ${why}`);
             }
 
             const again = F.forestFor(lv, walls, blend);

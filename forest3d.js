@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { applySurface } from './mazeSurface3d.js';
+import { distToLeaves, LEAF_FROM } from './forestDressing.js';
 
 // FOREST MESHES for a level, from the numbers forestDressing.js placed (and
 // test_forest.js checked against the physics). Trunks, roots and branch
@@ -85,27 +86,54 @@ function geometryOf(pos, idx) {
     return g;
 }
 
-// A canopy: a cluster of leafy blobs round its centre, baked into one
-// geometry. Seeded from its own position so it is the same every time.
-function canopyGeometry(c) {
-    let s = Math.floor((c.x * 73.1 + c.z * 191.7) * 1000) >>> 0;
-    const rnd = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
-    const parts = [];
-    const n = 9 + Math.floor(rnd() * 5);
-    for (let i = 0; i < n; i++) {
-        const r = c.radius * (0.3 + rnd() * 0.22);
-        const ang = rnd() * Math.PI * 2, dist = Math.sqrt(rnd()) * c.radius * 0.68;
-        const g = new THREE.IcosahedronGeometry(r, 1);
-        g.translate(c.x + Math.cos(ang) * dist, c.y + (rnd() - 0.5) * 0.18, c.z + Math.sin(ang) * dist);
-        parts.push(g);
+// Points along a branch limb: it rises out of the crown, arcs up and out,
+// and droops a little toward the tip; thick at the trunk, thin at the tip.
+function limbPoints(c, n = 7) {
+    const pts = [];
+    for (let i = 0; i <= n; i++) {
+        const f = i / n;
+        const lift = Math.sin(f * Math.PI) * 0.16 - f * f * 0.06;
+        pts.push({
+            x: c.from.x + (c.to.x - c.from.x) * f,
+            y: c.from.y + (c.to.y - c.from.y) * f + lift,
+            z: c.from.z + (c.to.z - c.from.z) * f,
+            r: 0.075 * (1 - f) + 0.018 * f
+        });
     }
+    return pts;
+}
+
+// Seeded from the branch's own position so it is the same every time.
+function seededRnd(c) {
+    let s = Math.floor((c.to.x * 73.1 + c.to.z * 191.7 + 1000) * 1000) >>> 0;
+    return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+// The leaves of a branch: small leafy clumps strung along its outer part,
+// widest in the middle of the leafy run and tapering to the tip, baked into
+// one geometry.
+function canopyGeometry(c) {
+    const rnd = seededRnd(c);
+    const limb = limbPoints(c, 24);
+    const dx = c.to.x - c.from.x, dz = c.to.z - c.from.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const sx = -dz / len, sz = dx / len;                 // sideways, across the branch
     const pos = [], idx = [];
-    for (const g of parts) {
-        const off = pos.length / 3;
-        const p = g.getAttribute('position');
-        for (let i = 0; i < p.count; i++) pos.push(p.getX(i), p.getY(i), p.getZ(i));
-        const gi = g.index ? g.index.array : [...Array(p.count).keys()];
-        for (const k of gi) idx.push(off + k);
+    const n = Math.round(len * (1 - LEAF_FROM) / 0.12) + 4;
+    for (let i = 0; i < n; i++) {
+        const f = LEAF_FROM + (1 - LEAF_FROM) * (i + rnd() * 0.8) / n;
+        const p = limb[Math.min(limb.length - 1, Math.round(f * (limb.length - 1)))];
+        const swell = Math.sin(((f - LEAF_FROM) / (1 - LEAF_FROM)) * Math.PI * 0.9 + 0.15);
+        const spread = c.width * swell;
+        const off = (rnd() - 0.5) * 2 * spread * 0.7;
+        const r = c.width * (0.32 + rnd() * 0.25) * (0.55 + 0.45 * swell);
+        const g = new THREE.IcosahedronGeometry(r, 1);
+        g.translate(p.x + sx * off, p.y + (rnd() - 0.3) * 0.09, p.z + sz * off);
+        const base = pos.length / 3;
+        const gp = g.getAttribute('position');
+        for (let k = 0; k < gp.count; k++) pos.push(gp.getX(k), gp.getY(k), gp.getZ(k));
+        const gi = g.index ? g.index.array : [...Array(gp.count).keys()];
+        for (const k of gi) idx.push(base + k);
         g.dispose();
     }
     return geometryOf(pos, idx);
@@ -122,12 +150,21 @@ export function buildForest(lv, forest, tracked = []) {
     forest.roots.forEach(perWall => perWall.forEach(perTrunk => perTrunk.forEach(root =>
         addTube(root.map(p => ({ x: p.x, y: p.h, z: p.z, r: p.r })), tPos, tIdx, 5)
     )));
-    // Branch limbs: from high on the trunk out to each canopy, sagging a
-    // little in the middle.
+    // Branch limbs, and a couple of twigs forking off each toward its leaves.
     for (const c of forest.canopies) {
-        const f = c.from;
-        const mid = { x: (f.x + c.x) / 2, y: Math.max(f.y, c.y) - 0.02, z: (f.z + c.z) / 2, r: 0.045 };
-        addTube([{ x: f.x, y: f.y - 0.12, z: f.z, r: 0.07 }, mid, { x: c.x, y: c.y - 0.1, z: c.z, r: 0.03 }], tPos, tIdx, 6);
+        const limb = limbPoints(c);
+        addTube(limb, tPos, tIdx, 6);
+        const rnd = seededRnd(c);
+        for (let k = 0; k < 2; k++) {
+            const at = limb[3 + k * 2];
+            const side = k ? 1 : -1;
+            const dx = c.to.x - c.from.x, dz = c.to.z - c.from.z, len = Math.hypot(dx, dz) || 1;
+            const tl = c.width * (0.8 + rnd() * 0.4);
+            addTube([
+                { x: at.x, y: at.y, z: at.z, r: at.r * 0.6 },
+                { x: at.x + (dx / len) * tl * 0.6 - (dz / len) * side * tl, y: at.y + 0.06, z: at.z + (dz / len) * tl * 0.6 + (dx / len) * side * tl, r: 0.012 }
+            ], tPos, tIdx, 5);
+        }
     }
     const bark = barkMaterial();
     tracked.push(bark);
@@ -155,11 +192,11 @@ export function buildForest(lv, forest, tracked = []) {
         canopyCount: canopies.length,
         // Opacity of each canopy right now (for tests).
         canopyOpacities: () => canopies.map(k => k.opacity),
-        canopyCentres: () => canopies.map(k => ({ x: k.c.x, z: k.c.z })),
+        canopyCentres: () => canopies.map(k => ({ x: k.c.x, z: k.c.z })),   // middle of each branch's leaves
         tick(ballX, ballZ, dtMs) {
             const k = 1 - Math.exp(-(dtMs || 16) / 120);
             for (const cn of canopies) {
-                const under = ballX !== null && Math.hypot(ballX - cn.c.x, ballZ - cn.c.z) < cn.c.radius + R + 0.25;
+                const under = ballX !== null && distToLeaves(cn.c, ballX, ballZ) < cn.c.width + R + 0.25;
                 cn.opacity += ((under ? 0.15 : 1) - cn.opacity) * k;
                 cn.mat.opacity = cn.opacity;
                 cn.mat.depthWrite = cn.opacity > 0.95;

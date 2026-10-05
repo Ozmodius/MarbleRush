@@ -26,8 +26,8 @@
 
 export const TRUNK_INSET = 0.03;      // deepest dip between neighbouring trunks
 export const CANOPY_Y = [1.15, 1.5];  // canopy centre heights
-export const CANOPY_MARGIN = 0.35;    // perspective slack around a canopy disc
-export const MAX_CANOPIES = 9;        // at full forest
+export const CANOPY_MARGIN = 0.35;    // perspective slack around a branch's leaves
+export const MAX_CANOPIES = 10;       // at full forest
 
 function hash(str) {
     let h = 2166136261;
@@ -159,9 +159,42 @@ export function rootsFor(trunk, wall, R, seed) {
     return out;
 }
 
-// Leafy branches: discs over the board at canopy height, each grown from a
-// trunk and reaching out over a corridor. Kept clear of every hazard the
-// player must be able to see.
+// LEAFY BRANCHES. Each grows out of the crown of a trunk and reaches out over
+// a corridor: a limb from `from` to `to`, carrying leaves along its outer part
+// (from LEAF_FROM of the way out to the tip) in a band `width` either side.
+// The leafy band -- a capsule in the floor plane -- is what may hide track,
+// so it is what is kept clear of every hazard the player must see.
+export const LEAF_FROM = 0.3;
+
+// The leafy part of a branch as a floor-plane segment.
+export function leafSegment(c) {
+    return {
+        ax: c.from.x + (c.to.x - c.from.x) * LEAF_FROM, az: c.from.z + (c.to.z - c.from.z) * LEAF_FROM,
+        bx: c.to.x, bz: c.to.z
+    };
+}
+
+// Distance in the floor plane from (x, z) to a branch's leafy part.
+export function distToLeaves(c, x, z) {
+    const s = leafSegment(c);
+    const vx = s.bx - s.ax, vz = s.bz - s.az;
+    const t = Math.max(0, Math.min(1, ((x - s.ax) * vx + (z - s.az) * vz) / (vx * vx + vz * vz || 1)));
+    return Math.hypot(x - (s.ax + vx * t), z - (s.az + vz * t));
+}
+
+function rectDistToLeaves(c, rect) {
+    // Sampled along the segment: fine enough at these sizes (0.1 apart).
+    const s = leafSegment(c);
+    const n = Math.max(2, Math.ceil(Math.hypot(s.bx - s.ax, s.bz - s.az) / 0.1));
+    let best = Infinity;
+    for (let i = 0; i <= n; i++) {
+        const x = s.ax + (s.bx - s.ax) * i / n, z = s.az + (s.bz - s.az) * i / n;
+        const dx = Math.max(Math.abs(x - rect.x) - rect.w / 2, 0), dz = Math.max(Math.abs(z - rect.z) - rect.d / 2, 0);
+        best = Math.min(best, Math.hypot(dx, dz));
+    }
+    return best;
+}
+
 export function canopiesFor(lv, trunkRows, blend, R) {
     const want = Math.round(blend * MAX_CANOPIES);
     if (!want) return [];
@@ -173,35 +206,40 @@ export function canopiesFor(lv, trunkRows, blend, R) {
         return { x: (a + b) / 2, z: (c + e) / 2, w: Math.abs(b - a) + g.w, d: Math.abs(e - c) + g.d };
     });
     const out = [];
-    for (let tries = 0; tries < want * 30 && out.length < want && trunks.length; tries++) {
+    for (let tries = 0; tries < want * 40 && out.length < want && trunks.length; tries++) {
         const t = trunks[Math.floor(r() * trunks.length)];
-        const reach = 0.25 + r() * 0.45;
+        // Out across the corridor, turned up to ~35 degrees off square.
         const side = r() < 0.5 ? -1 : 1;
-        const x = t.alongX ? t.x + (r() - 0.5) * 0.3 : t.x + side * reach;
-        const z = t.alongX ? t.z + side * reach : t.z + (r() - 0.5) * 0.3;
-        const radius = 0.55 + r() * 0.35;
-        const c = { x, z, y: CANOPY_Y[0] + r() * (CANOPY_Y[1] - CANOPY_Y[0]), radius, from: { x: t.x, z: t.z, y: t.height } };
+        const turn = (r() - 0.5) * 1.2;
+        const nx = t.alongX ? 0 : side, nz = t.alongX ? side : 0;
+        const tx = t.alongX ? 1 : 0, tz = t.alongX ? 0 : 1;
+        const dx = nx * Math.cos(turn) + tx * Math.sin(turn), dz = nz * Math.cos(turn) + tz * Math.sin(turn);
+        const length = 1.0 + r() * 0.75;
+        const y0 = t.height + 0.08;
+        const c = {
+            from: { x: t.x, z: t.z, y: y0 },
+            to: { x: t.x + dx * length, z: t.z + dz * length, y: Math.min(CANOPY_Y[1], Math.max(CANOPY_Y[0], y0 + 0.25 + r() * 0.2)) },
+            width: 0.26 + r() * 0.14
+        };
+        const mid = leafSegment(c);
+        c.x = (mid.ax + mid.bx) / 2; c.z = (mid.az + mid.bz) / 2;     // the leafy middle, for tests and tools
         if (canopyConflict(lv, c, sweeps, R)) continue;
-        if (out.some(o => Math.hypot(o.x - c.x, o.z - c.z) < (o.radius + c.radius) * 0.9)) continue;
+        // Branches may cross over walls but not over each other's leaves.
+        if (out.some(o => distToLeaves(o, c.x, c.z) < o.width + c.width || distToLeaves(c, o.x, o.z) < o.width + c.width)) continue;
         out.push(c);
     }
     return out;
 }
 
-// Why a canopy may not go here, or null. Shared with test_forest.js.
+// Why a branch's leaves may not go here, or null. Shared with test_forest.js.
 export function canopyConflict(lv, c, sweeps, R) {
-    const reach = c.radius + CANOPY_MARGIN;
-    for (const h of lv.holes || []) if (Math.hypot(c.x - h.x, c.z - h.z) < reach + h.r + R) return 'hole';
-    if (Math.hypot(c.x - lv.goal.x, c.z - lv.goal.z) < reach + lv.goal.r) return 'goal';
-    if (Math.hypot(c.x - lv.start.x, c.z - lv.start.z) < reach + R) return 'start';
-    for (const s of sweeps) {
-        const dx = Math.max(Math.abs(c.x - s.x) - s.w / 2, 0), dz = Math.max(Math.abs(c.z - s.z) - s.d / 2, 0);
-        if (Math.hypot(dx, dz) < reach) return 'gate';
-    }
-    for (const b of lv.conveyors || []) {
-        const dx = Math.max(Math.abs(c.x - b.x) - b.w / 2, 0), dz = Math.max(Math.abs(c.z - b.z) - b.d / 2, 0);
-        if (Math.hypot(dx, dz) < reach) return 'conveyor';
-    }
+    const reach = c.width + CANOPY_MARGIN;
+    for (const h of lv.holes || []) if (distToLeaves(c, h.x, h.z) < reach + h.r + R) return 'hole';
+    if (distToLeaves(c, lv.goal.x, lv.goal.z) < reach + lv.goal.r) return 'goal';
+    if (distToLeaves(c, lv.start.x, lv.start.z) < reach + R) return 'start';
+    for (const s of sweeps) if (rectDistToLeaves(c, s) < reach) return 'gate';
+    for (const b of lv.conveyors || []) if (rectDistToLeaves(c, b) < reach) return 'conveyor';
+    if (Math.abs(c.to.x) > lv.size.w / 2 + 0.6 || Math.abs(c.to.z) > lv.size.d / 2 + 0.6) return 'edge';
     return null;
 }
 
