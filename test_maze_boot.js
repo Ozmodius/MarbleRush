@@ -52,10 +52,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const errors = [];
     // Every fresh boot with today's daily reward unclaimed opens the calendar
     // over home (dailyUi.js); close it to get on with the rest.
+    // A level-up card can come first; its OK goes on to the calendar.
     const homeUp = async (pg) => {
         await pg.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+        if (await pg.isVisible('#levelPanel')) await pg.tap('#levelOkBtn');
         if (await pg.isVisible('#dailyPanel')) await pg.tap('#dailyCloseBtn');
         await pg.waitForSelector('#dailyPanel', { state: 'hidden' });
+        await pg.waitForSelector('#levelPanel', { state: 'hidden' });
     };
     try {
         // A phone-shaped viewport with touch: the shape that matters.
@@ -72,6 +75,9 @@ const check = (c, m) => { if (!c) failures.push(m); };
             'a new player is met by the daily calendar, on day 1');
         await homeUp(page);
         check(await page.isVisible('#homeDailyBadge'), 'closed unclaimed, the DAILY button keeps a badge');
+        check(await page.isVisible('#homeDailyMaze') && (await page.textContent('#homeMazeLabel')).trim() === 'LOCKED', 'a new player sees the daily maze locked');
+        await page.tap('#homeDailyMaze');
+        check(/Clear 3 levels/.test(await page.textContent('#homeToast')) && await page.isVisible('#homeView'), 'tapping it says what unlocks it, and starts nothing');
         check(await page.isHidden('#bootMsg'), 'the boot message must clear once the game is up');
         check(await page.isVisible('#tabBar'), 'the tab bar shows on the home screen');
         check(await page.evaluate(() => window.__mazeDebug.menuPhase()), 'the home planet is built behind the home screen');
@@ -185,7 +191,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await dbg('warpToGoal'), 'reaching the goal wins the run');
         const prog = await dbg('progress');
         check(prog.cleared[lv1.id] && prog.highestIndex === 1, `the clear is recorded: ${JSON.stringify(prog.cleared)}`);
-        check(prog.wallet === 120 + 1, `a first clear with one coin pays 121, wallet is ${prog.wallet}`);
+        // 120 + 1 coin, and its 120 XP reaches player level 2, which pays 60.
+        check(prog.wallet === 120 + 1 + 60 && prog.xp === 120, `a first clear with one coin pays 121 and its level-up 60: wallet ${prog.wallet}, xp ${prog.xp}`);
         check(/CLEARED/.test(await page.textContent('#mazeStatus')), 'the status line reports the clear');
         // That clear was silver, 5s off gold: the near-miss line says so.
         check(await page.isVisible('#mazeNearMiss') && /^\d+\.\ds FASTER FOR GOLD$/.test((await page.textContent('#mazeNearText')).trim())
@@ -201,6 +208,18 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.waitForSelector('#mazeSelect', { state: 'visible' });
         check(await page.isVisible('#tabBar') && await page.isHidden('#mazeHud'), 'LEVELS after a clear opens the worlds tab with the tab bar');
         await page.tap('#tab_home');
+        // Home celebrates the level the clear reached, once.
+        await page.waitForSelector('#levelPanel', { state: 'visible' });
+        check((await page.textContent('#levelTitle')).trim() === 'LEVEL UP!' && (await page.textContent('#levelBig')).trim() === '2'
+            && /60 coins/.test(await page.textContent('#levelRewards')), 'home shows the level-up and what it paid');
+        await page.tap('#levelOkBtn');
+        check(await page.isHidden('#levelPanel') && await page.isHidden('#dailyPanel'), 'NICE! closes it (the calendar was already seen this session)');
+        check((await page.textContent('#homePlayerLevel')).trim() === '2' && /^20 \/ 150 XP$/.test((await page.textContent('#homeXpText')).trim()),
+            `the level bar shows level 2, 20 of 150 XP: ${await page.textContent('#homeXpText')}`);
+        await page.tap('#homeLevelBar');
+        check(await page.isVisible('#levelPanel') && (await page.textContent('#levelTitle')).trim() === 'PLAYER LEVEL' && /LV 3/.test(await page.textContent('#levelNext')),
+            'the level bar opens what the next levels bring');
+        await page.tap('#levelCloseBtn');
         await page.tap('#homePlayBtn');
         await page.waitForSelector('#mazeExitBtn', { state: 'visible' });
         await page.tap('#mazeExitBtn');
@@ -446,7 +465,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const after = await page.$$eval('.level-node', els => els.map(e => ({ cleared: e.classList.contains('is-cleared'), next: e.classList.contains('is-next'), locked: e.disabled })));
         check(after[0].cleared, 'after a reload, level 1 shows as cleared');
         check(after[1].next && !after[1].locked, 'after a reload, level 2 is unlocked and next');
-        check((await page.textContent('#mazeWallet')).trim() === '121', `after a reload, the wallet still holds 121, shows ${await page.textContent('#mazeWallet')}`);
+        check((await page.textContent('#mazeWallet')).trim() === '181', `after a reload, the wallet still holds 181, shows ${await page.textContent('#mazeWallet')}`);
 
         // --- the store and profile ----------------------------------------
         // A fresh page with a seeded save: enough coins to shop.
@@ -523,7 +542,91 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await shop.reload();
         await homeUp(shop);
         check((await sdbg('progress')).marble === 'rubber', 'the marble choice survives a reload');
+        // Skins and trails on the Gear page: buy, wear, keep; reward ones locked.
+        await shop.tap('#tab_gear');
+        await shop.waitForSelector('#profileView', { state: 'visible' });
+        const lookBtn = (k) => shop.locator(`.look-card[data-look="${k}"] .look-action`);
+        check(await lookBtn('skin:galaxy').isDisabled() && /LEVEL 8/.test(await lookBtn('skin:galaxy').textContent()), 'a level-reward skin shows its level and cannot be bought');
+        const lw0 = (await sdbg('progress')).wallet;
+        await lookBtn('skin:stripe').tap();
+        await lookBtn('trail:comet').tap();
+        let lp = await sdbg('progress');
+        check(lp.skin === 'stripe' && lp.trail === 'comet' && lp.wallet === lw0 - 300 - 400, `buying a skin and a trail wears them and charges their prices: ${JSON.stringify([lp.skin, lp.trail, lw0, lp.wallet])}`);
+        check((await lookBtn('skin:stripe').textContent()).trim() === 'WORN', 'the worn skin says so');
+        await lookBtn('skin:plain').tap();
+        check((await sdbg('progress')).skin === 'plain' && (await sdbg('progress')).skins.includes('stripe'), 'wearing another keeps the one bought');
+        await lookBtn('skin:stripe').tap();
+        await shop.reload();
+        await homeUp(shop);
+        lp = await sdbg('progress');
+        check(lp.skin === 'stripe' && lp.trail === 'comet', 'skin and trail survive a reload');
+        check(await sdbg('startLevelForTest', levels[0].id), 'can build level 1 with a skin and trail on');
+        check(await sdbg('ballColor') === '#ffffff' && (await sdbg('trail')) !== null, `the ball wears the skin (its colour comes from the skin's picture) and the trail is laid: ${await sdbg('ballColor')}`);
         await shopCtx.close();
+
+        // --- the daily maze ---------------------------------------------------
+        // Locked on a fresh save (checked on the first page); here a player
+        // three levels in plays today's, once paid, then chases the time.
+        check(true, 'daily maze section');
+        const dCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+        await dCtx.addInitScript(() => {
+            if (sessionStorage.getItem('seeded')) return;
+            sessionStorage.setItem('seeded', '1');
+            const cleared = { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 }, w1_03: { bestMs: 99000, coins: 0 } };
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 0, xp: 400, highestIndex: 3, cleared, goldClaimed: [], prizes: [], charges: {} }));
+        });
+        const dp = await dCtx.newPage();
+        dp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
+        const ddbg = (fn, ...args) => dp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
+        await dp.goto(base);
+        await homeUp(dp);
+        const today = await ddbg('dailyMaze');
+        check(today && today.lv && !today.locked && /^d1_\d\d$/.test(today.lv.id), `three levels in, today's maze is a world 1 daily: ${today && today.lv && today.lv.id}`);
+        check(await dp.isVisible('#homeDailyMaze') && await dp.isVisible('#homeMazeBadge') && (await dp.textContent('#homeMazeLabel')).trim() === 'TODAY', 'home offers it, marked NEW');
+        await dp.tap('#homeDailyMaze');
+        await dp.waitForSelector('#mazeStartBtn', { state: 'visible' });
+        check((await dp.textContent('#mazeLevelName')).trim() === 'Daily Maze', 'the HUD names the daily maze');
+        // BALL CAM: off by default; the HUD button turns it on and it is saved.
+        check(!(await ddbg('ballCam')).on && (await dp.getAttribute('#mazeCamBtn', 'aria-pressed')) === 'false', 'ball cam starts off');
+        const fullY = (await ddbg('ballCam')).pose.y;
+        await dp.tap('#mazeCamBtn');
+        check((await ddbg('ballCam')).on && (await ddbg('progress')).ballCam === true && (await dp.getAttribute('#mazeCamBtn', 'aria-pressed')) === 'true', 'the camera button turns ball cam on, and saves it');
+        check((await ddbg('ballCam')).zoom < 0.05, 'the ready screen still shows the whole level');
+        await dp.tap('#mazeStartBtn');
+        await dp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+        // Frames, not a clock: the zoom eases in per frame.
+        await dp.waitForFunction(() => window.__mazeDebug.ballCam().zoom > 0.6, null, { timeout: 20000 }).catch(() => {});
+        const bc = await ddbg('ballCam');
+        check(bc.zoom > 0.6 && bc.pose.y < fullY * 0.8, `in the run the camera closes in on the ball (zoom ${bc.zoom.toFixed(2)}, height ${bc.pose.y.toFixed(1)} vs ${fullY.toFixed(1)})`);
+        const dlv = today.lv;
+        await ddbg('ageRun', Math.round(dlv.goldMs * 1.2));
+        check(await ddbg('warpToGoal'), 'the daily maze can be won');
+        await dp.waitForFunction(() => window.__mazeDebug.ballCam().zoom < 0.1, null, { timeout: 20000 }).catch(() => {});
+        check((await ddbg('ballCam')).zoom < 0.1, 'and pulls back out to the whole level at the clear');
+        let dprog = await ddbg('progress');
+        check(dprog.dailyMaze && dprog.dailyMaze.paid && dprog.wallet >= 150 && dprog.highestIndex === 3 && !dprog.cleared[dlv.id],
+            `a daily clear pays 150, off the ladder: ${JSON.stringify({ dm: dprog.dailyMaze, w: dprog.wallet, hi: dprog.highestIndex })}`);
+        const firstBest = dprog.dailyMaze.best;
+        check(await dp.isHidden('#mazeNextBtn') && await dp.isVisible('#mazeReplayBtn'), 'after a daily, no NEXT -- REPLAY to chase the time');
+        await dp.tap('#mazeLevelsBtn');
+        await dp.waitForSelector('#mazeSelect', { state: 'visible' });
+        await dp.tap('#tab_home');
+        await homeUp(dp);
+        check(await dp.isHidden('#homeMazeBadge') && /^✓ \d+\.\ds$/.test((await dp.textContent('#homeMazeLabel')).trim()), `home shows it done, with the time: ${await dp.textContent('#homeMazeLabel')}`);
+        const w1d = (await ddbg('progress')).wallet;
+        await dp.tap('#homeDailyMaze');
+        await dp.waitForSelector('#mazeStartBtn', { state: 'visible' });
+        check((await dp.getAttribute('#mazeCamBtn', 'aria-pressed')) === 'true', 'ball cam stays on for the next level');
+        await dp.tap('#mazeStartBtn');
+        await dp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+        await ddbg('ageRun', Math.round(dlv.goldMs * 1.4));
+        await ddbg('warpToGoal');
+        dprog = await ddbg('progress');
+        check(dprog.wallet === w1d && dprog.dailyMaze.best === firstBest, `a slower replay pays nothing and keeps the best (${w1d} -> ${dprog.wallet}, best ${firstBest} -> ${dprog.dailyMaze.best})`);
+        await ddbg('shiftDays', 1);
+        const tomorrow = await ddbg('dailyMaze');
+        check(tomorrow.lv.id !== dlv.id && !tomorrow.paid, `tomorrow brings a new maze, unpaid: ${tomorrow.lv.id}`);
+        await dCtx.close();
 
         // --- ads, against a stand-in CrazyGames SDK -------------------------
         // The real SDK script is swapped for nothing and window.CrazyGames is
@@ -641,7 +744,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const log0 = await adLog();
         check(!log0.some((x, i) => x.startsWith('ad:') && log0.slice(0, i).lastIndexOf('play') > log0.slice(0, i).lastIndexOf('stop')), 'no ad ever starts while gameplay is reported running');
         await ad.tap('#mazeExitBtn');
-        await ad.waitForSelector('#homeView', { state: 'visible', timeout: 10000 });
+        await homeUp(ad);
         check((await adLog()).filter(x => x === 'ad:midgame').length === mid0 + 1, 'leaving a level shows a break ad');
 
         // TRY A MARBLE: Gear offers TRY on each marble not owned; the ad starts

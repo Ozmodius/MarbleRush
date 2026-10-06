@@ -52,6 +52,10 @@
         </button>
       </div>
     </div>
+    <button id="homeLevelBar" class="home-levelbar" type="button" aria-label="Player level and rewards">
+      <span class="lvl-badge"><span class="lvl-word">LEVEL</span><span id="homePlayerLevel" class="lvl-num">1</span></span>
+      <span class="lvl-track"><span id="homeXpFill" class="lvl-fill"></span><span id="homeXpText" class="lvl-text">0 / 100 XP</span></span>
+    </button>
     <h1 class="home-logo" aria-label="PlaneTilt"><span class="logo-plane" aria-hidden="true">Plane</span><span class="logo-tilt" aria-hidden="true">T<span class="logo-i"></span>lt</span></h1>
   </header>
   <!-- Side rail: the free-coins rewarded ad, only where ads can pay -->
@@ -67,6 +71,13 @@
     <button id="homeFreeCoins" class="side-btn side-free" type="button" style="display:none">
       <span class="side-icon"><span class="coin-icon"></span><span class="side-play" aria-hidden="true"></span></span>
       <span id="homeFreeLabel" class="side-label">FREE</span>
+    </button>
+  </div>
+  <!-- Right rail: today's daily maze (daily.js) -->
+  <div class="home-side home-side-right">
+    <button id="homeDailyMaze" class="side-btn side-maze" type="button">
+      <span class="side-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M3.5 9h6M14.5 3.5V9h-3M8 13.5h8.5V9M8 13.5v7M12 17h5"/></svg><span id="homeMazeBadge" class="side-badge" hidden>NEW</span></span>
+      <span id="homeMazeLabel" class="side-label">TODAY</span>
     </button>
   </div>
   <p id="homeToast" class="home-toast" role="status"></p>
@@ -123,6 +134,10 @@
     <div id="profileStats" class="profile-stats"></div>
     <p class="shop-section">MARBLES</p>
     <div id="profileMarbles" class="marble-grid"></div>
+    <p class="shop-section">SKINS</p>
+    <div id="profileSkins" class="look-grid"></div>
+    <p class="shop-section">TRAILS</p>
+    <div id="profileTrails" class="look-grid"></div>
     <p class="shop-section">CARRYING</p>
     <div id="profileInventory" class="profile-inventory"></div>
   </div>
@@ -156,6 +171,7 @@
     <button id="mazeExitBtn" class="maze-btn maze-btn-small" type="button" aria-label="Back to levels">◀</button>
     <span id="mazeLevelName" class="maze-levelname"></span>
     <span class="maze-coins"><span class="coin-dot"></span><span id="mazeCoins"></span></span>
+    <button id="mazeCamBtn" class="maze-btn maze-btn-small maze-cambtn" type="button" aria-label="Ball cam" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.4-2h7.8l1.4 2h2.2A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.6"/></svg></button>
     <button id="mazeRecenterBtn" class="maze-btn maze-btn-small" type="button" aria-label="Recenter tilt">⊙</button>
   </div>
   <div id="mazeStatus" class="maze-status"></div>
@@ -208,6 +224,20 @@
     <p id="missionsNote" class="modal-note"></p>
     <div id="missionsList" class="missions-list"></div>
     <p id="missionsBonus" class="missions-bonus"></p>
+  </div>
+</div>
+
+<!-- PLAYER LEVEL: a level-up, or the rewards coming up (playerLevel.js, dailyUi.js) -->
+<div id="levelPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="levelTitle" hidden>
+  <div class="modal-card">
+    <button id="levelCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+    <h2 id="levelTitle" class="modal-title">LEVEL UP!</h2>
+    <div class="level-burst"><span id="levelBig" class="level-big">2</span></div>
+    <p id="levelNote" class="modal-note"></p>
+    <div id="levelRewards" class="level-rewards"></div>
+    <p class="level-nexthead">COMING UP</p>
+    <div id="levelNext" class="level-next"></div>
+    <div class="modal-actions"><button id="levelOkBtn" class="maze-btn maze-btn-big" type="button">NICE!</button></div>
   </div>
 </div>
 

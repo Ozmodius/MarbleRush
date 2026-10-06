@@ -4,7 +4,7 @@ import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 import { onFrame, getRenderer } from './sceneHost.js';
 import { showBanner, adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { sfx } from './sfx.js';
-import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels } from './dailyUi.js';
+import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, showLevelUps } from './dailyUi.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
 // board mazeGame.js keeps as the backdrop, plus the home screen's top HUD.
@@ -43,7 +43,9 @@ function show(tab) {
         if (b) { b.classList.toggle('is-active', t === tab); b.setAttribute('aria-current', t === tab ? 'page' : 'false'); }
     }
     if (tab !== 'home') closeDailyPanels();
-    if (tab === 'home') { renderHome(); maybeAutoOpenDaily(); }
+    // Arriving home: a level-up first (its OK goes on to the calendar), else
+    // the calendar if today's reward waits.
+    if (tab === 'home') { renderHome(); if (!showLevelUps()) maybeAutoOpenDaily(); }
     // Banners only on these two: pages players read for a while, never play.
     else if (tab === 'gear') { clearShopMessages(); renderProfile(); showBanner('profileBanner'); }
     else if (tab === 'store') { clearShopMessages(); renderStore(); showBanner('storeBanner'); }
@@ -92,6 +94,21 @@ function renderFreeCoins() {
     } else {
         $('homeFreeLabel').textContent = '+' + fmt(AD_REWARDS.coins);
     }
+}
+
+// The right rail's daily maze: NEW until today's is cleared, then the day's
+// best; locked until DAILY_MAZE.unlockAfter ladder levels are cleared.
+function renderDailyMaze() {
+    const btn = $('homeDailyMaze');
+    if (!btn) return;
+    const d = ctx.store.dailyMaze ? ctx.store.dailyMaze() : null;
+    btn.style.display = d && d.lv ? '' : 'none';
+    if (!d || !d.lv) return;
+    btn.classList.toggle('is-locked', d.locked);
+    btn.classList.toggle('is-done', d.paid);
+    $('homeMazeBadge').hidden = d.locked || d.paid;
+    $('homeMazeLabel').textContent = d.locked ? 'LOCKED' : d.paid ? '✓ ' + (d.best / 1000).toFixed(1) + 's' : 'TODAY';
+    btn.setAttribute('aria-label', d.locked ? `Daily maze: clear ${d.unlockAfter} levels to unlock` : d.paid ? 'Daily maze: done today, play again to beat your time' : "Play today's daily maze");
 }
 
 let toastTimer = 0;
@@ -147,6 +164,7 @@ function renderHome() {
     $('homePlayLabel').textContent = allDone ? 'PLAY AGAIN' : 'PLAY';
     $('homePlayLevel').textContent = 'LEVEL ' + lv.index;
     renderFreeCoins();
+    renderDailyMaze();
     renderDailyButtons();
     renderWallets();
 }
@@ -261,6 +279,13 @@ export function initMenus({ store, game }) {
     go('homeGoldChip', 'store');
     go('homeChargeChip', 'store');
     go('homeMedalChip', 'worlds');
+    const maze = $('homeDailyMaze');
+    if (maze) maze.addEventListener('click', (e) => {
+        e.preventDefault();
+        const d = ctx.store.dailyMaze();
+        if (d.locked) { toast(`Clear ${d.unlockAfter} levels to unlock the daily maze`, false); return; }
+        game.playDaily();
+    });
     const free = $('homeFreeCoins');
     if (free) free.addEventListener('click', (e) => { e.preventDefault(); freeCoinsFromAd(); });
     // The FREE countdown and the store badge tick while the menus are up.

@@ -1622,74 +1622,84 @@ function buildLevel(cfg, n, index, seed) {
 // Each trap's introduction level dips back to a shorter route: it wants room
 // to teach before it asks for endurance too. That dip is the point.
 
+// One level for a world slot: rank candidate seeds by how close their route
+// comes to the slot's target, then take the first that builds with the full
+// hazard quota. `seedOf(attempt)` names the candidates -- the ladder and the
+// daily pool use different seed ranges, so neither can disturb the other.
+function pickLevel(cfg, n, index, seedOf) {
+    const target = cfg.route * cfg.cols * cfg.rows;
+    // Rank the candidate seeds by how close their route lands to the
+    // target BEFORE building any of them. Route length is a property of
+    // the carve alone -- carve, braid, shortest path, nothing else -- so
+    // it can be read off cheaply, and the expensive hazard placement
+    // then runs in preference order instead of in seed order.
+    const ranked = [];
+    for (let attempt = 0; attempt < 40; attempt++) {
+        const seed = seedOf(attempt);
+        const rand = mulberry32(seed);
+        const open = carve(cfg.cols, cfg.rows, rand);
+        braid(open, cfg.cols, cfg.rows, rand, cfg.braid);
+        const route = shortestPath(open, cfg.cols, cfg.rows, [0, 0], [cfg.cols - 1, cfg.rows - 1]);
+        ranked.push({ seed, attempt, len: route ? route.length : Infinity });
+    }
+    // Ties broken by attempt order, so the choice stays reproducible.
+    ranked.sort((a, b) => Math.abs(a.len - target) - Math.abs(b.len - target) || a.attempt - b.attempt);
+
+    // Walk them in preference order and take the first that survives
+    // every filter AND carries its world's full hazard quota.
+    //
+    // The quota is not guaranteed by the carve: hazards need somewhere
+    // legal to go, and a route with few straight run-ups into a decision
+    // simply has nowhere to put a third ice patch. Settling for the
+    // first seed that merely BUILDS ships that level a hazard short for
+    // no reason, when a seed a cell or two further from the target would
+    // have carried all three.
+    //
+    // Bounded rather than exhaustive: past the first dozen candidates
+    // the route has drifted far enough from the band that the length
+    // ramp is the bigger loss. Whatever built first is kept as the
+    // fallback, so a world that cannot fill its quota anywhere still
+    // ships its best-fitting level rather than nothing.
+    const SCAN = 12;
+    let lv = null, fallback = null;
+    for (const cand of ranked.slice(0, SCAN)) {
+        const built = buildLevel(cfg, n, index, cand.seed);
+        if (!built) continue;
+        if (!fallback) fallback = built;
+        if (built.holes.length === cfg.holes
+            && (built.gates || []).length === cfg.gates + (cfg.molten || 0)
+            && (built.flares || []).length === (cfg.flares || 0)
+            && (built.geysers || []).length === (cfg.geysers || 0)
+            && (built.ice || []).length === cfg.ice
+            && (built.conveyors || []).length === cfg.conveyors
+            && (built.fans || []).length === (cfg.fans || 0)
+            && (built.icicles || []).length === (cfg.icicles || 0)
+            && (built.bumpers || []).length === (cfg.bumpers || 0)
+            && (built.springs || []).length === (cfg.springs || 0)
+            && (built.arms || []).length === (cfg.arms || 0)
+            && (built.magnets || []).length === (cfg.magnets || 0)
+            && (built.crushers || []).length === (cfg.crushers || 0)
+            && (built.rails || []).length === (cfg.rails || 0)
+            && built.coins.length === cfg.coins) { lv = built; break; }
+    }
+    if (!lv) lv = fallback;
+    if (!lv) {
+        for (const cand of ranked.slice(SCAN)) {
+            lv = buildLevel(cfg, n, index, cand.seed);
+            if (lv) break;
+        }
+    }
+    return lv;
+}
+
 function buildAll() {
     const levels = [];
     let index = 1;
     for (const world of WORLDS) {
         for (let n = 0; n < world.levels.length; n++) {
             const cfg = { ...world, ...world.levels[n], ice: world.levels[n].ice || 0 };
-            const target = cfg.route * cfg.cols * cfg.rows;
-            // Rank the candidate seeds by how close their route lands to the
-            // target BEFORE building any of them. Route length is a property of
-            // the carve alone -- carve, braid, shortest path, nothing else -- so
-            // it can be read off cheaply, and the expensive hazard placement
-            // then runs in preference order instead of in seed order.
-            const ranked = [];
-            for (let attempt = 0; attempt < 40; attempt++) {
-                const seed = cfg.world * 1000 + n * 17 + 7 + attempt * 101 + cfg.cols * 7919 + cfg.rows * 104729;
-                const rand = mulberry32(seed);
-                const open = carve(cfg.cols, cfg.rows, rand);
-                braid(open, cfg.cols, cfg.rows, rand, cfg.braid);
-                const route = shortestPath(open, cfg.cols, cfg.rows, [0, 0], [cfg.cols - 1, cfg.rows - 1]);
-                ranked.push({ seed, attempt, len: route ? route.length : Infinity });
-            }
-            // Ties broken by attempt order, so the choice stays reproducible.
-            ranked.sort((a, b) => Math.abs(a.len - target) - Math.abs(b.len - target) || a.attempt - b.attempt);
-
-            // Walk them in preference order and take the first that survives
-            // every filter AND carries its world's full hazard quota.
-            //
-            // The quota is not guaranteed by the carve: hazards need somewhere
-            // legal to go, and a route with few straight run-ups into a decision
-            // simply has nowhere to put a third ice patch. Settling for the
-            // first seed that merely BUILDS ships that level a hazard short for
-            // no reason, when a seed a cell or two further from the target would
-            // have carried all three.
-            //
-            // Bounded rather than exhaustive: past the first dozen candidates
-            // the route has drifted far enough from the band that the length
-            // ramp is the bigger loss. Whatever built first is kept as the
-            // fallback, so a world that cannot fill its quota anywhere still
-            // ships its best-fitting level rather than nothing.
-            const SCAN = 12;
-            let lv = null, fallback = null;
-            for (const cand of ranked.slice(0, SCAN)) {
-                const built = buildLevel(cfg, n, index, cand.seed);
-                if (!built) continue;
-                if (!fallback) fallback = built;
-                if (built.holes.length === cfg.holes
-                    && (built.gates || []).length === cfg.gates + (cfg.molten || 0)
-                    && (built.flares || []).length === (cfg.flares || 0)
-                    && (built.geysers || []).length === (cfg.geysers || 0)
-                    && (built.ice || []).length === cfg.ice
-                    && (built.conveyors || []).length === cfg.conveyors
-                    && (built.fans || []).length === (cfg.fans || 0)
-                    && (built.icicles || []).length === (cfg.icicles || 0)
-                    && (built.bumpers || []).length === (cfg.bumpers || 0)
-                    && (built.springs || []).length === (cfg.springs || 0)
-                    && (built.arms || []).length === (cfg.arms || 0)
-                    && (built.magnets || []).length === (cfg.magnets || 0)
-                    && (built.crushers || []).length === (cfg.crushers || 0)
-                    && (built.rails || []).length === (cfg.rails || 0)
-                    && built.coins.length === cfg.coins) { lv = built; break; }
-            }
-            if (!lv) lv = fallback;
-            if (!lv) {
-                for (const cand of ranked.slice(SCAN)) {
-                    lv = buildLevel(cfg, n, index, cand.seed);
-                    if (lv) break;
-                }
-            }
+            const lv = pickLevel(cfg, n, index,
+                attempt => cfg.world * 1000 + n * 17 + 7 + attempt * 101 + cfg.cols * 7919 + cfg.rows * 104729);
             if (!lv) throw new Error(`could not generate a solvable level for world ${cfg.world} slot ${n}`);
             levels.push(lv);
             index++;
@@ -1704,11 +1714,44 @@ function buildAll() {
     return levels;
 }
 
+// THE DAILY MAZE POOL (dailyLevels.json): extra levels for the daily maze,
+// DAILY_PER_WORLD per world, built from the world's last three level setups
+// (so a daily can hold anything that world teaches) with seeds from their own
+// range -- far from the ladder's, so regenerating either never moves the other.
+// test_maze_levels.js verifies every one exactly as it does the ladder.
+const DAILY_PER_WORLD = 12;
+const DAILY_SLOTS = [7, 8, 9];
+const DAILY_PATH = path.join(__dirname, '..', 'dailyLevels.json');
+function buildDaily() {
+    const levels = [];
+    for (const world of WORLDS) {
+        for (let k = 0; k < DAILY_PER_WORLD; k++) {
+            const n = DAILY_SLOTS[k % DAILY_SLOTS.length];
+            const cfg = { ...world, ...world.levels[n], ice: world.levels[n].ice || 0 };
+            const lv = pickLevel(cfg, n, 0, attempt => 900000 + cfg.world * 10007 + k * 7919 + attempt * 101);
+            if (!lv) throw new Error(`could not generate a daily maze for world ${cfg.world} #${k + 1}`);
+            lv.id = `d${cfg.world}_${String(k + 1).padStart(2, '0')}`;
+            lv.name = 'Daily Maze';
+            delete lv.prize;
+            levels.push(lv);
+        }
+    }
+    return levels;
+}
+
 module.exports.buildAll = buildAll;
+module.exports.buildDaily = buildDaily;
 module.exports.WORLDS = WORLDS;
 
 if (require.main === module) (async () => {
     H = await import('../mazeHazards.js');
+    if (process.argv.includes('--daily')) {
+        const daily = buildDaily();
+        const head = '{\n  "schemaVersion": 1,\n  "_note": "The daily maze pool. GENERATED by scripts/generateMazeLevels.js --daily; never hand-edit. One is picked per day by date (daily.js); test_maze_levels.js verifies every one.",\n';
+        fs.writeFileSync(DAILY_PATH, head + '  "levels": [\n' + daily.map(renderLevel).join(',\n') + '\n  ]\n}\n');
+        console.log(`Wrote ${daily.length} daily mazes. Now run: node test_maze_levels.js`);
+        return;
+    }
     const levels = buildAll();
     const src = fs.readFileSync(OUT_PATH, 'utf8');
     const head = src.slice(0, src.indexOf('  "levels": ['));

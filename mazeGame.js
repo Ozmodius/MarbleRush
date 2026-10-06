@@ -25,6 +25,8 @@ import { buildPlanet } from './planet3d.js';
 import { buildSolarSystem } from './solarSystem3d.js';
 import { isUnlocked, nearMiss } from './progressStore.js';
 import { MISSIONS } from './shopCatalog.js';
+import { applySkin } from './skins3d.js';
+import { createTrail } from './trail3d.js';
 import { setGameplayActive, features, showMidgameAd, showRewardedAd, adsAvailable, adFailureMessage, happytime, reportGameCompleted } from './platform.js';
 
 // PLANETILT -- the maze itself: level select, building a level, the run.
@@ -52,6 +54,7 @@ import { setGameplayActive, features, showMidgameAd, showRewardedAd, adsAvailabl
 // Relative for the same reason as main.js's copy.json fetch: the CrazyGames
 // bundle is not served from '/'.
 const LEVELS_URL = 'mazeLevels.json';
+const DAILY_URL = 'dailyLevels.json';   // the daily maze pool (daily.js)
 
 // Physics tuning. Gravity is the vector's LENGTH; mazeTilt.tiltToGravity
 // rotates it off vertical and preserves this magnitude at every tilt.
@@ -103,12 +106,58 @@ function computeCameraPose() {
     const needHalfD = level.size.d / 2 + CAM_MARGIN;
     const dist = Math.max(needHalfW / halfH, needHalfD / halfV);
 
+    // Ease toward ball cam or the full view (per frame, by the frame's time).
+    const dt = Math.min(100, lastFrameMs || 16);
+    camZoom += ((ballCamWanted() ? 1 : 0) - camZoom) * (1 - Math.exp(-dt / BALL_CAM_ZOOM_MS));
+    if (camZoom < 0.002 && !ballCamWanted()) camZoom = 0;
+    const d = dist * (1 - (1 - BALL_CAM_ZOOM) * camZoom);
+    _camLook.copy(CAM_LOOKAT);
+    if (camZoom > 0 && ballBody) {
+        // Follow the ball, clamped so the closer view stays over the board.
+        const spanX = Math.max(0, level.size.w / 2 + CAM_MARGIN - d * halfH);
+        const spanZ = Math.max(0, level.size.d / 2 + CAM_MARGIN - d * halfV);
+        const tx = Math.max(-spanX, Math.min(spanX, ballBody.position.x));
+        const tz = Math.max(-spanZ, Math.min(spanZ, ballBody.position.z)) + CAM_LOOKAT.z;
+        if (!camFollowSet) { _camFollow.set(tx, 0, tz); camFollowSet = true; }
+        const k = 1 - Math.exp(-dt / BALL_CAM_EASE_MS);
+        _camFollow.x += (tx - _camFollow.x) * k;
+        _camFollow.z += (tz - _camFollow.z) * k;
+        _camLook.x = CAM_LOOKAT.x + (_camFollow.x - CAM_LOOKAT.x) * camZoom;
+        _camLook.z = CAM_LOOKAT.z + (_camFollow.z - CAM_LOOKAT.z) * camZoom;
+    } else camFollowSet = false;
+
     _camPos.set(
-        CAM_LOOKAT.x,
-        CAM_LOOKAT.y + Math.cos(CAM_TILT_RAD) * dist,
-        CAM_LOOKAT.z + Math.sin(CAM_TILT_RAD) * dist
+        _camLook.x,
+        _camLook.y + Math.cos(CAM_TILT_RAD) * d,
+        _camLook.z + Math.sin(CAM_TILT_RAD) * d
     );
-    return { pos: _camPos, lookAt: CAM_LOOKAT };
+    return { pos: _camPos, lookAt: _camLook };
+}
+
+// The HUD's camera button.
+function setBallCam(on) {
+    ballCamOn = !!on;
+    if (store && store.setBallCam) store.setBallCam(ballCamOn);
+    const b = el('mazeCamBtn');
+    if (b) { b.setAttribute('aria-pressed', String(ballCamOn)); b.classList.toggle('is-on', ballCamOn); }
+}
+
+// BALL CAM (docs/PLAN.md phase 2; the HUD's camera button, saved). The same
+// tilt and the same board-aligned view as the full camera -- so "lean right"
+// still rolls right on screen -- only closer, following the ball. The view
+// never looks past the board's edge, and it eases in on START and back out at
+// a clear, so the ready screen and the result always show the whole level.
+const BALL_CAM_ZOOM = 0.55;        // distance as a share of the full-board camera's
+const BALL_CAM_EASE_MS = 140;      // how quickly the view catches the ball
+const BALL_CAM_ZOOM_MS = 420;      // how quickly it zooms in or out
+let ballCamOn = false;
+let camZoom = 0;                   // 0 = whole board, 1 = ball cam
+const _camFollow = new THREE.Vector3();
+let camFollowSet = false;
+const _camLook = new THREE.Vector3();
+
+function ballCamWanted() {
+    return ballCamOn && !!ballBody && (phase === 'running' || phase === 'falling' || phase === 'offer');
 }
 
 const FALL_RESTART_MS = 750;     // let the player watch the ball drop before the reset
@@ -141,6 +190,7 @@ let levelsPromise = null;
 let scene = null;
 let mazeGroup = null;
 let ballMesh = null;
+let trail = null;                // the worn trail (trail3d.js), or null
 let ballBody = null;
 let world = null;
 let level = null;
@@ -532,10 +582,15 @@ function buildLevelMeshes(lv, theme) {
     // can rely on the ball reading against their own floor, instead of hoping
     // it does against 4+ marble skins they have never seen together.
     const ballGeo = track(new THREE.SphereGeometry(lv.ballRadius, 28, 20));
-    const ballMat = track(makeBallMaterial(theme, ballSpec.look));
+    // A worn skin paints over that (skins3d.js): colours only, the marble's
+    // own shine kept. The trail is the player's too (trail3d.js).
+    const worn = progressNow();
+    const ballMat = track(applySkin(makeBallMaterial(theme, ballSpec.look), worn.skin));
     ballMesh = new THREE.Mesh(ballGeo, ballMat);
     ballMesh.castShadow = true;
     group.add(ballMesh);
+    trail = createTrail(worn.trail, lv.ballRadius);
+    if (trail) group.add(trail.object);
 
     track(group);
     return { group, wallSpecs };
@@ -798,6 +853,7 @@ function advance(elapsedMs) {
 
     ballMesh.position.copy(ballBody.position);
     ballMesh.quaternion.copy(ballBody.quaternion);
+    if (trail) trail.update(ballBody.position, elapsedMs);
     // Leafy branches fade while the marble is under them (forest3d.js).
     if (forest) forest.tick(ballBody.position.x, ballBody.position.z, elapsedMs);
 
@@ -1136,7 +1192,11 @@ function win() {
     // the ladder, the time floor, and first-time-only pay. Coins bank only
     // here, on a clear -- a run that falls is worth nothing, which is what
     // makes a coin down a risky branch a choice.
-    const result = store ? store.recordClear(level.id, ms, pickupState ? pickupState.coins : 0) : null;
+    // The daily maze is off the ladder and pays by its own rules.
+    const coinsTaken = pickupState ? pickupState.coins : 0;
+    const result = !store ? null
+        : isDaily(level) ? store.recordDailyClear(level.id, ms, coinsTaken)
+        : store.recordClear(level.id, ms, coinsTaken);
     // Level gravity back to straight down. Tilt is only sampled while the phase
     // is 'running', so without this the world keeps the exact lean the player
     // happened to be holding at the moment they won, and the ball wanders back
@@ -1162,7 +1222,7 @@ function win() {
     showEl('mazeLevelsBtn', true);
     // NEXT MAZE only exists when there IS one. On the final level the panel
     // collapses to EXIT, rather than offering a button that would do nothing.
-    showEl('mazeNextBtn', !!nextLevelAfter(level));
+    showEl('mazeNextBtn', !isDaily(level) && !!nextLevelAfter(level));
 }
 
 // THE NEAR MISS: after a clear that left a medal on the table, say which and
@@ -1280,6 +1340,10 @@ export function useRunCharge(kind) {
 // the level list shows is read from it; nothing here keeps a second copy.
 let store = null;
 let allLevels = [];
+// The daily maze pool: playable one a day, off the ladder. Empty if it failed
+// to load -- the daily maze is then simply not offered.
+let dailyLevels = [];
+const isDaily = lv => !!lv && dailyLevels.includes(lv);
 let payouts = { goldBonusPct: 0, byWorld: {} };
 function progressNow() { return store ? store.get() : { cleared: {}, goldClaimed: [], highestIndex: 0, wallet: 0, prizes: [] }; }
 
@@ -1355,7 +1419,7 @@ function buildShowcase(kind) {
         const theme = resolveMazeTheme(planetThemeOverride || lv.theme);
         // Space, tinted by the world: its backdrop colour, much darker.
         scene.background = new THREE.Color(theme.backdropColor).multiplyScalar(0.45);
-        planet = buildPlanet(theme, ballSpec.look, tracked);
+        planet = buildPlanet(theme, ballSpec.look, tracked, prog.skin);
         mazeGroup = planet.group;
     }
     tracked.forEach(track);
@@ -1455,13 +1519,22 @@ export function setMenuHandler(fn) { menuHandler = fn; }
 export function showMenus(tab) { enterMenus(tab); }
 export function playLevel(id) { startLevel(id || (nextLevel() && nextLevel().id)); }
 
+// Today's daily maze (daily.js picks it). False when it is locked or there is
+// no pool.
+export function playDaily() {
+    const d = store && store.dailyMaze ? store.dailyMaze() : null;
+    if (!d || !d.lv || d.locked) return false;
+    startLevel(d.lv.id);
+    return !!level && level.id === d.lv.id;
+}
+
 function showLevelSelect() { enterMenus('worlds'); }
 
 // Build and enter one level. Everything from the previous level is disposed
 // first -- levels are rebuilt per run, unlike the game board which is built
 // once for the page's lifetime.
 function startLevel(levelId) {
-    const lv = allLevels.find(l => l.id === levelId);
+    const lv = allLevels.find(l => l.id === levelId) || dailyLevels.find(l => l.id === levelId);
     if (!lv || !scene) return;
     teardownLevel();
 
@@ -1472,6 +1545,10 @@ function startLevel(levelId) {
     if (trialMarble && trialMarble.levelId !== lv.id) trialMarble = null;
     ballSpec = ballSetup(trialMarble ? trialMarble.id : prog.marble, prog.upgrades);
     prizeOn = {};
+    ballCamOn = !!prog.ballCam;
+    camZoom = 0;
+    camFollowSet = false;
+    { const b = el('mazeCamBtn'); if (b) { b.setAttribute('aria-pressed', String(ballCamOn)); b.classList.toggle('is-on', ballCamOn); } }
     // Out of the menus: their screens come down and the HUD goes up.
     if (menuHandler) menuHandler(null);
     const theme = resolveLevelTheme(lv);
@@ -1509,6 +1586,7 @@ function teardownLevel() {
     setGameplayActive(false);
     if (mazeGroup && scene) scene.remove(mazeGroup);
     disposeAll();
+    if (trail) { trail.dispose(); trail = null; }
     mazeGroup = null;
     ballMesh = null;
     ballBody = null;
@@ -1539,7 +1617,7 @@ function teardownLevel() {
 }
 
 function nextLevelAfter(lv) {
-    if (!lv) return null;
+    if (!lv || isDaily(lv)) return null;
     return allLevels.find(l => l.index === lv.index + 1) || null;
 }
 
@@ -1638,6 +1716,12 @@ window.__mazeDebug = {
     // It grants nothing: the progress store refuses a clear of any level more
     // than one step past the furthest cleared, whichever level was built, so
     // the worst this does is let someone look at a level early.
+    playDaily: () => playDaily(),
+    // Ball cam: switch it, and read where the camera is and how zoomed.
+    ballCam: (on) => { if (on !== undefined) setBallCam(on); return { on: ballCamOn, zoom: camZoom, pose: level ? (() => { const p = computeCameraPose(); return { x: p.pos.x, y: p.pos.y, z: p.pos.z, lx: p.lookAt.x, lz: p.lookAt.z }; })() : null }; },
+    dailyMaze: () => (store && store.dailyMaze ? store.dailyMaze() : null),
+    // Move the progress store's clock by days (the daily rules read it).
+    shiftDays: (n) => { if (store && store.setClock) { const off = n * 86400000; store.setClock(() => Date.now() + off); } return true; },
     startLevelForTest: (levelId) => {
         const lv = allLevels.find(l => l.id === levelId);
         if (!active || !lv) return false;
@@ -1678,6 +1762,10 @@ window.__mazeDebug = {
     // Roll the ball: set its velocity (units/s) without moving it.
     setBallVelocity: (vx, vz) => { if (!ballBody) return false; ballBody.velocity.set(vx, 0, vz); return true; },
     trial: () => ({ trial: marbleTrial(), ball: ballSpec.id }),
+    trail: () => (trail ? trail.info() : null),
+    // The 3D view as a PNG data URL, rendered now: for screenshots taken under
+    // a test clock, when no browser frame may come.
+    snapshot: () => { const r = getRenderer(); if (!r || !scene) return null; r.render(scene, getCamera()); return r.domElement.toDataURL('image/png'); },
     // The CONTINUE countdown runs on the wall clock; a test holds it rather
     // than racing a throttled sandbox to the button.
     holdFallOffer: (on) => { offerHeld = !!on; return phase; },
@@ -1744,6 +1832,11 @@ export async function enterMaze(progressStore) {
     if (!allLevels.length) return false;
     payouts = (data.payouts && typeof data.payouts === 'object') ? data.payouts : { goldBonusPct: 0, byWorld: {} };
     if (store && store.setLevels) store.setLevels(allLevels, payouts);
+    try {
+        const r = await fetch(DAILY_URL);
+        dailyLevels = r.ok ? ((await r.json()).levels || []) : [];
+    } catch (_) { dailyLevels = []; }
+    if (store && store.setDailyLevels) store.setDailyLevels(dailyLevels);
 
     active = true;
     phase = 'idle';
@@ -1820,10 +1913,17 @@ function showClearResult(res, ms) {
     // re-run would read as the game being broken.
     const paid = res.earned > 0 ? '   +' + formatBearings(res.earned) : '';
     setStatus('CLEARED  ' + formatTime(res.runMs) + (icon ? '  ' + icon : '') + beaten + paid);
+    // Status lines queue after the CLEARED line, a beat apart.
+    let beat = res.prize ? 2800 : 1400;
+    if (res.levelUps && res.levelUps.length) {
+        const L = res.levelUps[res.levelUps.length - 1].level;
+        setTimeout(() => { if (phase === 'won') setStatus('LEVEL UP!  YOU ARE LEVEL ' + L); }, beat);
+        beat += 1400;
+    }
     if (res.missionsDone && res.missionsDone.length) {
         // A finished daily mission, after a beat: claimed on the home screen.
         const names = res.missionsDone.map(id => MISSIONS[id] ? MISSIONS[id].text.toUpperCase() : id);
-        setTimeout(() => { if (phase === 'won') setStatus('MISSION DONE  ' + names.join('  ·  ')); }, res.prize ? 2800 : 1400);
+        setTimeout(() => { if (phase === 'won') setStatus('MISSION DONE  ' + names.join('  ·  ')); }, beat);
     }
     if (res.prize) {
         // Its own line, after a beat, so it is not lost in the time and pay.
@@ -1876,6 +1976,7 @@ export function initMazeControls() {
     bindTap('mazeReplayBtn', () => { afterBreak(() => restart()); });
     bindTap('mazeUse_slowmo', () => { useRunCharge('slowmo'); });
     bindTap('mazeUse_magnet', () => { useRunCharge('magnet'); });
+    bindTap('mazeCamBtn', () => { setBallCam(!ballCamOn); });
     bindTap('mazeRecenterBtn', () => {
         recenterPending = true;
         setStatus('RECENTERED');

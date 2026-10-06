@@ -48,6 +48,68 @@ export const MARBLES = {
 };
 export const MARBLE_IDS = Object.keys(MARBLES);
 
+// --- skins and trails (docs/PLAN.md phase 2) ---------------------------------
+// LOOKS ONLY (CLAUDE.md: what a player buys is control and forgiveness, never
+// speed or a smaller ball -- and these buy neither). A skin paints a pattern on
+// whichever marble is rolling, keeping that marble's shine and every stat; a
+// trail draws behind the ball in a run. Each is bought with coins (`price`) or
+// is a player-level reward (`level`, playerLevel.js), never both: a reward
+// cannot be bought early. Patterns are drawn in skins3d.js and trail3d.js.
+export const SKINS = {
+    plain:   { name: 'Plain', price: 0, blurb: 'The marble as it comes.' },
+    stripe:  { name: 'Racing Stripe', price: 300, blurb: 'A red band round the middle. Watch it spin.' },
+    swirl:   { name: "Cat's Eye", price: 450, blurb: 'The schoolyard classic: a twist of colour inside.' },
+    checker: { name: 'Checker', price: 600, blurb: 'Orange and cream squares.' },
+    eight:   { name: 'Eight Ball', price: 800, blurb: 'Black, with the number on the side.' },
+    earth:   { name: 'Little Earth', price: 1000, blurb: 'Oceans, land and ice caps.' },
+    galaxy:  { name: 'Galaxy', level: 8, blurb: 'Nebulae and a thousand stars.' },
+    ember:   { name: 'Ember', level: 15, blurb: 'Black rock with fire in the cracks.' }
+};
+export const SKIN_IDS = Object.keys(SKINS);
+export const TRAILS = {
+    none:    { name: 'None', price: 0, blurb: 'Nothing behind you.' },
+    comet:   { name: 'Comet', price: 400, blurb: 'A cool blue streak.' },
+    mint:    { name: 'Mint', price: 400, blurb: 'Fresh green, fading to teal.' },
+    flame:   { name: 'Flame', price: 750, blurb: 'Yellow to red, like you are on fire.' },
+    rainbow: { name: 'Rainbow', level: 5, blurb: 'Every colour, always moving.' },
+    gold:    { name: 'Gold Dust', level: 12, blurb: 'A glittering wake of gold.' }
+};
+export const TRAIL_IDS = Object.keys(TRAILS);
+// The catalogs by save field: progress[owned] lists what is owned,
+// progress[chosen] what is worn.
+export const LOOKS = {
+    skin:  { table: SKINS, owned: 'skins', chosen: 'skin', base: 'plain' },
+    trail: { table: TRAILS, owned: 'trails', chosen: 'trail', base: 'none' }
+};
+
+// --- player level (playerLevel.js) -------------------------------------------
+// XP for what a player does; levels from total XP. Going from level k to k+1
+// takes 100 + 50(k-1) XP, so level 5 is 700 XP, level 10 is 2,700 and level
+// 15 is 5,950 -- a player who clears all 50 launch levels, with some golds
+// and a few weeks of missions, lands in the high teens.
+export const XP = {
+    firstClear: 100,      // + perWorld * world: later worlds are worth more
+    perWorld: 20,
+    replayClear: 20,
+    goldFirst: 50,
+    mission: 40,
+    missionsBonus: 50,
+    dailyClaim: 20,
+    dailyMaze: 150
+};
+// Every level-up pays coins (40 + 10 x the new level); some also give a
+// power-up or unlock a reward skin or trail (SKINS / TRAILS with `level`).
+export const LEVEL_REWARDS = {
+    3: { charges: { shield: 1 } },
+    5: { look: ['trail', 'rainbow'] },
+    7: { charges: { slowmo: 1, magnet: 1 } },
+    8: { look: ['skin', 'galaxy'] },
+    10: { charges: { shield: 1, slowmo: 1, magnet: 1 }, coins: 300 },
+    12: { look: ['trail', 'gold'] },
+    15: { look: ['skin', 'ember'] },
+    20: { coins: 1000 }
+};
+
 // --- upgrades (the plan's "4 upgrade tracks") --------------------------------
 // Three tiers each, bought in order. `per` is added per tier.
 export const UPGRADES = {
@@ -132,6 +194,12 @@ export const MISSIONS = {
 export const MISSIONS_PER_DAY = 3;
 // Paid with the claim that completes the day's set.
 export const MISSIONS_BONUS = 100;
+
+// The daily maze (daily.js, dailyLevels.json): one verified maze a day from
+// the worlds the player has reached, open once `unlockAfter` ladder levels
+// are cleared. The day's first clear pays `reward` plus the coins taken; the
+// day's first gold adds `goldBonus`. Replays chase the day's best time.
+export const DAILY_MAZE = { unlockAfter: 3, reward: 150, goldBonus: 100 };
 
 // The ball a player will roll: their marble plus their upgrades. One function
 // so the profile page's stat bars and buildWorld() can never disagree.

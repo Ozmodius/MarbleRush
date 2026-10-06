@@ -84,10 +84,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
     store.recordClear('w1_01', 1000, 0);
     check(!mem.has(S.SAVE_KEY), 'a rejected clear writes nothing');
     store.recordClear('w1_01', 12000, 3);
-    check(mem.has(S.SAVE_KEY) && JSON.parse(mem.get(S.SAVE_KEY)).wallet === 123, 'an accepted clear is saved at once');
+    // The clear pays 123 and its XP (playerLevel.js) reaches level 2, which pays too.
+    const PL = await import('./playerLevel.js');
+    const paid = 123 + PL.rewardFor(2).coins;
+    check(mem.has(S.SAVE_KEY) && JSON.parse(mem.get(S.SAVE_KEY)).wallet === paid, `an accepted clear is saved at once (${paid}), got ${mem.has(S.SAVE_KEY) && JSON.parse(mem.get(S.SAVE_KEY)).wallet}`);
     const again = S.createProgressStore({ load: async k => mem.get(k) || null, save: () => true }, levels, payouts);
-    check((await again.load()).wallet === 123, 'a new session loads what the last one saved');
-    check(store.spend(23) && JSON.parse(mem.get(S.SAVE_KEY)).wallet === 100, 'a spend is saved at once');
+    check((await again.load()).wallet === paid, 'a new session loads what the last one saved');
+    check(store.spend(23) && JSON.parse(mem.get(S.SAVE_KEY)).wallet === paid - 23, 'a spend is saved at once');
 
     // 8. Rewarded ads pay fixed, bounded amounts, and the free coins wait out
     //    their cooldown -- across a save and reload too.

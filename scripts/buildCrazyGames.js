@@ -12,6 +12,7 @@
 //                     included), bundled and minified by esbuild
 //   style.css         as-is
 //   mazeLevels.json   as-is (fetched at runtime by a relative URL)
+//   dailyLevels.json  as-is, the same way (the daily maze pool)
 //
 // The platform flag is the ONLY difference from the web page, and only
 // platform.js reads it (CLAUDE.md: one codebase, two platforms).
@@ -69,7 +70,7 @@ async function build() {
         logLevel: 'warning'
     });
     fs.writeFileSync(path.join(OUT, 'index.html'), page());
-    for (const f of ['style.css', 'mazeLevels.json']) fs.copyFileSync(path.join(ROOT, f), path.join(OUT, f));
+    for (const f of ['style.css', 'mazeLevels.json', 'dailyLevels.json']) fs.copyFileSync(path.join(ROOT, f), path.join(OUT, f));
 
     // Flatness, checked rather than assumed.
     const entries = fs.readdirSync(OUT, { withFileTypes: true });
