@@ -1,9 +1,11 @@
-import { DAILY_CALENDAR, CHARGES, MISSIONS_BONUS } from './shopCatalog.js';
+import { DAILY_CALENDAR, CHARGES, MISSIONS_BONUS, LOOKS, LEVEL_REWARDS } from './shopCatalog.js';
+import { rewardFor } from './playerLevel.js';
 import { adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { sfx } from './sfx.js';
 
-// THE DAILY PANELS on the home screen: the 7-day reward calendar and the day's
-// three missions, each a card over the home screen opened from the side rail.
+// THE HOME PANELS: the 7-day reward calendar and the day's three missions,
+// each a card over the home screen opened from the side rail, and the player
+// level card (a level-up, or what the next levels bring).
 // The rules are daily.js's, reached through the progress store; this module
 // only draws them and turns taps into store calls.
 //
@@ -141,20 +143,95 @@ function claimMission(id) {
     ctx.onChange();
 }
 
+// --- player level -------------------------------------------------------------
+function lookName(look) {
+    const [kind, id] = look;
+    return `${LOOKS[kind].table[id].name} ${kind}`;
+}
+// One line per thing a level gives.
+function rewardLines(r) {
+    const out = [];
+    if (r.look) out.push({ cls: 'is-look', text: lookName(r.look) });
+    for (const [id, n] of Object.entries(r.charges || {})) out.push({ cls: 'pu-dot pu-' + id, text: `${n} ${CHARGES[id] ? CHARGES[id].name : id}` });
+    out.push({ cls: 'coin-icon reward-coin', text: `${fmt(r.coins)} coins` });
+    return out;
+}
+
+// gained: [{ level, reward }] from the store, or [] to just show the level.
+function renderLevel(gained) {
+    const info = ctx.store.playerLevel();
+    const up = gained.length > 0;
+    $('levelTitle').textContent = up ? 'LEVEL UP!' : 'PLAYER LEVEL';
+    $('levelBig').textContent = String(info.level);
+    $('levelPanel').classList.toggle('is-up', up);
+    $('levelNote').textContent = up
+        ? (gained.length > 1 ? `You climbed ${gained.length} levels!` : `Welcome to level ${info.level}.`)
+        : `${fmt(info.need - info.into)} XP to level ${info.level + 1}. Clears, golds and missions all count.`;
+    const box = $('levelRewards');
+    box.innerHTML = '';
+    box.hidden = !up;
+    // Everything the climb paid: the looks and power-ups, then the coins as
+    // one total (a row per level's coins would bury the good stuff).
+    const lines = [];
+    let coins = 0;
+    for (const g of gained) {
+        coins += g.reward.coins;
+        lines.push(...rewardLines({ ...g.reward, coins: 0 }).filter(x => !/^0 coins$/.test(x.text)));
+    }
+    lines.push({ cls: 'coin-icon reward-coin', text: `${fmt(coins)} coins` });
+    for (const line of lines) {
+        const row = h('div', 'level-reward');
+        row.append(h('span', line.cls === 'is-look' ? 'level-lookicon' : line.cls), h('span', '', line.text));
+        box.append(row);
+    }
+    // The next three levels with something more than coins.
+    const next = $('levelNext');
+    next.innerHTML = '';
+    const ahead = Object.keys(LEVEL_REWARDS).map(Number).filter(L => L > info.level).slice(0, 3);
+    for (const L of ahead) {
+        const r = rewardFor(L);
+        const row = h('div', 'level-nextrow');
+        row.append(h('span', 'level-nextnum', 'LV ' + L), h('span', 'level-nexttext', rewardLines(r).map(x => x.text).join(' · ')));
+        next.append(row);
+    }
+    if (!ahead.length) next.append(h('p', 'level-nexttext', 'Every reward is yours. Levels still pay coins.'));
+}
+
+// Shows any level-ups the store is holding; true if it opened.
+export function showLevelUps() {
+    if (!ctx) return false;
+    const gained = ctx.store.takeLevelUps();
+    if (!gained.length) return false;
+    open('levelPanel', gained);
+    try { sfx.open(); } catch (_) { /* ignore */ }
+    return true;
+}
+
 // --- open, close, badges --------------------------------------------------------
-function open(id) {
+const PANELS = ['dailyPanel', 'missionsPanel', 'levelPanel'];
+function open(id, gained = []) {
     closeDailyPanels();
-    if (id === 'dailyPanel') renderDaily(); else renderMissions();
+    if (id === 'dailyPanel') renderDaily();
+    else if (id === 'missionsPanel') renderMissions();
+    else renderLevel(gained);
     $(id).hidden = false;
 }
 export function closeDailyPanels() {
-    for (const id of ['dailyPanel', 'missionsPanel']) { const e = $(id); if (e) e.hidden = true; }
+    for (const id of PANELS) { const e = $(id); if (e) e.hidden = true; }
     renderDailyButtons();
 }
 
 // The side rail's red badges: a reward to claim, missions to cash in.
 export function renderDailyButtons() {
     if (!ctx) return;
+    // The level bar under the HUD chips.
+    const info = ctx.store.playerLevel();
+    const lv = $('homePlayerLevel');
+    if (lv) {
+        lv.textContent = String(info.level);
+        $('homeXpFill').style.width = (100 * info.into / info.need).toFixed(1) + '%';
+        $('homeXpText').textContent = `${fmt(info.into)} / ${fmt(info.need)} XP`;
+    }
     const d = $('homeDailyBadge');
     if (d) d.hidden = !ctx.store.dailyStatus().canClaim;
     const m = $('homeMissionsBadge');
@@ -182,8 +259,13 @@ export function initDailyUi({ store, onChange }) {
     tap('dailyDoubleBtn', doubleDaily);
     tap('dailyCloseBtn', closeDailyPanels);
     tap('missionsCloseBtn', closeDailyPanels);
+    tap('homeLevelBar', () => open('levelPanel'));
+    // Closing a level-up goes on to the day's calendar if it is still waiting.
+    const closeLevel = () => { closeDailyPanels(); maybeAutoOpenDaily(); };
+    tap('levelCloseBtn', closeLevel);
+    tap('levelOkBtn', closeLevel);
     // A tap on the dimmed backdrop (not the card) closes too.
-    for (const id of ['dailyPanel', 'missionsPanel']) {
+    for (const id of PANELS) {
         const e = $(id);
         if (e) e.addEventListener('click', (ev) => { if (ev.target === e) closeDailyPanels(); });
     }

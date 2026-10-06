@@ -82,6 +82,34 @@ export const LOOKS = {
     trail: { table: TRAILS, owned: 'trails', chosen: 'trail', base: 'none' }
 };
 
+// --- player level (playerLevel.js) -------------------------------------------
+// XP for what a player does; levels from total XP. Going from level k to k+1
+// takes 100 + 50(k-1) XP, so level 5 is 700 XP, level 10 is 2,700 and level
+// 15 is 5,950 -- a player who clears all 50 launch levels, with some golds
+// and a few weeks of missions, lands in the high teens.
+export const XP = {
+    firstClear: 100,      // + perWorld * world: later worlds are worth more
+    perWorld: 20,
+    replayClear: 20,
+    goldFirst: 50,
+    mission: 40,
+    missionsBonus: 50,
+    dailyClaim: 20,
+    dailyMaze: 150
+};
+// Every level-up pays coins (40 + 10 x the new level); some also give a
+// power-up or unlock a reward skin or trail (SKINS / TRAILS with `level`).
+export const LEVEL_REWARDS = {
+    3: { charges: { shield: 1 } },
+    5: { look: ['trail', 'rainbow'] },
+    7: { charges: { slowmo: 1, magnet: 1 } },
+    8: { look: ['skin', 'galaxy'] },
+    10: { charges: { shield: 1, slowmo: 1, magnet: 1 }, coins: 300 },
+    12: { look: ['trail', 'gold'] },
+    15: { look: ['skin', 'ember'] },
+    20: { coins: 1000 }
+};
+
 // --- upgrades (the plan's "4 upgrade tracks") --------------------------------
 // Three tiers each, bought in order. `per` is added per tier.
 export const UPGRADES = {

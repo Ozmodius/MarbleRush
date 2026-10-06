@@ -4,7 +4,7 @@ import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 import { onFrame, getRenderer } from './sceneHost.js';
 import { showBanner, adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { sfx } from './sfx.js';
-import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels } from './dailyUi.js';
+import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, showLevelUps } from './dailyUi.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
 // board mazeGame.js keeps as the backdrop, plus the home screen's top HUD.
@@ -43,7 +43,9 @@ function show(tab) {
         if (b) { b.classList.toggle('is-active', t === tab); b.setAttribute('aria-current', t === tab ? 'page' : 'false'); }
     }
     if (tab !== 'home') closeDailyPanels();
-    if (tab === 'home') { renderHome(); maybeAutoOpenDaily(); }
+    // Arriving home: a level-up first (its OK goes on to the calendar), else
+    // the calendar if today's reward waits.
+    if (tab === 'home') { renderHome(); if (!showLevelUps()) maybeAutoOpenDaily(); }
     // Banners only on these two: pages players read for a while, never play.
     else if (tab === 'gear') { clearShopMessages(); renderProfile(); showBanner('profileBanner'); }
     else if (tab === 'store') { clearShopMessages(); renderStore(); showBanner('storeBanner'); }

@@ -52,10 +52,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const errors = [];
     // Every fresh boot with today's daily reward unclaimed opens the calendar
     // over home (dailyUi.js); close it to get on with the rest.
+    // A level-up card can come first; its OK goes on to the calendar.
     const homeUp = async (pg) => {
         await pg.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+        if (await pg.isVisible('#levelPanel')) await pg.tap('#levelOkBtn');
         if (await pg.isVisible('#dailyPanel')) await pg.tap('#dailyCloseBtn');
         await pg.waitForSelector('#dailyPanel', { state: 'hidden' });
+        await pg.waitForSelector('#levelPanel', { state: 'hidden' });
     };
     try {
         // A phone-shaped viewport with touch: the shape that matters.
@@ -185,7 +188,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await dbg('warpToGoal'), 'reaching the goal wins the run');
         const prog = await dbg('progress');
         check(prog.cleared[lv1.id] && prog.highestIndex === 1, `the clear is recorded: ${JSON.stringify(prog.cleared)}`);
-        check(prog.wallet === 120 + 1, `a first clear with one coin pays 121, wallet is ${prog.wallet}`);
+        // 120 + 1 coin, and its 120 XP reaches player level 2, which pays 60.
+        check(prog.wallet === 120 + 1 + 60 && prog.xp === 120, `a first clear with one coin pays 121 and its level-up 60: wallet ${prog.wallet}, xp ${prog.xp}`);
         check(/CLEARED/.test(await page.textContent('#mazeStatus')), 'the status line reports the clear');
         // That clear was silver, 5s off gold: the near-miss line says so.
         check(await page.isVisible('#mazeNearMiss') && /^\d+\.\ds FASTER FOR GOLD$/.test((await page.textContent('#mazeNearText')).trim())
@@ -201,6 +205,18 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.waitForSelector('#mazeSelect', { state: 'visible' });
         check(await page.isVisible('#tabBar') && await page.isHidden('#mazeHud'), 'LEVELS after a clear opens the worlds tab with the tab bar');
         await page.tap('#tab_home');
+        // Home celebrates the level the clear reached, once.
+        await page.waitForSelector('#levelPanel', { state: 'visible' });
+        check((await page.textContent('#levelTitle')).trim() === 'LEVEL UP!' && (await page.textContent('#levelBig')).trim() === '2'
+            && /60 coins/.test(await page.textContent('#levelRewards')), 'home shows the level-up and what it paid');
+        await page.tap('#levelOkBtn');
+        check(await page.isHidden('#levelPanel') && await page.isHidden('#dailyPanel'), 'NICE! closes it (the calendar was already seen this session)');
+        check((await page.textContent('#homePlayerLevel')).trim() === '2' && /^20 \/ 150 XP$/.test((await page.textContent('#homeXpText')).trim()),
+            `the level bar shows level 2, 20 of 150 XP: ${await page.textContent('#homeXpText')}`);
+        await page.tap('#homeLevelBar');
+        check(await page.isVisible('#levelPanel') && (await page.textContent('#levelTitle')).trim() === 'PLAYER LEVEL' && /LV 3/.test(await page.textContent('#levelNext')),
+            'the level bar opens what the next levels bring');
+        await page.tap('#levelCloseBtn');
         await page.tap('#homePlayBtn');
         await page.waitForSelector('#mazeExitBtn', { state: 'visible' });
         await page.tap('#mazeExitBtn');
@@ -446,7 +462,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const after = await page.$$eval('.level-node', els => els.map(e => ({ cleared: e.classList.contains('is-cleared'), next: e.classList.contains('is-next'), locked: e.disabled })));
         check(after[0].cleared, 'after a reload, level 1 shows as cleared');
         check(after[1].next && !after[1].locked, 'after a reload, level 2 is unlocked and next');
-        check((await page.textContent('#mazeWallet')).trim() === '121', `after a reload, the wallet still holds 121, shows ${await page.textContent('#mazeWallet')}`);
+        check((await page.textContent('#mazeWallet')).trim() === '181', `after a reload, the wallet still holds 181, shows ${await page.textContent('#mazeWallet')}`);
 
         // --- the store and profile ----------------------------------------
         // A fresh page with a seeded save: enough coins to shop.
@@ -661,7 +677,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const log0 = await adLog();
         check(!log0.some((x, i) => x.startsWith('ad:') && log0.slice(0, i).lastIndexOf('play') > log0.slice(0, i).lastIndexOf('stop')), 'no ad ever starts while gameplay is reported running');
         await ad.tap('#mazeExitBtn');
-        await ad.waitForSelector('#homeView', { state: 'visible', timeout: 10000 });
+        await homeUp(ad);
         check((await adLog()).filter(x => x === 'ad:midgame').length === mid0 + 1, 'leaving a level shows a break ad');
 
         // TRY A MARBLE: Gear offers TRY on each marble not owned; the ad starts

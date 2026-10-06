@@ -23,6 +23,8 @@
 
 import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT, AD_REWARDS, LOOKS } from './shopCatalog.js';
 import * as daily from './daily.js';
+import * as levelUp from './playerLevel.js';
+import { XP } from './shopCatalog.js';
 
 // The game was called Marble Rush when saves began; the key keeps that name
 // on purpose -- renaming it would wipe every player's progress.
@@ -41,7 +43,9 @@ export function freshProgress() {
         // The 7-day calendar and today's missions (daily.js).
         daily: { streak: 0, last: '', doubled: '' }, missions: null,
         // Skins and trails (shopCatalog.js LOOKS): owned, and worn.
-        skins: ['plain'], skin: 'plain', trails: ['none'], trail: 'none'
+        skins: ['plain'], skin: 'plain', trails: ['none'], trail: 'none',
+        // Player level (playerLevel.js): total XP.
+        xp: 0
     };
 }
 
@@ -81,6 +85,9 @@ export function parseProgress(text) {
         if (Array.isArray(raw[L.owned])) p[L.owned] = [L.base, ...raw[L.owned].filter(id => L.table[id] && id !== L.base)];
         p[L.chosen] = p[L.owned].includes(raw[L.chosen]) ? raw[L.chosen] : L.base;
     }
+    // A save from before player levels has no xp at all: null marks it, and
+    // the store works it out from what was already cleared (backfillXp).
+    p.xp = raw.xp === undefined ? null : Math.max(0, Math.floor(Number(raw.xp) || 0));
     p.daily = daily.parseDaily(raw.daily);
     p.missions = daily.parseMissions(raw.missions);
     return p;
@@ -182,6 +189,19 @@ export function applyClear(progress, levels, payouts, levelId, durationMs, coins
             tier, goldFirst, earned, coinsEarned, wallet: p.wallet, highestIndex: p.highestIndex, prize
         }
     };
+}
+
+// XP for clears made before player levels existed: what each would have
+// earned (first clear, plus gold where gold was claimed). Paid through addXp,
+// so the levels it crosses pay their rewards too.
+export function backfillXp(progress, levels) {
+    let xp = 0;
+    for (const lv of levels || []) {
+        if (!progress.cleared[lv.id]) continue;
+        xp += XP.firstClear + XP.perWorld * (lv.world || 1);
+        if (progress.goldClaimed.includes(lv.id)) xp += XP.goldFirst;
+    }
+    return levelUp.addXp({ ...progress, xp: 0 }, xp);
 }
 
 export function spendFrom(progress, amount) {
@@ -334,6 +354,14 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
     let progress = freshProgress();
     // The clock the daily rules read; tests and the debug hooks move it.
     let clock = () => Date.now();
+    // Levels gained and not yet shown: the home screen celebrates them.
+    let levelUps = [];
+    const earn = (amount) => {
+        const out = levelUp.addXp(progress, amount);
+        progress = out.progress;
+        levelUps.push(...out.gained);
+        return out.gained;
+    };
     const persist = () => {
         try { adapter.save(SAVE_KEY, JSON.stringify(progress)); } catch (e) { console.warn('[progress] save failed:', e && e.message); }
     };
@@ -353,7 +381,15 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             return progress;
         },
         get: () => progress,
-        setLevels(nextLevels, nextPayouts) { levels = nextLevels || []; payouts = nextPayouts || {}; },
+        setLevels(nextLevels, nextPayouts) {
+            levels = nextLevels || []; payouts = nextPayouts || {};
+            if (progress.xp === null && levels.length) {
+                const out = backfillXp(progress, levels);
+                progress = out.progress;
+                levelUps.push(...out.gained);
+                persist();
+            }
+        },
         recordClear(levelId, durationMs, coins) {
             const prev = progress.cleared[levelId];
             const out = applyClear(progress, levels, payouts, levelId, durationMs, coins, clock());
@@ -363,8 +399,10 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             const got = Math.max(0, Math.min(Array.isArray(lv.coins) ? lv.coins.length : 0, Math.floor(Number(coins) || 0)));
             const m = daily.trackMissions(out.progress, daily.clearEvents(lv, out.result, got, prev && prev.bestMs), clock());
             progress = m.progress;
+            const xp = levelUp.clearXp(lv, out.result);
+            const gained = earn(xp);
             persist();
-            return { ...out.result, missionsDone: m.done };
+            return { ...out.result, missionsDone: m.done, xp, levelUps: gained, wallet: progress.wallet };
         },
         spend(amount) {
             const out = spendFrom(progress, amount);
@@ -396,14 +434,28 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         adUpgradeWaitMs: () => adUpgradeWaitMs(progress),
         // Daily rewards and missions (daily.js).
         dailyStatus: () => daily.dailyStatus(progress, clock()),
-        claimDaily: () => { const out = daily.claimDaily(progress, clock()); apply(out); return { ok: out.ok, day: out.day, reward: out.reward }; },
+        claimDaily: () => {
+            const out = daily.claimDaily(progress, clock());
+            apply(out);
+            if (out.ok) { earn(XP.dailyClaim); persist(); }
+            return { ok: out.ok, day: out.day, reward: out.reward };
+        },
         adDoubleDaily: () => { const out = daily.adDoubleDaily(progress, clock()); apply(out); return { ok: out.ok, amount: out.amount || 0 }; },
         // The day's set is saved the first time anything reads it, so what the
         // player is shown cannot change later in the day.
         missions: () => { rollMissions(); return daily.missionList(progress, clock()); },
         missionsReady: () => { rollMissions(); return daily.missionsReady(progress, clock()); },
-        claimMission: id => { const out = daily.claimMission(progress, id, clock()); apply(out); return { ok: out.ok, reward: out.reward || 0, bonus: out.bonus || 0 }; },
+        claimMission: id => {
+            const out = daily.claimMission(progress, id, clock());
+            apply(out);
+            if (out.ok) { earn(XP.mission + (out.bonus ? XP.missionsBonus : 0)); persist(); }
+            return { ok: out.ok, reward: out.reward || 0, bonus: out.bonus || 0 };
+        },
         msUntilTomorrow: () => daily.msUntilTomorrow(clock()),
+        playerLevel: () => levelUp.levelInfo(progress.xp || 0),
+        // Levels gained since the last call (each { level, reward }); the
+        // caller shows them, so they are handed out once.
+        takeLevelUps: () => { const out = levelUps; levelUps = []; return out; },
         setClock(fn) { clock = typeof fn === 'function' ? fn : () => Date.now(); }
     };
 }

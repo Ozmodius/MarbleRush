@@ -324,6 +324,7 @@ export function renderProfile() {
     const stats = $('profileStats');
     stats.innerHTML = '';
     for (const [label, value] of [
+        ['Player level', String(ctx.store.playerLevel ? ctx.store.playerLevel().level : 1)],
         ['Levels cleared', `${cleared} / ${ctx.getLevels().length}`],
         ['Gold medals', String(p.goldClaimed.filter(id => ids.has(id)).length)],
         ['Coins found', fmt(coins)]

@@ -1834,10 +1834,17 @@ function showClearResult(res, ms) {
     // re-run would read as the game being broken.
     const paid = res.earned > 0 ? '   +' + formatBearings(res.earned) : '';
     setStatus('CLEARED  ' + formatTime(res.runMs) + (icon ? '  ' + icon : '') + beaten + paid);
+    // Status lines queue after the CLEARED line, a beat apart.
+    let beat = res.prize ? 2800 : 1400;
+    if (res.levelUps && res.levelUps.length) {
+        const L = res.levelUps[res.levelUps.length - 1].level;
+        setTimeout(() => { if (phase === 'won') setStatus('LEVEL UP!  YOU ARE LEVEL ' + L); }, beat);
+        beat += 1400;
+    }
     if (res.missionsDone && res.missionsDone.length) {
         // A finished daily mission, after a beat: claimed on the home screen.
         const names = res.missionsDone.map(id => MISSIONS[id] ? MISSIONS[id].text.toUpperCase() : id);
-        setTimeout(() => { if (phase === 'won') setStatus('MISSION DONE  ' + names.join('  ·  ')); }, res.prize ? 2800 : 1400);
+        setTimeout(() => { if (phase === 'won') setStatus('MISSION DONE  ' + names.join('  ·  ')); }, beat);
     }
     if (res.prize) {
         // Its own line, after a beat, so it is not lost in the time and pay.

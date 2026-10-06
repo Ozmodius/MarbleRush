@@ -52,6 +52,10 @@
         </button>
       </div>
     </div>
+    <button id="homeLevelBar" class="home-levelbar" type="button" aria-label="Player level and rewards">
+      <span class="lvl-badge"><span class="lvl-word">LEVEL</span><span id="homePlayerLevel" class="lvl-num">1</span></span>
+      <span class="lvl-track"><span id="homeXpFill" class="lvl-fill"></span><span id="homeXpText" class="lvl-text">0 / 100 XP</span></span>
+    </button>
     <h1 class="home-logo" aria-label="PlaneTilt"><span class="logo-plane" aria-hidden="true">Plane</span><span class="logo-tilt" aria-hidden="true">T<span class="logo-i"></span>lt</span></h1>
   </header>
   <!-- Side rail: the free-coins rewarded ad, only where ads can pay -->
@@ -212,6 +216,20 @@
     <p id="missionsNote" class="modal-note"></p>
     <div id="missionsList" class="missions-list"></div>
     <p id="missionsBonus" class="missions-bonus"></p>
+  </div>
+</div>
+
+<!-- PLAYER LEVEL: a level-up, or the rewards coming up (playerLevel.js, dailyUi.js) -->
+<div id="levelPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="levelTitle" hidden>
+  <div class="modal-card">
+    <button id="levelCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+    <h2 id="levelTitle" class="modal-title">LEVEL UP!</h2>
+    <div class="level-burst"><span id="levelBig" class="level-big">2</span></div>
+    <p id="levelNote" class="modal-note"></p>
+    <div id="levelRewards" class="level-rewards"></div>
+    <p class="level-nexthead">COMING UP</p>
+    <div id="levelNext" class="level-next"></div>
+    <div class="modal-actions"><button id="levelOkBtn" class="maze-btn maze-btn-big" type="button">NICE!</button></div>
   </div>
 </div>
 
