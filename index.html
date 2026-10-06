@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b1410">
+<title>PlaneTilt</title>
+<link rel="stylesheet" href="style.css">
+<!--
+  Development page: serve the repo root (python3 -m http.server) and open /.
+  The importmap points at node_modules; scripts/buildCrazyGames.js rewrites
+  this page into the flat bundle (one script, no importmap, no folders).
+  BUILD:PLATFORM is where the build injects the platform flag and the SDK.
+-->
+<!-- BUILD:PLATFORM -->
+<script type="importmap">
+{ "imports": {
+    "three": "./node_modules/three/build/three.module.js",
+    "cannon-es": "./node_modules/cannon-es/dist/cannon-es.js"
+} }
+</script>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<div id="bootMsg" class="boot">LOADING…</div>
+
+<!-- HOME: the current world turns behind this (planet3d.js) -->
+<section id="homeView" class="home" style="display:none">
+  <header class="home-hud">
+    <div class="home-hudrow">
+      <div class="home-level">
+        <span id="homeLevelNum" class="home-levelnum"></span>
+        <span id="homeLevelName" class="home-levelname"></span>
+      </div>
+      <div class="home-currency">
+        <span class="hud-pill hud-coins" title="Coins"><span class="coin-dot"></span><span id="homeWallet">0</span></span>
+        <span class="hud-pill hud-medals" title="Medals: gold, silver, bronze">
+          <span class="medal medal-gold"></span><span id="homeMedal_gold">0</span>
+          <span class="medal medal-silver"></span><span id="homeMedal_silver">0</span>
+          <span class="medal medal-bronze"></span><span id="homeMedal_bronze">0</span>
+        </span>
+      </div>
+    </div>
+    <div class="home-world">
+      <span id="homeWorld" class="home-worldname"></span>
+      <span class="home-worldtrack"><span id="homeWorldBar" class="home-worldbar"></span></span>
+      <span id="homeWorldDone" class="home-worlddone"></span>
+    </div>
+    <!-- The wordmark: tilted like the board, the i dotted with a marble. -->
+    <h1 class="home-logo" aria-label="PlaneTilt"><span class="logo-plane" aria-hidden="true">Plane</span><span class="logo-tilt" aria-hidden="true">T<span class="logo-i"></span>lt</span></h1>
+  </header>
+  <div class="home-play">
+    <p id="homeGoal" class="home-goal"></p>
+    <button id="homePlayBtn" class="maze-btn maze-btn-big home-playbtn" type="button">PLAY</button>
+  </div>
+</section>
+
+<!-- WORLDS: a solar system (solarSystem3d.js) behind this; tap a planet -->
+<section id="mazeSelect" class="worlds" style="display:none">
+  <header class="worlds-head">
+    <h1>WORLDS</h1>
+    <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="mazeWallet">0</span></span>
+  </header>
+  <div id="worldLabels" class="world-labels"></div>
+  <div id="worldSheet" class="world-sheet">
+    <div class="world-sheethead">
+      <div>
+        <p id="worldSheetNum" class="world-sheetnum"></p>
+        <h2 id="worldSheetName" class="world-sheetname"></h2>
+      </div>
+      <span id="worldSheetDone" class="world-sheetdone"></span>
+    </div>
+    <p id="worldSheetNote" class="world-sheetnote"></p>
+    <div id="mazeSelectList" class="level-grid"></div>
+    <p id="worldSheetPrize" class="world-sheetprize"></p>
+  </div>
+</section>
+
+<!-- STORE -->
+<section id="storeView" class="maze-select" style="display:none">
+  <header class="maze-selecthead">
+    <h1>STORE</h1>
+    <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="storeWallet">0</span></span>
+  </header>
+  <p id="storeMsg" class="shop-msg" role="status"></p>
+  <div id="storeList" class="maze-selectlist"></div>
+  <div id="storeBanner" class="ad-banner" aria-hidden="true"></div>
+</section>
+
+<!-- PROFILE -->
+<section id="profileView" class="maze-select" style="display:none">
+  <header class="maze-selecthead">
+    <h1>GEAR</h1>
+    <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="profileWallet">0</span></span>
+  </header>
+  <p id="profileMsg" class="shop-msg" role="status"></p>
+  <div class="maze-selectlist">
+    <div class="profile-hero">
+      <span id="profileMarble"></span>
+      <div><p class="shop-section">NEXT GAME</p><p id="profileMarbleName" class="profile-marblename"></p></div>
+    </div>
+    <div id="profileStats" class="profile-stats"></div>
+    <p class="shop-section">MARBLES</p>
+    <div id="profileMarbles" class="marble-grid"></div>
+    <p class="shop-section">CARRYING</p>
+    <div id="profileInventory" class="profile-inventory"></div>
+  </div>
+  <div id="profileBanner" class="ad-banner" aria-hidden="true"></div>
+</section>
+
+<!-- TAB BAR: every menu screen; hidden during a level -->
+<nav id="tabBar" class="tabbar" style="display:none" aria-label="Menu">
+  <button id="tab_home" class="tab" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h4.5v-6h4v6h4.5V10"/></svg>
+    <span>HOME</span>
+  </button>
+  <button id="tab_gear" class="tab" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M8.5 9.5a4 4 0 0 1 3-2.5"/></svg>
+    <span>GEAR</span>
+  </button>
+  <button id="tab_worlds" class="tab" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z"/><path d="M9 4v13.5M15 6.5V20"/></svg>
+    <span>WORLDS</span>
+  </button>
+  <button id="tab_store" class="tab" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>
+    <span>STORE</span>
+  </button>
+</nav>
+
+<!-- IN-LEVEL HUD -->
+<section id="mazeHud" class="maze-hud" style="display:none">
+  <div class="maze-topbar">
+    <button id="mazeExitBtn" class="maze-btn maze-btn-small" type="button" aria-label="Back to levels">◀</button>
+    <span id="mazeLevelName" class="maze-levelname"></span>
+    <span class="maze-coins"><span class="coin-dot"></span><span id="mazeCoins"></span></span>
+    <button id="mazeRecenterBtn" class="maze-btn maze-btn-small" type="button" aria-label="Recenter tilt">⊙</button>
+  </div>
+  <div id="mazeStatus" class="maze-status"></div>
+  <div id="mazePowerups" class="maze-powerups"></div>
+  <!-- Bought power-ups, fired with a tap; shown only while some are held. -->
+  <div class="maze-charges">
+    <button id="mazeUse_slowmo" class="maze-btn maze-charge" type="button" style="display:none"><span class="pu-dot pu-slowmo"></span>SLOW-MO <span class="count"></span></button>
+    <button id="mazeUse_magnet" class="maze-btn maze-charge" type="button" style="display:none"><span class="pu-dot pu-magnet"></span>MAGNET <span class="count"></span></button>
+  </div>
+  <div class="maze-bottombar">
+    <button id="mazeStartBtn" class="maze-btn maze-btn-big" type="button">START</button>
+    <button id="mazeAdShieldBtn" class="maze-btn maze-btn-ad" type="button" style="display:none"><span class="ad-play">▶</span>FREE SHIELD</button>
+  </div>
+  <!-- After a fall, when a rewarded ad can pay: continue from the last safe
+       spot, or let the countdown run out and retry. -->
+  <div id="mazeFallPanel" class="maze-winpanel maze-fallpanel" style="display:none">
+    <button id="mazeReviveBtn" class="maze-btn maze-btn-big maze-btn-ad" type="button"><span class="ad-play">▶</span>CONTINUE</button>
+    <button id="mazeRetryBtn" class="maze-btn" type="button">RETRY</button>
+    <div class="fall-countdown"><span id="mazeFallBar"></span></div>
+  </div>
+  <div id="mazeWinPanel" class="maze-winpanel" style="display:none">
+    <button id="mazeDoubleBtn" class="maze-btn maze-btn-ad" type="button" style="display:none"><span class="ad-play">▶</span><span id="mazeDoubleText">×2 COINS</span></button>
+    <button id="mazeNextBtn" class="maze-btn maze-btn-big" type="button">NEXT</button>
+    <button id="mazeReplayBtn" class="maze-btn" type="button" style="display:none">REPLAY</button>
+    <button id="mazeLevelsBtn" class="maze-btn" type="button">LEVELS</button>
+    <button id="mazeWinExitBtn" class="maze-btn" type="button" style="display:none">EXIT</button>
+  </div>
+</section>
+
+<!-- Over everything while an ad is requested or playing: CrazyGames requires
+     that the player cannot progress meanwhile (main.js, platform.js onAdBusy). -->
+<div id="adShield" class="ad-shield" style="display:none" role="status" aria-live="polite"><span>AD</span></div>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>

@@ -1,37 +1,44 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { state } from './state.js';
-import { socket } from './socket.js';
-import { getScene, getCamera, onFrame, setExclusiveMode, requestRender } from './scene3d.js';
+import { getScene, getCamera, getRenderer, onFrame, setExclusiveMode, requestRender } from './sceneHost.js';
 import { gateFraction, gateVelocity, gateSpecAt, isOnIce, ICE_FRICTION } from './mazeHazards.js';
-import { makeIceMaterial, makeGateMaterial } from './mazeTheme3d.js';
-import { resolveMazeTheme, makeFloorMaterial, makeWallMaterial, makeBallMaterial,
+import { makeIceMaterial, makeGateMaterial, makeMoltenGateMaterial } from './mazeTheme3d.js';
+import { buildFloorAndWalls } from './levelDressing3d.js';
+import { buildHoleMeshes } from './mazeTheme3d.js';
+import { resolveMazeTheme, resolveLevelTheme, makeWallGeometry, makeBallMaterial,
          makeHoleMaterial, makeGoalMaterial } from './mazeTheme3d.js';
-import { COSMETICS } from './cosmetics.js';
-import { bindTap } from './inputTap.js';
-import { uiSfx } from './uiSfx.js';
-import { reportDiag } from './diagnostics.js';
-import { getMazeSensitivity } from './settings.js';
-import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG } from './mazeTilt.js';
-import { setGameplayActive, features, showMidgameAd, happytime, reportGameCompleted } from './platform.js';
+import { tickSurfaces } from './mazeSurface3d.js';
+import { conveyorAt, conveyorAccel, windAt, windAccel, icicleHits, icicleState, windStrength,
+         flareHits, flareState, gateBurning, moltenGateHits, geyserAccel, geyserState,
+         bumperKick, springUnder, springLaunch, springShot, springState, armAngle, armSpin, ARM_HUB_R, ARM_HALF_T,
+         magnetAccel, crusherState, crusherBottom, crusherVelocity, crusherHits, railHits, railState } from './mazeHazards.js';
+import { CRUSH_HEAD_H } from './foundryProps3d.js';
+import { ARM_Y0, ARM_Y1 } from './toyProps3d.js';
+import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from './mazePickups.js';
+import { buildLevelProps } from './mazeProps3d.js';
+import { sfx as uiSfx } from './sfx.js';
+import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
+import { ballSetup, PRIZES, AD_REWARDS, MARBLES } from './shopCatalog.js';
+const marbleName = id => (MARBLES[id] ? MARBLES[id].name.toUpperCase() : String(id));
+import { worldName, LAUNCH_WORLDS } from './worlds.js';
+import { buildPlanet } from './planet3d.js';
+import { buildSolarSystem } from './solarSystem3d.js';
+import { isUnlocked } from './progressStore.js';
+import { setGameplayActive, features, showMidgameAd, showRewardedAd, adsAvailable, adFailureMessage, happytime, reportGameCompleted } from './platform.js';
 
-// THE MARBLE MAZE -- a tilt-controlled side game, played from the menu.
+// PLANETILT -- the maze itself: level select, building a level, the run.
 //
-// LOADING. This file imports `three` AND `cannon-es`, so under TRUE_3D_PLAN's
-// Hard Rule 3 it must never get a <script type="module"> tag in index.html.
-// main.js reaches it with a dynamic import() on first entry. Its own
-// `import './scene3d.js'` resolves to the instance main.js already loaded --
-// same specifier, no ?v query, therefore the same module instance and the same
-// renderer. (A ?v query here would silently mint a SECOND module graph with its
-// own state.js and its own WebGLRenderer. That bug has been hit before.)
+// Copied from 3dBallSmack's Marble Maze side game (CLAUDE.md) and cut loose
+// from it in Phase 0. What it used to borrow from Ball Smack now comes through
+// two seams:
+//   - sceneHost.js   the renderer, scene, camera and frame loop (this module
+//                    builds a GROUP per level into that scene);
+//   - the PROGRESS STORE (progressStore.js), handed in by main.js through
+//                    enterMaze(store): the ladder, best times, coins and the
+//                    wallet, all client-side -- there is no server.
 //
-// RENDERER. There is exactly one WebGLRenderer in this app and this mode
-// borrows it rather than allocating another -- a second live context is the
-// documented mobile GPU-OOM hazard, and a lost context here is unrecoverable.
-// So the maze is a GROUP added to the existing scene, shown while the rest of
-// the scene is hidden. See enter()/exit() for the full swap, including the
-// scene-level singletons (background/fog/environment) that are NOT per-group
-// and therefore have to be saved and restored by hand.
+// RENDERER. There is exactly one WebGLRenderer (sceneHost.js) -- a second live
+// context is the documented mobile GPU-OOM hazard.
 //
 // TILT. The gravity VECTOR rotates; the maze geometry never does. That keeps
 // every static body's quaternion frozen (cheap, and how this codebase likes
@@ -104,6 +111,21 @@ function computeCameraPose() {
 }
 
 const FALL_RESTART_MS = 750;     // let the player watch the ball drop before the reset
+// REWARDED ADS in a level (CrazyGames only; platform.js, shopCatalog.js
+// AD_REWARDS). Never during a run: each is offered at a stop -- the ready
+// screen, a fall, a clear -- and only on the player's tap.
+const REVIVE_WINDOW_MS = 4000;   // how long CONTINUE is offered before the retry
+let revivedThisAttempt = false;  // one continue per attempt
+let offerAt = 0;                 // when the CONTINUE offer went up
+let offerAdPending = false;      // the offer's countdown waits while its ad runs
+let offerHeld = false;           // tests only: hold the countdown (it runs on the wall clock)
+let freeShieldTaken = false;     // one free shield per level visit
+let lastClear = null;            // the clear the x2 COINS button would double
+let rewardedThisBreak = false;   // a rewarded ad on this panel stands in for the break ad
+// TRY A MARBLE (rewarded, from the Gear page): an unowned marble for one level
+// -- every retry of it -- and never ownership. Memory only, never saved.
+// { id, levelId } -- levelId is null until the trial's level is started.
+let trialMarble = null;
 
 // The win star floats above the board centre, well clear of the 0.55-high walls
 // so it reads as hanging over the maze rather than sitting in it.
@@ -131,6 +153,23 @@ let gates = [];                  // [{ spec, body, mesh }]
 let winStar = null;
 let winStarMs = 0;               // time since the star appeared, drives pop + spin
 let iceRects = [];
+// World 4: the arms' kinematic blades, which shot each spring last fired
+// at the ball, and when each bumper last kicked (for its flash and sound).
+let armBodies = [];
+// World 5: the presses' kinematic heads.
+let crusherBodies = [];
+let springShots = [];
+let bumperKicks = 0;
+let props = null;                // belts, coins, pickups (mazeProps3d.js)
+let pickupState = null;          // this attempt's coins and power-ups (mazePickups.js)
+// The ball this level is played with: the selected marble plus upgrades
+// (shopCatalog.js ballSetup), read from the progress store when the level is
+// built. Bought power-ups live in the store's inventory and are spent there.
+let ballSpec = ballSetup('classic', {});
+// The world prize answering a trap in this level (shopCatalog.js PRIZES), and
+// whether one use of it has been spent on this level visit. A use covers every
+// retry of the level, so it is reset when a level is built, not on restart.
+let prizeOn = {};
 let floorBody = null;            // material swapped per frame when the ball is on ice
 let solidMaterial = null;
 let iceMaterial = null;
@@ -233,8 +272,6 @@ if (typeof window !== 'undefined') {
 }
 let recenterPending = false;
 
-// Saved scene-level state, restored verbatim on exit.
-let saved = null;
 
 // ---------------------------------------------------------------------------
 // Level data
@@ -256,6 +293,16 @@ function loadLevels() {
 // ---------------------------------------------------------------------------
 // Build
 // ---------------------------------------------------------------------------
+
+// The maze's own replacements for Ball Smack's diagnostics and input helpers.
+function reportDiag(event, info) { console.warn('[maze]', event, info || ''); }
+// A tap on a button: click covers mouse, touch and keyboard activation alike.
+function bindTap(target, fn) {
+    const node = typeof target === 'string' ? document.getElementById(target) : target;
+    if (node) node.addEventListener('click', (e) => { e.preventDefault(); fn(e); });
+}
+// Tilt sensitivity. A settings screen is later work; until then, the default.
+function getMazeSensitivity() { return DEFAULT_SENSITIVITY; }
 
 function track(obj) { disposables.push(obj); return obj; }
 
@@ -288,34 +335,19 @@ function disposeAll() {
 // Building them here instead would mean an author tuning a theme against a
 // render only they ever see -- a preview that lies is worse than no preview.
 //
-// Every wall in ONE InstancedMesh -- the authored walls plus the four boundary
-// rails. A maze meshed one box at a time would blow past the draw-call budget
-// the 3D scene is held to (test_r3d_environment.js caps the game scene at 100),
-// and this is a phone.
+// Floor and walls (levelDressing3d.js, shared with the theme preview): every
+// plank wall in ONE mesh at its real size -- a maze meshed one box at a time
+// would blow past the draw-call budget (test_r3d_environment.js caps the game
+// scene at 100), and this is a phone -- and, in world 1 as it turns to
+// forest, the tree-trunk walls, roots and canopies in a few more.
+let forest = null;
 function buildWalls(lv, group, theme) {
-    const rails = boundaryRails(lv);
-    const all = lv.walls.concat(rails);
-    const geo = track(new THREE.BoxGeometry(1, 1, 1));
-    // Walls are instanced from a UNIT box scaled per instance, so every wall
-    // shares this one material and therefore one texture repeat. Scaled off the
-    // level's depth as a representative extent -- true per-wall texel density
-    // would need a material per wall, which is the draw-call budget this
-    // instancing exists to protect.
-    const mat = track(makeWallMaterial(theme, lv.size.d));
-    const mesh = new THREE.InstancedMesh(geo, mat, all.length);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    const m = new THREE.Matrix4();
-    all.forEach((w, i) => {
-        m.compose(
-            new THREE.Vector3(w.x, FLOOR_Y + WALL_HEIGHT / 2, w.z),
-            new THREE.Quaternion(),
-            new THREE.Vector3(w.w, WALL_HEIGHT, w.d)
-        );
-        mesh.setMatrixAt(i, m);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    group.add(mesh);
+    const all = lv.walls.concat(boundaryRails(lv));
+    const tracked = [];
+    const built = buildFloorAndWalls(lv, all, theme, { height: WALL_HEIGHT, floorY: FLOOR_Y }, tracked);
+    tracked.forEach(track);
+    group.add(built.group);
+    forest = built.forest;
     return all;
 }
 
@@ -332,18 +364,9 @@ function boundaryRails(lv) {
 }
 
 function buildHoles(lv, group, theme) {
-    if (!lv.holes.length) return;
-    const geo = track(new THREE.CircleGeometry(1, 20));
-    const mat = track(makeHoleMaterial(theme));
-    const mesh = new THREE.InstancedMesh(geo, mat, lv.holes.length);
-    const m = new THREE.Matrix4();
-    const flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
-    lv.holes.forEach((h, i) => {
-        m.compose(new THREE.Vector3(h.x, FLOOR_Y + 0.012, h.z), flat, new THREE.Vector3(h.r, h.r, 1));
-        mesh.setMatrixAt(i, m);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    group.add(mesh);
+    const tracked = [];
+    group.add(buildHoleMeshes(lv, theme, FLOOR_Y + 0.012, tracked));
+    tracked.forEach(track);
 }
 
 // Ice patches, drawn as flat quads just above the floor. Instanced from one
@@ -378,16 +401,23 @@ function buildGates(lv, group, theme) {
     const specs = Array.isArray(lv.gates) ? lv.gates : [];
     if (!specs.length) return [];
     const mat = track(makeGateMaterial(theme));
-    return specs.map(spec => {
-        const geo = track(new THREE.BoxGeometry(spec.w, WALL_HEIGHT, spec.d));
-        const mesh = new THREE.Mesh(geo, mat);
+    return specs.map((spec, i) => {
+        // A molten gate gets its own material, so its glow can follow its own
+        // closing and opening (updateGates).
+        const own = spec.molten ? track(makeMoltenGateMaterial(theme)) : null;
+        // Built around its own origin with its foot at y=0, so the mesh's
+        // position is the gate's centre on the floor. The seed keeps two gates
+        // from wearing identical rock.
+        const geo = track(makeWallGeometry(theme, [{ x: 0, z: 0, w: spec.w, d: spec.d }],
+            { height: WALL_HEIGHT, reach: lv.ballRadius, seed: i + 1 }));
+        const mesh = new THREE.Mesh(geo, own || mat);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         // Placed at its open extreme, matching what the verifier solved.
         const at = gateSpecAt(spec, 0);
-        mesh.position.set(at.x, FLOOR_Y + WALL_HEIGHT / 2, at.z);
+        mesh.position.set(at.x, FLOOR_Y, at.z);
         group.add(mesh);
-        return { spec, mesh, body: null };
+        return { spec, mesh, body: null, glow: own ? own.userData.surfaceUniforms.mrGlow : null, heat: 0 };
     });
 }
 
@@ -462,14 +492,8 @@ function buildWinStar(group) {
 function buildLevelMeshes(lv, theme) {
     const group = new THREE.Group();
 
-    const floorGeo = track(new THREE.PlaneGeometry(lv.size.w, lv.size.d));
-    const floorMat = track(makeFloorMaterial(theme, Math.max(lv.size.w, lv.size.d)));
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = FLOOR_Y;
-    floor.receiveShadow = true;
-    group.add(floor);
-
+    // The floor comes with the walls (buildWalls), since world 1's floor
+    // follows where the walls are.
     // Ice first, so the hole discs and goal ring paint on top of it.
     iceRects = buildIce(lv, group, theme);
 
@@ -481,6 +505,13 @@ function buildLevelMeshes(lv, theme) {
     goal.rotation.x = -Math.PI / 2;
     goal.position.set(lv.goal.x, FLOOR_Y + 0.015, lv.goal.z);
     group.add(goal);
+
+    // Belts, coins and pickups. Their geometries, materials and textures go on
+    // the disposables list like everything else built here.
+    const tracked = [];
+    props = buildLevelProps(lv, tracked);
+    tracked.forEach(track);
+    group.add(props.group);
 
     const wallSpecs = buildWalls(lv, group, theme);
     gates = buildGates(lv, group, theme);
@@ -500,7 +531,7 @@ function buildLevelMeshes(lv, theme) {
     // can rely on the ball reading against their own floor, instead of hoping
     // it does against 4+ marble skins they have never seen together.
     const ballGeo = track(new THREE.SphereGeometry(lv.ballRadius, 28, 20));
-    const ballMat = track(makeBallMaterial(theme));
+    const ballMat = track(makeBallMaterial(theme, ballSpec.look));
     ballMesh = new THREE.Mesh(ballGeo, ballMat);
     ballMesh.castShadow = true;
     group.add(ballMesh);
@@ -523,8 +554,11 @@ function buildWorld(lv, wallSpecs) {
     // Low restitution: a marble in a wooden labyrinth thuds, it does not bounce.
     // Modest friction so it rolls rather than skids, which is what makes small
     // corrective tilts feel like they do something.
-    w.addContactMaterial(new CANNON.ContactMaterial(solidMat, ballMat, { friction: 0.28, restitution: 0.12 }));
-    w.addContactMaterial(new CANNON.ContactMaterial(iceMat, ballMat, { friction: ICE_FRICTION, restitution: 0.12 }));
+    // Grip and bounce are the marble's (shopCatalog.js); Classic's are the
+    // 0.28 / 0.12 every level was tuned on. Ice stays ice whatever the marble:
+    // only the Rubber Coat prize changes that (updateFloorSurface).
+    w.addContactMaterial(new CANNON.ContactMaterial(solidMat, ballMat, { friction: ballSpec.grip, restitution: ballSpec.bounce }));
+    w.addContactMaterial(new CANNON.ContactMaterial(iceMat, ballMat, { friction: ICE_FRICTION, restitution: ballSpec.bounce }));
 
     // ICE IS A MATERIAL SWAP ON THE ONE FLOOR BODY, not extra geometry.
     //
@@ -566,12 +600,45 @@ function buildWorld(lv, wallSpecs) {
         g.body = body;
     }
 
+    // World 4. Bumpers and arm hubs are static posts; a blade is kinematic,
+    // like a gate, turned by updateGates from the run clock with its true spin
+    // set so a hit is a push rather than an ejection. A bumper's kick is not
+    // the contact's: applyToys() sets it outright (mazeHazards.js bumperKick).
+    const post = (x, z, r) => {
+        const body = new CANNON.Body({ mass: 0, material: solidMat });
+        body.addShape(new CANNON.Cylinder(r, r, WALL_HEIGHT, 16));
+        body.position.set(x, FLOOR_Y + WALL_HEIGHT / 2, z);
+        w.addBody(body);
+    };
+    (lv.bumpers || []).forEach(b => post(b.x, b.z, b.r));
+    armBodies = (lv.arms || []).map(a => {
+        post(a.x, a.z, ARM_HUB_R);
+        const body = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, material: solidMat });
+        body.addShape(new CANNON.Box(new CANNON.Vec3(a.len, (ARM_Y1 - ARM_Y0) / 2, ARM_HALF_T)));
+        body.position.set(a.x, FLOOR_Y + (ARM_Y0 + ARM_Y1) / 2, a.z);
+        w.addBody(body);
+        return { a, body };
+    });
+
+    // World 5. A press head is kinematic, like a gate, moved up and down by
+    // updateGates with its true speed. Up, it hangs above the walls and the
+    // ball passes under; down, it is a wall.
+    crusherBodies = (lv.crushers || []).map(c => {
+        const body = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, material: solidMat });
+        body.addShape(new CANNON.Box(new CANNON.Vec3(c.w / 2, CRUSH_HEAD_H / 2, c.d / 2)));
+        body.position.set(c.x, FLOOR_Y + crusherBottom(c, 0) + CRUSH_HEAD_H / 2, c.z);
+        w.addBody(body);
+        return { c, body };
+    });
+
     const ball = new CANNON.Body({ mass: 1, material: ballMat });
     ball.addShape(new CANNON.Sphere(lv.ballRadius));
     // Angular damping keeps the marble from spinning up into an unstoppable
     // top on a long straight; linear damping is near-zero so it still coasts.
-    ball.linearDamping = 0.02;
-    ball.angularDamping = 0.22;
+    // Both from the marble; never below Classic's (test_shop.js), which is
+    // what keeps a bought marble from being a faster one.
+    ball.linearDamping = ballSpec.damping;
+    ball.angularDamping = ballSpec.spin;
     w.addBody(ball);
 
     world = w;
@@ -646,11 +713,21 @@ function screenAngle() {
 function step() {
     // onFrame is append-only -- there is no offFrame -- so this callback lives
     // for the life of the page and MUST bail whenever the maze isn't up.
+    if (active && phase === 'menu' && (planet || solar)) {
+        const t = performance.now() / 1000;
+        tickSurfaces(t);
+        (planet || solar).tick(t);
+        return;
+    }
     if (!active || !world || !ballBody) return;
 
     const now = performance.now();
     const elapsedMs = lastStepTime ? (now - lastStepTime) : (1000 / 60);
     lastStepTime = now;
+    // Lava pulses on the page clock, not the run clock: it is scenery, and it
+    // should keep breathing on the ready screen and after a fall.
+    tickSurfaces(now / 1000);
+    if (props) props.tick(now / 1000);
     advance(elapsedMs);
 }
 
@@ -663,14 +740,18 @@ function step() {
 // unpredictably under load -- the same throttling that makes
 // test_r3d_environment.js flaky. A tilt assertion clocked by a starved rAF
 // tests the sandbox's scheduler, not the maze.
+let lastFrameMs = 0;              // real ms of the frame being advanced, for pickup timers
 function advance(elapsedMs) {
+    lastFrameMs = elapsedMs;
     if (phase === 'running') {
         // Manual input is already in screen terms and needs no calibration.
         const manual = manualActive() || !sensorSeen;
         const { tilt, gravity } = computeTilt(manual ? manualReading() : latestReading,
             manual ? { beta: 0, gamma: 0 } : neutral, smoothed, {
             screenAngle: manual ? 0 : screenAngle(),
-            sensitivity: getMazeSensitivity(),
+            // A marble's response reaches full tilt with less lean; mazeTilt
+            // still clamps at MAX_TILT_DEG, so full tilt pulls no harder.
+            sensitivity: getMazeSensitivity() * ballSpec.response,
             dtMs: elapsedMs,
             g: GRAVITY
         });
@@ -692,9 +773,13 @@ function advance(elapsedMs) {
         // that kept sliding behind a "DOWN THE HOLE" banner would have moved on
         // by the time the ball is replaced, so the restart the player sees would
         // not be the level they just started.
-        runClockMs += elapsedMs;
+        // Slow-mo slows the WORLD -- ball, gates, belts -- not the run timer,
+        // which reads the wall clock (win()). So it is a steadier hand, never a
+        // faster time.
+        runClockMs += elapsedMs * timeScale(pickupState);
         updateGates();
         updateFloorSurface();
+        if (props) props.tickRun(runClockMs);
     } else if (phase === 'won') {
         winStarMs += elapsedMs;
         updateWinStar();
@@ -703,14 +788,22 @@ function advance(elapsedMs) {
     // Fixed timestep with a hand-rolled catch-up, exactly as diceBox3d.js does
     // and for the same reason: cannon's own accumulator bails out of substep
     // catch-up under CPU contention and leaves the sim permanently behind.
-    const steps = Math.min(Math.max(1, Math.round((elapsedMs / 1000) / FIXED_STEP)), MAX_CATCHUP_STEPS);
-    for (let i = 0; i < steps; i++) world.step(FIXED_STEP);
+    const simMs = phase === 'running' ? elapsedMs * timeScale(pickupState) : elapsedMs;
+    const steps = Math.min(Math.max(1, Math.round((simMs / 1000) / FIXED_STEP)), MAX_CATCHUP_STEPS);
+    for (let i = 0; i < steps; i++) {
+        if (phase === 'running') { applyConveyor(FIXED_STEP); applyWind(FIXED_STEP); applyGeysers(FIXED_STEP); applyToys(); applyFoundry(FIXED_STEP); }
+        world.step(FIXED_STEP);
+    }
 
     ballMesh.position.copy(ballBody.position);
     ballMesh.quaternion.copy(ballBody.quaternion);
+    // Leafy branches fade while the marble is under them (forest3d.js).
+    if (forest) forest.tick(ballBody.position.x, ballBody.position.z, elapsedMs);
 
     if (phase === 'running') checkOutcomes();
-    else if (phase === 'falling' && performance.now() - fallStartedAt > FALL_RESTART_MS) restart();
+    else if (phase === 'falling' && performance.now() - fallStartedAt > FALL_RESTART_MS) {
+        if (reviveOffered()) openFallOffer(); else restart();
+    } else if (phase === 'offer') tickFallOffer();
 }
 
 // Move every gate to where the run clock says it should be, and tell the solver
@@ -719,6 +812,14 @@ function advance(elapsedMs) {
 // set alongside purely so contacts resolve as a push (see mazeHazards.js's
 // gateVelocity comment).
 function updateGates() {
+    for (const { c, body } of crusherBodies) {
+        body.position.set(c.x, FLOOR_Y + crusherBottom(c, runClockMs) + CRUSH_HEAD_H / 2, c.z);
+        body.velocity.set(0, crusherVelocity(c, runClockMs) * timeScale(pickupState), 0);
+    }
+    for (const { a, body } of armBodies) {
+        body.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -armAngle(a, runClockMs));
+        body.angularVelocity.set(0, -armSpin(a) * timeScale(pickupState), 0);
+    }
     if (!gates.length) return;
     for (const g of gates) {
         const at = gateSpecAt(g.spec, gateFraction(g.spec, runClockMs));
@@ -728,7 +829,13 @@ function updateGates() {
             g.body.position.set(at.x, FLOOR_Y + WALL_HEIGHT / 2, at.z);
             g.body.velocity.set(alongX ? v : 0, 0, alongX ? 0 : v);
         }
-        if (g.mesh) g.mesh.position.set(at.x, FLOOR_Y + WALL_HEIGHT / 2, at.z);
+        if (g.mesh) g.mesh.position.set(at.x, FLOOR_Y, at.z);
+        // A molten gate glows hot while it closes (when it burns) and dulls to
+        // crust while it opens -- easing between, so the change reads.
+        if (g.glow) {
+            g.heat += ((gateBurning(g.spec, runClockMs) ? 1 : 0) - g.heat) * 0.2;
+            g.glow.value = 0.25 + 2.6 * g.heat;
+        }
     }
 }
 
@@ -739,9 +846,115 @@ function updateGates() {
 // blend two friction values with nothing sensible to blend them to.
 function updateFloorSurface() {
     if (!floorBody || !solidMaterial) return;
-    const want = (iceRects.length && isOnIce(iceRects, ballBody.position.x, ballBody.position.z))
-        ? iceMaterial : solidMaterial;
+    let onIce = !!(iceRects.length && isOnIce(iceRects, ballBody.position.x, ballBody.position.z));
+    if (onIce && usePrizeFor('ice')) onIce = false;   // Rubber Coat: ice grips like floor
+    const want = onIce ? iceMaterial : solidMaterial;
     if (floorBody.material !== want) floorBody.material = want;
+}
+
+// A world prize answering `trap`, if the player has one: spends one use the
+// first time the trap is met on this level visit (status line says so), and
+// answers true for the rest of it. The prize HELPS, never is required
+// (docs/PLAN.md) -- without one, this answers false and the trap is the trap.
+function usePrizeFor(trap) {
+    const id = Object.keys(PRIZES).find(k => PRIZES[k].trap === trap);
+    if (!id) return false;
+    if (prizeOn[id]) return true;
+    if (!store || !store.usePrize(id)) return false;
+    prizeOn[id] = true;
+    setStatus(PRIZES[id].name.toUpperCase());
+    return true;
+}
+
+// A belt under the ball's centre drags it toward the belt's speed, once per
+// physics substep. The acceleration is capped below full tilt
+// (mazeHazards.js), which is what lets the verifier ignore belts entirely.
+// Applied as a velocity change rather than a force so it is independent of the
+// ball's mass -- a heavier character is not a belt-proof one.
+function applyConveyor(dt) {
+    if (!level || !level.conveyors || !ballBody) return;
+    const p = ballBody.position, v = ballBody.velocity;
+    const belt = conveyorAt(level.conveyors, p.x, p.z);
+    if (!belt) return;
+    const a = conveyorAccel(belt, v.x, v.z);
+    v.x += a.ax * dt;
+    v.z += a.az * dt;
+}
+
+// A gust over the ball's centre pushes it along the fan's direction, once per
+// substep, on the run clock -- the same gust every attempt. Capped below full
+// tilt (mazeHazards.js), like a belt, so the verifier can ignore it.
+function applyWind(dt) {
+    if (!level || !level.fans || !ballBody) return;
+    const p = ballBody.position;
+    const fan = windAt(level.fans, p.x, p.z);
+    if (!fan) return;
+    const a = windAccel(fan, runClockMs);
+    ballBody.velocity.x += a.ax * dt;
+    ballBody.velocity.z += a.az * dt;
+}
+
+// A geyser's blast throws the ball straight away from its vent (mazeHazards.js).
+function applyGeysers(dt) {
+    if (!level || !level.geysers || !ballBody) return;
+    const p = ballBody.position;
+    const a = geyserAccel(level.geysers, runClockMs, p.x, p.z);
+    ballBody.velocity.x += a.ax * dt;
+    ballBody.velocity.z += a.az * dt;
+}
+
+// World 4, once per substep. A bumper the ball touches kicks it off
+// (halved by the Obsidian Core prize, spent the first time a bumper kicks on
+// this level); a spring firing under the ball launches it, once per shot.
+function applyToys() {
+    if (!level || !ballBody) return;
+    const p = ballBody.position, v = ballBody.velocity, R = level.ballRadius;
+    // A kick or launch sets the ball ROLLING at its new speed, spin and all: a
+    // ball set sliding gives a third of its speed to friction spinning up.
+    const roll = () => ballBody.angularVelocity.set(v.z / R, 0, -v.x / R);
+    (level.bumpers || []).forEach((b, i) => {
+        if (!bumperKick(b, p.x, p.z, v.x, v.z, R)) return;
+        const k = bumperKick(b, p.x, p.z, v.x, v.z, R, usePrizeFor('bumpers') ? 0.5 : 1);
+        if (!k) return;
+        v.x = k.vx; v.z = k.vz;
+        roll();
+        bumperKicks++;
+        if (props) props.hitBumper(i);
+        try { uiSfx.open(); } catch (e) { /* ignore */ }
+    });
+    if (level.springs) {
+        const pad = springUnder(level.springs, runClockMs, p.x, p.z, R);
+        if (pad) {
+            const n = level.springs.indexOf(pad), shot = springShot(pad, runClockMs);
+            if (springShots[n] !== shot) {
+                springShots[n] = shot;
+                const out = springLaunch(pad, v.x, v.z);
+                v.x = out.vx; v.z = out.vz;
+                roll();
+                try { uiSfx.open(); } catch (e) { /* ignore */ }
+            }
+        }
+    }
+}
+
+// World 5, once per substep. A magnet pulls the ball toward its wall
+// (unless world 4's Plastic Ball is spent on this level, spent the first
+// time a field takes hold); a press coming down on the ball crushes it --
+// checked here, before the step, so the press never shoves the ball out
+// from under itself first.
+function applyFoundry(dt) {
+    if (!level || !ballBody || phase !== 'running') return;
+    const p = ballBody.position;
+    if (level.magnets) {
+        const a = magnetAccel(level.magnets, p.x, p.z);
+        if ((a.ax || a.az) && usePrizeFor('magnets')) {
+            if (props) props.magnetsOff(true);            // the fields go grey
+        } else if (a.ax || a.az) {
+            ballBody.velocity.x += a.ax * dt;
+            ballBody.velocity.z += a.az * dt;
+        }
+    }
+    if (level.crushers && crusherHits(level.crushers, runClockMs, p.x, p.z, level.ballRadius)) knockOut('CRUSHED');
 }
 
 // Spin the star, and pop it in on arrival. The pop overshoots past full size
@@ -778,7 +991,28 @@ function checkOutcomes() {
 
     for (const h of level.holes) {
         const dx = p.x - h.x, dz = p.z - h.z;
-        if (dx * dx + dz * dz <= h.r * h.r) { fall(); return; }
+        if (dx * dx + dz * dz <= h.r * h.r) { knockOut('DOWN THE HOLE'); return; }
+    }
+    // An icicle striking the spot the ball is on ends the run like a hole does.
+    if (level.icicles && icicleHits(level.icicles, runClockMs, p.x, p.z)) { knockOut('HIT BY AN ICICLE'); return; }
+    // World 3. A flare burns unless world 2's Heat Shield is spent on this
+    // level; a molten gate burns while it closes.
+    if (level.flares && flareHits(level.flares, runClockMs, p.x, p.z, level.ballRadius) && !usePrizeFor('flares')) { knockOut('BURNED'); return; }
+    if (level.gates && moltenGateHits(level.gates, runClockMs, p.x, p.z, level.ballRadius)) { knockOut('BURNED BY A MOLTEN GATE'); return; }
+    // World 5: a live rail shocks a ball touching its wall.
+    if (level.rails && railHits(level.rails, runClockMs, p.x, p.z, level.ballRadius)) { knockOut('SHOCKED'); return; }
+    if (level.crushers && crusherHits(level.crushers, runClockMs, p.x, p.z, level.ballRadius)) { knockOut('CRUSHED'); return; }
+
+    // Coins and pickups, after the hole check so a ball going down a hole
+    // does not also bank the coin on its lip.
+    if (pickupState) {
+        const events = stepPickups(pickupState, level, { x: p.x, z: p.z, r: level.ballRadius }, lastFrameMs);
+        for (const e of events) {
+            if (e.type === 'coin') { props.takeCoin(e.index); uiSfx.coin(); }
+            else { props.takePickup(e.index); setStatus(e.kind.toUpperCase()); uiSfx.open(); }
+        }
+        if (events.length) renderCoins();
+        renderPowerups();
     }
 
     const gdx = p.x - level.goal.x, gdz = p.z - level.goal.z;
@@ -789,26 +1023,119 @@ function checkOutcomes() {
     if (p.y < -25) restart();
 }
 
-function fall() {
+// Something just ended the run -- a hole, an icicle. A shield spends itself
+// instead of the run: the ball is put back, stopped, on the last safe spot it
+// rolled over (mazePickups.js). Otherwise it falls.
+function knockOut(message) {
+    const back = absorbFall(pickupState);
+    if (back) {
+        // A bought shield is spent from the purchase, so a restart does not
+        // re-arm it; a shield picked up in the maze comes back with the maze.
+        if (pickupState.boughtShield && store) { store.useCharge('shield'); pickupState.boughtShield = false; }
+        ballBody.position.set(back.x, FLOOR_Y + level.ballRadius + 0.02, back.z);
+        ballBody.velocity.setZero();
+        ballBody.angularVelocity.setZero();
+        setStatus('SHIELD SAVED YOU');
+        renderPowerups();
+        return;
+    }
+    fall(message);
+}
+
+function fall(message) {
     phase = 'falling';
     fallStartedAt = performance.now();
     // Drop through the floor rather than teleporting: the player needs to see
     // WHY the run ended. collisionResponse=false keeps the body in the sim (so
     // gravity still applies) while it stops colliding with anything.
     ballBody.collisionResponse = false;
+    renderPowerups();   // the run is over: hide the tap-to-fire buttons
     try { uiSfx.close(); } catch (e) { /* ignore */ }
-    setStatus('DOWN THE HOLE');
+    setStatus(message || 'DOWN THE HOLE');
+}
+
+// CONTINUE after a fall: offered when an ad can pay, once per attempt, and
+// only once the run has gone on long enough that a retry would cost something.
+function reviveOffered() {
+    return adsAvailable() && !revivedThisAttempt && !!(pickupState && pickupState.safe)
+        && performance.now() - runStartedAt >= AD_REWARDS.reviveAfterMs;
+}
+function openFallOffer() {
+    phase = 'offer';
+    offerAt = performance.now();
+    offerAdPending = false;
+    setGameplayActive(false);
+    showEl('mazeFallPanel', true);
+}
+function closeFallOffer() { showEl('mazeFallPanel', false); }
+function tickFallOffer() {
+    if (offerAdPending || offerHeld) return;
+    const left = 1 - (performance.now() - offerAt) / REVIVE_WINDOW_MS;
+    const bar = el('mazeFallBar');
+    if (bar) bar.style.transform = `scaleX(${Math.max(0, left)})`;
+    if (left <= 0) { closeFallOffer(); restart(); }
+}
+async function reviveFromAd() {
+    if (phase !== 'offer' || offerAdPending) return;
+    offerAdPending = true;
+    const ok = await showRewardedAd();
+    offerAdPending = false;
+    if (phase !== 'offer') return;
+    closeFallOffer();
+    if (!ok) { restart(); setStatus(adFailureMessage()); return; }
+    // Back on the last safe spot, stopped, the run's clocks where they were:
+    // the wall clock never stopped, so the ad's time is in the run's time.
+    const back = pickupState.safe;
+    revivedThisAttempt = true;
+    ballBody.collisionResponse = true;
+    ballBody.position.set(back.x, FLOOR_Y + level.ballRadius + 0.02, back.z);
+    ballBody.velocity.setZero();
+    ballBody.angularVelocity.setZero();
+    smoothed = null;
+    recenterPending = true;
+    phase = 'running';
+    setGameplayActive(true);
+    renderPowerups();
+    setStatus('BACK IN');
+}
+
+// x2 COINS on a clear: the clear's own pay again (capped), once.
+async function doubleClearFromAd() {
+    if (phase !== 'won' || !lastClear) return;
+    const ok = await showRewardedAd();
+    if (!ok) { setStatus(adFailureMessage()); return; }
+    const res = store ? store.adDoubleClear(lastClear.earned) : { ok: false };
+    lastClear = null;
+    rewardedThisBreak = true;
+    showEl('mazeDoubleBtn', false);
+    if (res.ok) { setStatus('+' + formatBearings(res.amount) + '  DOUBLED'); try { uiSfx.coin(); } catch (e) { /* ignore */ } }
+}
+
+// FREE SHIELD on the ready screen: a Shield charge, armed when the run starts.
+function offerFreeShield() {
+    const owned = store ? (store.get().charges.shield || 0) : 0;
+    showEl('mazeAdShieldBtn', phase === 'ready' && adsAvailable() && !freeShieldTaken && !owned);
+}
+async function freeShieldFromAd() {
+    if (phase !== 'ready' || freeShieldTaken) return;
+    const ok = await showRewardedAd();
+    if (!ok) { setStatus(adFailureMessage()); return; }
+    freeShieldTaken = true;
+    if (store) store.adCharge('shield');
+    offerFreeShield();
+    setStatus('SHIELD READY  —  IT ARMS WHEN YOU START');
 }
 
 function win() {
     phase = 'won';
+    renderPowerups();
     setGameplayActive(false);
-    // Submit BEFORE the celebration: the server re-validates everything and is
-    // the authority on whether this counted. The client reports only which
-    // level and how long -- never a tier, never a reward -- so there is nothing
-    // in this payload worth lying about.
     const ms = Math.round(performance.now() - runStartedAt);
-    socket.emit('mazeClearLevel', { levelId: level.id, durationMs: ms });
+    // The progress store decides what this clear is worth (progressStore.js):
+    // the ladder, the time floor, and first-time-only pay. Coins bank only
+    // here, on a clear -- a run that falls is worth nothing, which is what
+    // makes a coin down a risky branch a choice.
+    const result = store ? store.recordClear(level.id, ms, pickupState ? pickupState.coins : 0) : null;
     // Level gravity back to straight down. Tilt is only sampled while the phase
     // is 'running', so without this the world keeps the exact lean the player
     // happened to be holding at the moment they won, and the ball wanders back
@@ -816,9 +1143,17 @@ function win() {
     world.gravity.set(0, -GRAVITY, 0);
     mazeGroup.rotation.set(0, 0, 0);
     try { uiSfx.open(); } catch (e) { /* ignore */ }
-    // Provisional text. The server's mazeClearAccepted replaces it with the
-    // tier it actually awarded -- the client never decides that.
-    setStatus('CLEARED  ' + formatTime(ms));
+    showClearResult(result, ms);
+    lastClear = result && result.accepted && result.earned > 0 ? result : null;
+    rewardedThisBreak = false;
+    const dbl = el('mazeDoubleText');
+    if (dbl && lastClear) dbl.textContent = '×2 COINS  +' + formatBearings(Math.min(AD_REWARDS.doubleCap, lastClear.earned));
+    showEl('mazeDoubleBtn', !!lastClear && adsAvailable());
+    // A trial that cleared: say where the marble can be had for keeps.
+    if (trialMarble) {
+        const m = MARBLES[trialMarble.id];
+        setTimeout(() => { if (phase === 'won' && trialMarble) setStatus('KEEP ' + m.name.toUpperCase() + '?  GEAR  ' + formatBearings(m.price)); }, 2200);
+    }
     showWinStar(true);
     showEl('mazeWinPanel', true);
     showEl('mazeReplayBtn', true);
@@ -832,6 +1167,10 @@ function restart() {
     // A run is gameplay; the level select, the CLEARED panel and the menu are
     // breaks (platform.js -- no-op on the web).
     setGameplayActive(true);
+    revivedThisAttempt = false;
+    closeFallOffer();
+    showEl('mazeDoubleBtn', false);
+    showEl('mazeAdShieldBtn', false);
     placeBallAtStart();
     smoothed = null;
     recenterPending = true;      // re-zero to however they're holding it now
@@ -841,7 +1180,17 @@ function restart() {
     // is learning the level rather than re-rolling it -- and two runs of the
     // same route take the same time, which matters when gold pays.
     runClockMs = 0;
+    springShots = [];
     updateGates();
+    // Every attempt starts with every coin and pickup back in place, and any
+    // bought charges still unspent.
+    const owned = store ? store.get().charges : {};
+    pickupState = createRunPickups(level, owned, ballSpec);
+    if (props) props.tickRun(0);
+    pickupState.boughtShield = pickupState.shield;
+    if (props) props.reset();
+    renderCoins();
+    renderPowerups();
     phase = 'running';
     setStatus('');
     showWinStar(false);
@@ -861,6 +1210,38 @@ function formatTime(ms) {
 function el(id) { return document.getElementById(id); }
 function showEl(id, show) { const e = el(id); if (e) e.style.display = show ? '' : 'none'; }
 function setStatus(text) { const e = el('mazeStatus'); if (e) e.textContent = text || ''; }
+function renderCoins() {
+    const e = el('mazeCoins');
+    if (e) e.textContent = pickupState ? `${pickupState.coins} / ${(level && level.coins || []).length}` : '';
+}
+// Which power-ups are live, and how many bought charges are left to fire.
+function renderPowerups() {
+    const e = el('mazePowerups');
+    if (!e || !pickupState) return;
+    const live = [];
+    if (pickupState.shield) live.push('SHIELD');
+    if (pickupState.slowmoMs > 0) live.push(`SLOW ${Math.ceil(pickupState.slowmoMs / 1000)}`);
+    if (pickupState.magnetMs > 0) live.push(`MAGNET ${Math.ceil(pickupState.magnetMs / 1000)}`);
+    e.textContent = live.join('  ');
+    // One tap button per bought power-up still held, with its count.
+    for (const kind of ['slowmo', 'magnet']) {
+        const b = el('mazeUse_' + kind);
+        if (!b) continue;
+        const n = pickupState.held[kind] || 0;
+        b.style.display = n > 0 && phase === 'running' ? '' : 'none';
+        const c = b.querySelector('.count');
+        if (c) c.textContent = String(n);
+    }
+}
+
+// Fire a bought power-up mid-run (a HUD tap). Spent from the store's
+// inventory at once, so a restart does not refund it.
+export function useRunCharge(kind) {
+    if (phase !== 'running' || !pickupState || !useCharge(pickupState, kind)) return false;
+    if (store) store.useCharge(kind);
+    renderPowerups();
+    return true;
+}
 
 // ---------------------------------------------------------------------------
 // Enter / exit
@@ -870,16 +1251,12 @@ function setStatus(text) { const e = el('mazeStatus'); if (e) e.textContent = te
 // Level select
 // ---------------------------------------------------------------------------
 
-// The server's ledger, fetched on entry. Kept as the client's view only -- the
-// server re-validates every clear against its own copy, so nothing here is
-// trusted for anything but drawing the list.
-let progress = { cleared: {}, goldClaimed: [], highestIndex: 0 };
+// The progress store (progressStore.js), handed in by enterMaze. Everything
+// the level list shows is read from it; nothing here keeps a second copy.
+let store = null;
 let allLevels = [];
-// The payout table from the SAME file the server reads. Held here only to tell
-// the player what a level is worth before they play it -- the server computes
-// the credit from its own copy and this one is never sent anywhere. Empty
-// defaults mean an old/broken file shows no reward rather than a wrong one.
 let payouts = { goldBonusPct: 0, byWorld: {} };
+function progressNow() { return store ? store.get() : { cleared: {}, goldClaimed: [], highestIndex: 0, wallet: 0, prizes: [] }; }
 
 // Thousands separators, matching marbleWorks.js's formatBearings. Duplicated
 // rather than imported on purpose: importing it would pull the entire shop UI
@@ -888,141 +1265,172 @@ function formatBearings(n) {
     return Number(n).toLocaleString('en-US');
 }
 
-function basePayout(lv) {
-    const v = Number((payouts.byWorld || {})[String(lv && lv.world)]);
-    return Number.isFinite(v) && v > 0 ? Math.round(v) : 0;
-}
-
-function goldBonus(lv) {
-    const b = basePayout(lv) * (Number(payouts.goldBonusPct) || 0);
-    return Number.isFinite(b) && b > 0 ? Math.round(b) : 0;
-}
-
-function isUnlockedLevel(lv) {
-    // Exactly the server's rule (index <= highestIndex + 1), so the list can
-    // never offer a level the server would then refuse -- an unlocked-looking
-    // row that errors on tap is worse than an honestly locked one.
-    return lv.index <= (progress.highestIndex || 0) + 1;
-}
-
 function tierIcon(tier) {
     return tier === 'gold' ? '\u{1F947}' : tier === 'silver' ? '\u{1F948}' : tier === 'bronze' ? '\u{1F949}' : '';
 }
 
-function tierForMs(lv, ms) {
-    if (!Number.isFinite(ms)) return null;
-    if (ms <= lv.goldMs) return 'gold';
-    if (ms <= lv.goldMs * 1.5) return 'silver';
-    if (ms <= lv.goldMs * 2.25) return 'bronze';
-    return null;
+// THE MENUS' BACKDROP. Outside a run the screen shows one of two scenes:
+//   'planet'  the world of the player's NEXT level as a planet, their marble
+//             orbiting it as a moon (planet3d.js) -- home, gear, store;
+//   'system'  every launch world orbiting a sun (solarSystem3d.js) -- the
+//             WORLDS tab, where a planet is tapped to pick a world.
+// The menu screens themselves are DOM drawn over it by menus.js.
+let menuHandler = null;
+let planet = null;
+let solar = null;
+let backdrop = null;
+
+// The level the home screen offers: the first one not yet cleared, or the
+// last level once everything is.
+export function nextLevel() {
+    if (!allLevels.length) return null;
+    const idx = (progressNow().highestIndex || 0) + 1;
+    return allLevels.find(l => l.index === idx) || allLevels[allLevels.length - 1];
 }
 
-// The second line of a level row. It answers one question -- "what is still on
-// the table here?" -- rather than listing everything known about the level,
-// because a first clear and a first gold each pay ONCE and a player who cannot
-// see which of those they still hold has no way to tell a fresh level from a
-// spent one.
-function levelMeta(lv, done, unlocked) {
-    if (!unlocked) return 'Clear level ' + (lv.index - 1) + ' to unlock';
+let planetThemeOverride = null;   // test seam: __mazeDebug.planetTheme
 
-    const parts = [];
-    parts.push(done ? 'Best ' + formatTime(done.bestMs) : 'Gold under ' + formatTime(lv.goldMs));
-
-    const base = basePayout(lv);
-    const bonus = goldBonus(lv);
-    const goldTaken = (progress.goldClaimed || []).includes(lv.id);
-    if (!done && base > 0) parts.push('+' + formatBearings(base));
-    if (done && !goldTaken && bonus > 0) parts.push('+' + formatBearings(bonus) + ' for gold under ' + formatTime(lv.goldMs));
-
-    return parts.join('  ·  ');
-}
-
-// A milestone's display name, read from the LIVE catalog so an admin-edited
-// override shows the edited name. Falls back to the id rather than to a blank
-// string: an unlock banner with no item in it is worse than an ugly one.
-function nameOfCosmetic(ref) {
-    const entry = COSMETICS[ref.category] && COSMETICS[ref.category][ref.id];
-    return (entry && entry.name) || ref.id;
-}
-
-function renderWallet() {
-    const e = el('mazeWallet');
-    if (e) e.textContent = formatBearings(state.wallet || 0) + ' ⌾';
-}
-
-function renderLevelSelect() {
-    renderWallet();
-    const list = el('mazeSelectList');
-    if (!list) return;
-    list.innerHTML = '';
-
-    const worlds = [];
-    for (const lv of allLevels) {
-        let w = worlds.find(x => x.world === lv.world);
-        if (!w) { w = { world: lv.world, levels: [] }; worlds.push(w); }
-        w.levels.push(lv);
+// What each launch world looks like and whether it can be entered, for the
+// solar system: a built world wears its first level's theme; one not built
+// yet has none.
+export function worldsInfo() {
+    const prog = progressNow();
+    const out = [];
+    for (let n = 1; n <= LAUNCH_WORLDS; n++) {
+        const lvls = allLevels.filter(l => l.world === n);
+        out.push({
+            n, name: worldName(n), levels: lvls,
+            theme: lvls.length ? resolveMazeTheme(lvls[0].theme) : null,
+            state: !lvls.length ? 'coming' : isUnlocked(prog, lvls[0]) ? 'open' : 'locked'
+        });
     }
-
-    // The first level you have NOT cleared -- highlighted, so there is always
-    // one obvious thing to tap and no reading required.
-    const nextIdx = (progress.highestIndex || 0) + 1;
-
-    for (const w of worlds) {
-        const wrap = document.createElement('div');
-        wrap.className = 'maze-world';
-        const head = document.createElement('p');
-        head.className = 'maze-worldname';
-        head.textContent = 'WORLD ' + w.world;
-        wrap.appendChild(head);
-
-        for (const lv of w.levels) {
-            const done = progress.cleared && progress.cleared[lv.id];
-            const unlocked = isUnlockedLevel(lv);
-            const row = document.createElement('button');
-            row.type = 'button';
-            row.className = 'maze-levelrow'
-                + (unlocked ? '' : ' is-locked')
-                + (done ? ' is-cleared' : '')
-                + (lv.index === nextIdx ? ' is-next' : '');
-            row.disabled = !unlocked;
-
-            const idx = document.createElement('span');
-            idx.className = 'maze-levelidx';
-            idx.textContent = done ? '✓' : String(lv.index);
-            row.appendChild(idx);
-
-            const main = document.createElement('span');
-            main.className = 'maze-levelmain';
-            const label = document.createElement('span');
-            label.className = 'maze-levellabel';
-            label.textContent = unlocked ? lv.name : 'Locked';
-            main.appendChild(label);
-            const meta = document.createElement('span');
-            meta.className = 'maze-levelmeta';
-            meta.textContent = levelMeta(lv, done, unlocked);
-            main.appendChild(meta);
-            row.appendChild(main);
-
-            const tier = document.createElement('span');
-            tier.className = 'maze-leveltier';
-            tier.textContent = done ? tierIcon(tierForMs(lv, done.bestMs)) : '';
-            row.appendChild(tier);
-
-            if (unlocked) bindTap(row, () => startLevel(lv.id));
-            wrap.appendChild(row);
-        }
-        list.appendChild(wrap);
-    }
+    return out;
 }
 
-function showLevelSelect() {
+// How far the player has spun the solar system: kept here, not in the
+// system, so it survives the backdrop being rebuilt (a marble change, a trip
+// to another tab and back).
+let systemSpin = 0;
+function buildShowcase(kind) {
+    if (solar) systemSpin = solar.spin();
     teardownLevel();
-    phase = 'idle';
-    showEl('mazeHud', false);
-    showEl('mazeSelect', true);
-    renderLevelSelect();
+    if (!scene) return;
+    backdrop = kind;
+    const tracked = [];
+    if (kind === 'system') {
+        scene.background = new THREE.Color('#07060a');
+        solar = buildSolarSystem(worldsInfo(), tracked);
+        solar.setSpin(systemSpin);
+        mazeGroup = solar.group;
+    } else {
+        const lv = nextLevel();
+        if (!lv) return;
+        const prog = progressNow();
+        ballSpec = ballSetup(prog.marble, prog.upgrades);
+        const theme = resolveMazeTheme(planetThemeOverride || lv.theme);
+        // Space, tinted by the world: its backdrop colour, much darker.
+        scene.background = new THREE.Color(theme.backdropColor).multiplyScalar(0.45);
+        planet = buildPlanet(theme, ballSpec.look, tracked);
+        mazeGroup = planet.group;
+    }
+    tracked.forEach(track);
+    scene.add(mazeGroup);
+    (planet || solar).tick(performance.now() / 1000);
+}
+
+// Leave whatever is on screen for the menus, and show `tab` (menus.js).
+// Leaving a level ends a marble trial.
+function enterMenus(tab) {
+    trialMarble = null;
+    const want = tab === 'worlds' ? 'system' : 'planet';
+    if (phase !== 'menu' || backdrop !== want) {
+        buildShowcase(want);
+        phase = 'menu';
+        showEl('mazeHud', false);
+    }
+    if (menuHandler) menuHandler(tab || 'home');
     requestRender();
 }
+
+// Rebuild the backdrop after the marble or progress changed (menus.js).
+export function refreshShowcase() {
+    if (phase !== 'menu') return;
+    buildShowcase(backdrop || 'planet');
+    requestRender();
+}
+
+// The camera for the planet: square on, slightly above its equator, far
+// enough that the moon's whole orbit stays on screen on a phone-shaped
+// display (fitted to whichever axis binds).
+function computeMenuPose() {
+    const camera = getCamera();
+    const fov = ((camera && camera.fov) || 48) * Math.PI / 180;
+    const aspect = (camera && camera.aspect) || (768 / 1180);
+    if (solar) {
+        // From high above and in front, so the orbits read as wide ellipses,
+        // aimed below the sun so the system sits in the top of the screen and
+        // the world sheet (menus.js) has the bottom.
+        const r = solar.radius;
+        // The sheet is a short strip (one row of levels), so the system
+        // gets most of the screen: close in, and only a little above centre.
+        const dist = Math.max(r / (Math.tan(fov / 2) * aspect), r * 0.7 / Math.tan(fov / 2)) * 0.9;
+        const el = 68 * Math.PI / 180;
+        const shift = r * 0.36;
+        _camPos.set(0, Math.sin(el) * dist, Math.cos(el) * dist + shift);
+        SYSTEM_LOOKAT.set(0, 0, shift);
+        return { pos: _camPos, lookAt: SYSTEM_LOOKAT };
+    }
+    const r = planet ? planet.radius : 5.3;
+    const dist = Math.max(r / (Math.tan(fov / 2) * aspect), r / Math.tan(fov / 2));
+    _camPos.set(0, dist * 0.18, dist);
+    return { pos: _camPos, lookAt: MENU_LOOKAT };
+}
+const MENU_LOOKAT = new THREE.Vector3(0, -0.2, 0);
+const SYSTEM_LOOKAT = new THREE.Vector3();
+
+// THE SYSTEM'S TAPS AND LABELS (menus.js). Screen points are CSS pixels.
+const _ray = new THREE.Raycaster();
+const _ndc = new THREE.Vector2();
+const _proj = new THREE.Vector3();
+export function pickWorld(clientX, clientY) {
+    const r = getRenderer(), camera = getCamera();
+    if (!solar || !r || !camera) return null;
+    const rect = r.domElement.getBoundingClientRect();
+    _ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    _ray.setFromCamera(_ndc, camera);
+    return solar.pick(_ray);
+}
+// Turn the solar system by a drag (menus.js), and let it coast on release.
+export function spinWorlds(d) { if (solar) { solar.spinBy(d); requestRender(); } }
+export function releaseWorlds(v) { if (solar) solar.release(v); }
+// After the try-a-marble ad (shopUi.js): play the next level with `id`.
+export function startMarbleTrial(id) {
+    if (!MARBLES[id]) return false;
+    const lv = nextLevel();
+    if (!lv) return false;
+    trialMarble = { id, levelId: null };
+    startLevel(lv.id);
+    return true;
+}
+export function marbleTrial() { return trialMarble ? { ...trialMarble } : null; }
+export function selectWorld(n) { if (solar) solar.select(n); requestRender(); }
+export function worldAnchors() {
+    const r = getRenderer(), camera = getCamera();
+    if (!solar || !r || !camera) return [];
+    const rect = r.domElement.getBoundingClientRect();
+    camera.updateMatrixWorld();
+    return solar.anchors().map(a => {
+        _proj.copy(a.pos).add(new THREE.Vector3(0, -a.r * 1.1, 0)).project(camera);
+        return { n: a.n, x: rect.left + (_proj.x + 1) / 2 * rect.width, y: rect.top + (1 - _proj.y) / 2 * rect.height + 6 };
+    });
+}
+
+// The menus ask mazeGame for screens through these.
+export function setMenuHandler(fn) { menuHandler = fn; }
+export function showMenus(tab) { enterMenus(tab); }
+export function playLevel(id) { startLevel(id || (nextLevel() && nextLevel().id)); }
+
+function showLevelSelect() { enterMenus('worlds'); }
 
 // Build and enter one level. Everything from the previous level is disposed
 // first -- levels are rebuilt per run, unlike the game board which is built
@@ -1033,7 +1441,15 @@ function startLevel(levelId) {
     teardownLevel();
 
     level = lv;
-    const theme = resolveMazeTheme(lv.theme);
+    const prog = progressNow();
+    // A trial binds to the first level started after it, and ends on any other.
+    if (trialMarble && trialMarble.levelId === null) trialMarble.levelId = lv.id;
+    if (trialMarble && trialMarble.levelId !== lv.id) trialMarble = null;
+    ballSpec = ballSetup(trialMarble ? trialMarble.id : prog.marble, prog.upgrades);
+    prizeOn = {};
+    // Out of the menus: their screens come down and the HUD goes up.
+    if (menuHandler) menuHandler(null);
+    const theme = resolveLevelTheme(lv);
     scene.background = new THREE.Color(theme.backdropColor);
 
     const built = buildLevelMeshes(lv, theme);
@@ -1055,7 +1471,11 @@ function startLevel(levelId) {
     phase = 'ready';
     lastStepTime = 0;
     smoothed = null;
-    setStatus('TAP START, THEN TILT');
+    setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : 'TAP START, THEN TILT');
+    freeShieldTaken = false;
+    rewardedThisBreak = false;   // that break is over; this level's are its own
+    closeFallOffer();
+    offerFreeShield();
     requestRender();
 }
 
@@ -1075,9 +1495,18 @@ function teardownLevel() {
     // frame -- the stale-callback class of bug docs/KNOWN_ISSUES.md already
     // records once.
     gates = [];
+    armBodies = [];
+    crusherBodies = [];
+    springShots = [];
     iceRects = [];
     winStar = null;
     winStarMs = 0;
+    props = null;
+    forest = null;
+    planet = null;
+    solar = null;
+    backdrop = null;
+    pickupState = null;
     floorBody = null;
     solidMaterial = null;
     iceMaterial = null;
@@ -1091,7 +1520,7 @@ function nextLevelAfter(lv) {
 
 const exclusive = {
     isActive: () => active,
-    getPose: () => (active && level ? computeCameraPose() : null)
+    getPose: () => (!active ? null : phase === 'menu' ? computeMenuPose() : (level ? computeCameraPose() : null))
 };
 
 export function isMazeActive() { return active; }
@@ -1128,7 +1557,11 @@ window.__mazeDebug = {
     // theme resolved" apart from "the theme reached the material" -- the ball
     // used to take the player's equipped marble skin, and the whole point of
     // the change is that it no longer does.
-    theme: () => (level ? resolveMazeTheme(level.theme) : null),
+    theme: () => (level ? resolveLevelTheme(level) : null),
+    // World 1's forest on this level: canopies and their opacity right now.
+    forest: () => (forest ? { canopies: forest.canopyCount, opacities: forest.canopyOpacities(), centres: forest.canopyCentres() } : null),
+    // Run the canopy fade as if the marble sat at (x, z) for `ms`.
+    canopyFadeAt: (x, z, ms) => (forest ? (forest.tick(x, z, ms || 600), forest.canopyOpacities()) : null),
     ballColor: () => (ballMesh && ballMesh.material && ballMesh.material.color
         ? '#' + ballMesh.material.color.getHexString() : null),
     // Advance the maze deterministically, without waiting on rAF. Feeds the
@@ -1143,13 +1576,12 @@ window.__mazeDebug = {
         return { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z };
     },
     // Put the ball on the goal and let the ORDINARY frame path notice. Nothing
-    // downstream is faked: checkOutcomes -> win -> mazeClearLevel -> the
-    // server's validation -> mazeClearAccepted -> the select's re-render all
-    // run exactly as they do for a player. Only the several minutes of tilting
-    // are skipped, which is the one part a headless browser has no way to
-    // perform. Deliberately does NOT touch runStartedAt, so a test that warps
-    // too early gets the server's real sub-floor rejection rather than a
-    // convenient pass.
+    // downstream is faked: checkOutcomes -> win -> the progress store's
+    // recordClear -> the status line all run exactly as they do for a player.
+    // Only the several minutes of tilting are skipped, which is the one part a
+    // headless browser has no way to perform. Deliberately does NOT touch
+    // runStartedAt, so a test that warps too early gets the store's real
+    // sub-floor rejection rather than a convenient pass.
     // The win celebration, so a test can tell "the star exists" apart from "the
     // star is on screen and turning" -- it is built hidden at level load, so
     // merely finding it in the scene proves nothing about the payoff firing.
@@ -1178,10 +1610,9 @@ window.__mazeDebug = {
     // through six real clears to reach one would take a minute of wall-clock
     // per assertion.
     //
-    // It grants nothing and can cheat nothing. The ladder that matters is the
-    // SERVER's -- mazeClearLevel refuses any level more than one step past the
-    // profile's furthest clear no matter which level the client built -- so the
-    // worst this does is let someone look at a level early.
+    // It grants nothing: the progress store refuses a clear of any level more
+    // than one step past the furthest cleared, whichever level was built, so
+    // the worst this does is let someone look at a level early.
     startLevelForTest: (levelId) => {
         const lv = allLevels.find(l => l.id === levelId);
         if (!active || !lv) return false;
@@ -1199,9 +1630,66 @@ window.__mazeDebug = {
         const wasPhase = phase;
         phase = 'running';
         advance(1000 / 60);
-        phase = wasPhase;
+        // Put the phase back -- unless that step changed it (the ball was
+        // placed over a hole and fell): undoing a fall would restart it a
+        // frame later, which is what made tests timing it flaky.
+        if (phase === 'running') phase = wasPhase;
         return { x: ballBody.position.x, z: ballBody.position.z };
     },
+    // Age the current run by `ms` of wall clock. The run timer reads the real
+    // clock (it is what a player's time IS), and a test that waited out a
+    // level's minMs would be a test clocked on a throttled sandbox's rAF.
+    // Grants nothing the store does not still check.
+    ageRun: (ms) => { if (phase === 'running') runStartedAt -= ms; return phase === 'running'; },
+    // World 2's timed hazards, for a test: jump the run clock, and read the
+    // wind and icicles where the ball is.
+    setRunClock: (ms) => { runClockMs = ms; updateGates(); if (props) props.tickRun(ms); return runClockMs; },
+    world3: () => (level ? {
+        flares: (level.flares || []).map(f => flareState(f, runClockMs).state),
+        moltenBurning: (level.gates || []).filter(g => g.molten).map(g => gateBurning(g, runClockMs)),
+        moltenGlow: gates.filter(g => g.glow).map(g => g.glow.value),
+        geysers: (level.geysers || []).map(g => geyserState(g, runClockMs).state)
+    } : null),
+    // Roll the ball: set its velocity (units/s) without moving it.
+    setBallVelocity: (vx, vz) => { if (!ballBody) return false; ballBody.velocity.set(vx, 0, vz); return true; },
+    trial: () => ({ trial: marbleTrial(), ball: ballSpec.id }),
+    // The CONTINUE countdown runs on the wall clock; a test holds it rather
+    // than racing a throttled sandbox to the button.
+    holdFallOffer: (on) => { offerHeld = !!on; return phase; },
+    world5: () => (level ? {
+        magnets: (level.magnets || []).length,
+        pull: ballBody && level.magnets ? magnetAccel(level.magnets, ballBody.position.x, ballBody.position.z) : null,
+        crushers: (level.crushers || []).map(c => crusherState(c, runClockMs).state),
+        crusherBodyY: crusherBodies.map(({ body }) => body.position.y),
+        rails: (level.rails || []).map(r => railState(r, runClockMs).state),
+        prizeOn: Object.keys(prizeOn).filter(k => prizeOn[k])
+    } : null),
+    world4: () => (level ? {
+        bumpers: (level.bumpers || []).length,
+        kicks: bumperKicks,
+        springs: (level.springs || []).map(sp => springState(sp, runClockMs).state),
+        arms: armBodies.map(({ a, body }) => {
+            const q = body.quaternion, ang = -2 * Math.atan2(q.y, q.w);
+            return { want: armAngle(a, runClockMs), body: ang };
+        }),
+        prizeOn: Object.keys(prizeOn).filter(k => prizeOn[k])
+    } : null),
+    world2: () => (level ? {
+        fans: (level.fans || []).length,
+        icicles: (level.icicles || []).length,
+        windHere: ballBody && level.fans ? (() => { const f = windAt(level.fans, ballBody.position.x, ballBody.position.z); return f ? windStrength(f, runClockMs) : null; })() : null,
+        icicleStates: (level.icicles || []).map(ic => icicleState(ic, runClockMs).state)
+    } : null),
+    // Show the home planet in another theme (screenshots of worlds not built
+    // yet). Display only.
+    planetTheme: (id) => { planetThemeOverride = id || null; refreshShowcase(); return phase === 'menu'; },
+    menuPhase: () => phase === 'menu' && !!(planet || solar),
+    backdrop: () => (phase === 'menu' ? backdrop : null),
+    worldAnchors: () => worldAnchors(),
+    solarSpin: () => (solar ? solar.spin() : null),
+    // The progress the store holds now -- what a clear actually banked.
+    progress: () => (store ? JSON.parse(JSON.stringify(store.get())) : null),
+    coinsTaken: () => (pickupState ? pickupState.coins : null),
     warpToGoal: () => {
         if (!active || !world || !level || phase !== 'running') return false;
         ballBody.velocity.set(0, 0, 0);
@@ -1212,8 +1700,12 @@ window.__mazeDebug = {
     }
 };
 
-export async function enterMaze() {
+// Take the screen: load the levels, hook the frame loop, show level select.
+// `progressStore` is the loaded store from main.js. Resolves false (with the
+// reason on the status line) if the levels cannot be loaded.
+export async function enterMaze(progressStore) {
     if (active) return true;
+    store = progressStore || null;
 
     scene = getScene();
     const camera = getCamera();
@@ -1221,44 +1713,14 @@ export async function enterMaze() {
 
     let data;
     try { data = await loadLevels(); }
-    catch (e) { window.showCrashToast && window.showCrashToast('Could not load the maze. Check your connection and try again.'); return false; }
+    catch (e) { setStatus('COULD NOT LOAD THE LEVELS. RELOAD TO TRY AGAIN.'); return false; }
 
     allLevels = Array.isArray(data.levels) ? data.levels : [];
     if (!allLevels.length) return false;
     payouts = (data.payouts && typeof data.payouts === 'object') ? data.payouts : { goldBonusPct: 0, byWorld: {} };
+    if (store && store.setLevels) store.setLevels(allLevels, payouts);
 
-    // Save every SCENE-LEVEL singleton before touching it. These are not part
-    // of any group, so hiding the board does not hide them and restoring the
-    // board does not bring them back -- they have to be handled by hand.
-    saved = {
-        background: scene.background,
-        fog: scene.fog,
-        environment: scene.environment,
-        environmentIntensity: scene.environmentIntensity,
-        fov: camera.fov,
-        hidden: []
-    };
-    for (const child of scene.children) {
-        if (child.isLight) continue;
-        if (child.visible) { saved.hidden.push(child); child.visible = false; }
-    }
-
-    // DOM takeover, mirroring how a match presents itself. The maze cannot be a
-    // menu PANE: #gameWrapper (which owns the canvas) is z-index 100 and
-    // #mainMenuOverlay is 500, so a maze drawn behind the menu would be
-    // invisible. It takes the screen the way a match does instead.
-    const menu = el('mainMenuOverlay');
-    if (menu) menu.style.display = 'none';
-    const wrapper = el('gameWrapper');
-    if (wrapper) wrapper.style.display = 'flex';
-    const inGameUi = el('ui');
-    if (inGameUi) inGameUi.style.display = 'none';
-    // Hides the match chrome that also lives in #boardContainer (roster eye,
-    // chat overlay, admin anim-test HUD) -- see the .maze-mode rule in style.css.
-    const boardContainer = el('boardContainer');
-    if (boardContainer) boardContainer.classList.add('maze-mode');
     active = true;
-    state.mazeActive = true;
     phase = 'idle';
     lastStepTime = 0;
     smoothed = null;
@@ -1267,69 +1729,11 @@ export async function enterMaze() {
     setExclusiveMode(exclusive);
 
     // Entering lands on LEVEL SELECT, never straight into a run: which level
-    // you are playing should always be something you chose. Progress is
-    // requested rather than assumed -- it is stripped from the public profile
-    // broadcast (it grows with the level count), so this is the only way to
-    // learn it.
-    socket.emit('requestMazeProgress');
-    showLevelSelect();
+    // you are playing should always be something you chose.
+    reportMazeCompletion();
+    enterMenus('home');
     requestRender();
     return true;
-}
-
-export function exitMaze() {
-    if (!active) return;
-    setGameplayActive(false);
-    clearManual();
-    if (sensorCheckTimer) { clearTimeout(sensorCheckTimer); sensorCheckTimer = null; }
-
-    // Order matters: stop being the exclusive mode FIRST, so the render gate
-    // and the camera go back to normal before the scene is put back. Leaving
-    // this on would hold a deliberately idle renderer at full frame rate.
-    active = false;
-    state.mazeActive = false;
-    phase = 'idle';
-    setExclusiveMode(null);
-    unbindOrientation();
-
-    if (mazeGroup && scene) scene.remove(mazeGroup);
-    disposeAll();
-    mazeGroup = null;
-    ballMesh = null;
-    ballBody = null;
-    world = null;
-
-    const camera = getCamera();
-    if (scene && saved) {
-        scene.background = saved.background;
-        scene.fog = saved.fog;
-        scene.environment = saved.environment;
-        scene.environmentIntensity = saved.environmentIntensity;
-        for (const child of saved.hidden) child.visible = true;
-        if (camera && saved.fov !== undefined) { camera.fov = saved.fov; camera.updateProjectionMatrix(); }
-    }
-    saved = null;
-
-    showEl('mazeHud', false);
-    // Both maze surfaces come down. Leaving the level select up would strand an
-    // opaque full-screen overlay over the board on the next match.
-    showEl('mazeSelect', false);
-    const boardContainer = el('boardContainer');
-    if (boardContainer) boardContainer.classList.remove('maze-mode');
-    const inGameUi = el('ui');
-    if (inGameUi) inGameUi.style.display = '';
-    const wrapper = el('gameWrapper');
-    if (wrapper) wrapper.style.display = 'none';
-    // '' rather than 'block', exactly like #ui above it: the signed-in menu is
-    // a full-height FLEX column (style.css's #mainMenuOverlay.menu-mode), and
-    // an inline display:block outranks that rule permanently, collapsing the
-    // flex chain that gives the Game Box / Shop grid a bounded height. The menu
-    // then overflows and drags the position:fixed .menu-footer up mid-screen.
-    // See main.js's handleLeaveRoom for the full account.
-    const menu = el('mainMenuOverlay');
-    if (menu) menu.style.display = '';
-
-    requestRender();
 }
 
 async function startRun() {
@@ -1351,6 +1755,7 @@ async function startRun() {
     }
     clearManual();
     showEl('mazeStartBtn', false);
+    showEl('mazeAdShieldBtn', false);
     recenterPending = true;      // first reading becomes neutral
     neutral = captureNeutral(latestReading.beta, latestReading.gamma);
     restart();
@@ -1362,96 +1767,75 @@ async function startRun() {
     else sensorCheckTimer = setTimeout(() => { sensorCheckTimer = null; showManualHint(); }, 900);
 }
 
-// Bound once at module load. The maze HUD is static markup in index.html (like
-// every other overlay), so its controls exist before this module is ever
-// imported and can be wired unconditionally.
 // The ladder is the game's only finite content, so its cleared share is what
-// platform.js reports as completion. Needs both halves -- the levels file and
-// the server's ledger -- and simply waits for whichever arrives second.
+// platform.js reports as completion.
 function reportMazeCompletion() {
     if (!allLevels.length) return;
     const ids = new Set(allLevels.map(l => l.id));
-    const done = Object.keys(progress.cleared || {}).filter(id => ids.has(id)).length;
+    const done = Object.keys(progressNow().cleared || {}).filter(id => ids.has(id)).length;
     reportGameCompleted(100 * done / allLevels.length);
 }
 
+// What a clear earned, on the status line. The tier and the pay come from the
+// progress store's answer -- one place decides them -- and the time shown is
+// THIS run's, with the old best beside it when that was faster.
+function showClearResult(res, ms) {
+    if (!res || !res.accepted) {
+        // Not counted (too fast for the level's floor, or out of ladder order):
+        // say the time, claim nothing.
+        setStatus('CLEARED  ' + formatTime(ms));
+        return;
+    }
+    // PLATFORM (no-ops on the web): a FIRST clear is a big moment.
+    if (res.firstClear) happytime();
+    reportMazeCompletion();
+    const icon = tierIcon(res.tier);
+    const beaten = Number.isFinite(res.bestMs) && res.bestMs < res.runMs ? '   Best ' + formatTime(res.bestMs) : '';
+    // A replay that paid nothing says nothing about pay: a "+0" on every
+    // re-run would read as the game being broken.
+    const paid = res.earned > 0 ? '   +' + formatBearings(res.earned) : '';
+    setStatus('CLEARED  ' + formatTime(res.runMs) + (icon ? '  ' + icon : '') + beaten + paid);
+    if (res.prize) {
+        // Its own line, after a beat, so it is not lost in the time and pay.
+        setTimeout(() => { if (phase === 'won') setStatus('PRIZE  ' + prizeName(res.prize)); }, 1400);
+        try { uiSfx.open(); } catch (e) { /* ignore */ }
+    }
+}
+
+// Display names for world prizes (docs/PLAN.md's world table). Falls back to
+// the id: a banner with no name in it is worse than an ugly one.
+const PRIZE_NAMES = { rubberCoat: 'RUBBER COAT  —  grip on ice' };
+function prizeName(id) { return PRIZE_NAMES[id] || id; }
+
+// For the store and profile pages (shopUi.js): the levels, and a way to
+// redraw the level list after something was bought.
+export function getLevels() { return allLevels.slice(); }
+
 export function initMazeControls() {
-    // The server is the authority on progress; these two events are the only
-    // way the client learns it. Bound once, at module load.
-    socket.on('mazeProgress', (p) => {
-        if (!p) return;
-        progress = {
-            cleared: p.cleared || {}, goldClaimed: p.goldClaimed || [], highestIndex: p.highestIndex || 0
-        };
-        reportMazeCompletion();
-        if (active && el('mazeSelect') && el('mazeSelect').style.display !== 'none') renderLevelSelect();
-    });
-
-    socket.on('mazeClearAccepted', (res) => {
-        if (!res || !active) return;
-        // Fold the server's answer into the local view rather than re-fetching:
-        // it already told us everything the list needs.
-        if (!progress.cleared[res.levelId] || res.bestMs < progress.cleared[res.levelId].bestMs) {
-            progress.cleared[res.levelId] = { at: Date.now(), bestMs: res.bestMs };
-        }
-        progress.highestIndex = Math.max(progress.highestIndex || 0, res.highestIndex || 0);
-        if (res.goldFirst && !progress.goldClaimed.includes(res.levelId)) progress.goldClaimed.push(res.levelId);
-        // PLATFORM (no-ops on the web): a FIRST clear is a big moment; a
-        // replay is not, and the ladder's share is what "completion" means.
-        if (res.firstClear) happytime();
-        reportMazeCompletion();
-        // The TIER shown is the server's, not one the client worked out. Only
-        // one of them is the authority and it isn't this one.
-        //
-        // The banner reports THIS run's time (runMs), never bestMs: on a slower
-        // replay those differ, and showing the ledger's number would tell the
-        // player they had just run a time they did not run. The old best is
-        // appended instead, which is the thing they actually want to compare
-        // against.
-        // The BALANCE comes from the server's answer too, not from adding the
-        // payout to the local copy: two places computing one number is how a
-        // client ends up showing a total the server disagrees with. The
-        // authoritative profileUpdated lands moments later and agrees with
-        // this, because both were read from the same p.wallet.
-        if (Number.isFinite(res.wallet)) state.wallet = res.wallet;
-
-        const icon = tierIcon(res.tier);
-        const runMs = Number.isFinite(res.runMs) ? res.runMs : res.bestMs;
-        const beaten = Number.isFinite(res.bestMs) && res.bestMs < runMs
-            ? '   Best ' + formatTime(res.bestMs) : '';
-        // Only a run that actually paid says so. A replay earns nothing by
-        // design, and a cheerful "+0" on every re-run would read as the game
-        // being broken rather than as the anti-farm rule working.
-        const paid = Number.isFinite(res.earned) && res.earned > 0
-            ? '   +' + formatBearings(res.earned) + ' ⌾' : '';
-        setStatus('CLEARED  ' + formatTime(runMs) + (icon ? '  ' + icon : '') + beaten + paid);
-
-        if (res.milestone && res.milestone.id) {
-            const name = nameOfCosmetic(res.milestone);
-            // Its own line, and after a beat, so it does not get lost inside
-            // the time/tier/payout run -- this is the rarest thing the mode
-            // hands out and the only one no amount of Bearings can buy.
-            setTimeout(() => {
-                if (phase === 'won') setStatus('UNLOCKED  ' + name + '  —  earned, not for sale');
-            }, 1400);
-            try { uiSfx.open(); } catch (e) { /* ignore */ }
-        }
-    });
-
     bindTap('mazeStartBtn', () => { startRun(); });
-    bindTap('mazeExitBtn', () => { exitMaze(); });
-    bindTap('mazeSelectExitBtn', () => { exitMaze(); });
-    // The win panel's own EXIT. A separate element from the top-bar one rather
-    // than a moved node, because bindTap binds once at load and a control that
-    // relocates between screens would need re-binding every time.
-    bindTap('mazeWinExitBtn', () => { exitMaze(); });
+    // EXIT from a level goes back to the level list; there is no other screen
+    // to leave to yet.
+
     // CrazyGames: moving on from a CLEARED level is a natural break, so it may
     // carry a break ad first (platform.js throttles it; on the web it resolves
     // false at once). Never after a fall: that is mid-attempt, not a break.
     const afterBreak = async (go) => {
-        if (features.ads && phase === 'won') await showMidgameAd();
+        if (features.ads && phase === 'won' && !rewardedThisBreak) await showMidgameAd();
         go();
     };
+    // Leaving a level for the menus is a natural break too (platform.js
+    // spaces break ads at least three minutes apart).
+    const leave = async () => {
+        if (phase === 'running' || phase === 'falling' || phase === 'offer') { closeFallOffer(); phase = 'idle'; setGameplayActive(false); }
+        if (features.ads && !rewardedThisBreak) await showMidgameAd();
+        enterMenus('home');
+    };
+    bindTap('mazeReviveBtn', () => { reviveFromAd(); });
+    bindTap('mazeRetryBtn', () => { if (phase === 'offer' && !offerAdPending) { closeFallOffer(); restart(); } });
+    bindTap('mazeDoubleBtn', () => { doubleClearFromAd(); });
+    bindTap('mazeAdShieldBtn', () => { freeShieldFromAd(); });
+    bindTap('mazeExitBtn', () => { leave(); });
+    bindTap('mazeWinExitBtn', () => { leave(); });
     bindTap('mazeLevelsBtn', () => { afterBreak(() => showLevelSelect()); });
     bindTap('mazeNextBtn', () => {
         afterBreak(() => {
@@ -1460,6 +1844,8 @@ export function initMazeControls() {
         });
     });
     bindTap('mazeReplayBtn', () => { afterBreak(() => restart()); });
+    bindTap('mazeUse_slowmo', () => { useRunCharge('slowmo'); });
+    bindTap('mazeUse_magnet', () => { useRunCharge('magnet'); });
     bindTap('mazeRecenterBtn', () => {
         recenterPending = true;
         setStatus('RECENTERED');

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maze Theme Preview</title>
+<!--
+  DEV TOOL, not part of the game bundle. Renders a real level in any theme so a
+  look can be judged (and screenshotted) before Phase 0's scene host exists.
+  Serve the repo root and open:
+      /scripts/themePreview.html?level=w4_01&theme=lava
+  Walls, floor and gates come from the same builders mazeGame.js uses
+  (mazeTheme3d.js); the LIGHTS are a stand-in for Ball Smack's scene3d.js, so
+  judge materials here, not final brightness.
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "../node_modules/three/build/three.module.js"
+} }
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { resolveLevelTheme, makeWallGeometry, makeGateMaterial, makeMoltenGateMaterial, buildHoleMeshes,
+         makeHoleMaterial, makeGoalMaterial, makeBallMaterial, makeIceMaterial } from '../mazeTheme3d.js';
+import { tickSurfaces } from '../mazeSurface3d.js';
+import { gateSpecAt, gateBurning } from '../mazeHazards.js';
+import { buildLevelProps } from '../mazeProps3d.js';
+import { buildFloorAndWalls } from '../levelDressing3d.js';
+
+const q = new URLSearchParams(location.search);
+const data = await (await fetch('../mazeLevels.json')).json();
+const levels = Array.isArray(data) ? data : data.levels;
+const lv = levels.find(l => l.id === q.get('level')) || levels[levels.length - 1];
+// ?theme= shows the level in another theme; ?blend= sets how far toward the
+// forest a world 1 level is (0..1), to see any stage of it.
+const theme = resolveLevelTheme({
+    ...lv,
+    theme: q.get('theme') || lv.theme,
+    themeTo: q.get('theme') ? null : lv.themeTo,
+    blend: q.has('blend') ? Number(q.get('blend')) : lv.blend
+});
+const WALL_HEIGHT = 0.55;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(theme.backdropColor);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 1.2));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.position.set(-4, 12, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 30 });
+sun.shadow.bias = -0.0005;
+scene.add(sun);
+
+const hd = lv.size.d / 2, hw = lv.size.w / 2, t = 0.4;
+const rails = [
+    { x: 0, z: -hd - t / 2, w: lv.size.w + t * 2, d: t }, { x: 0, z: hd + t / 2, w: lv.size.w + t * 2, d: t },
+    { x: -hw - t / 2, z: 0, w: t, d: lv.size.d }, { x: hw + t / 2, z: 0, w: t, d: lv.size.d }
+];
+const built = buildFloorAndWalls(lv, lv.walls.concat(rails), theme, { height: WALL_HEIGHT });
+scene.add(built.group);
+
+const gateMat = makeGateMaterial(theme);
+const moltenGlows = [];
+(lv.gates || []).forEach((g, i) => {
+    const mat = g.molten ? makeMoltenGateMaterial(theme) : gateMat;
+    if (g.molten) moltenGlows.push({ g, glow: mat.userData.surfaceUniforms.mrGlow });
+    const m = new THREE.Mesh(makeWallGeometry(theme, [{ x: 0, z: 0, w: g.w, d: g.d }],
+        { height: WALL_HEIGHT, reach: lv.ballRadius, seed: i + 1 }), mat);
+    const at = gateSpecAt(g, 0);
+    m.position.set(at.x, 0, at.z);
+    m.castShadow = m.receiveShadow = true;
+    scene.add(m);
+});
+
+// Ice baked into level space, as the game's instanced quads are, so the ice
+// pattern lands the same way.
+for (const r of (lv.ice || [])) {
+    scene.add(new THREE.Mesh(new THREE.PlaneGeometry(r.w, r.d).rotateX(-Math.PI / 2).translate(r.x, 0.006, r.z), makeIceMaterial(theme)));
+}
+const props = buildLevelProps(lv);
+scene.add(props.group);
+scene.add(buildHoleMeshes(lv, theme));
+const goal = new THREE.Mesh(new THREE.RingGeometry(lv.goal.r * 0.62, lv.goal.r, 32), makeGoalMaterial(theme));
+goal.rotation.x = -Math.PI / 2; goal.position.set(lv.goal.x, 0.015, lv.goal.z); scene.add(goal);
+const ball = new THREE.Mesh(new THREE.SphereGeometry(lv.ballRadius, 32, 24), makeBallMaterial(theme));
+ball.position.set(lv.start.x, lv.ballRadius, lv.start.z); ball.castShadow = true; scene.add(ball);
+if (q.get('ball')) { const [bx, bz] = q.get('ball').split(',').map(Number); ball.position.set(bx, lv.ballRadius, bz); }
+
+// ?zoom=1 frames a close-up near the start, to judge rock up close;
+// &at=x,z moves that close-up to another spot (a gate, say).
+const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.1, 100);
+if (q.get('zoom')) {
+    const [ax, az] = (q.get('at') || `${lv.start.x},${lv.start.z}`).split(',').map(Number);
+    // &camh= lowers the close-up camera (default 3.2) to look along a wall.
+    const ch = Number(q.get('camh')) || 3.2;
+    camera.position.set(ax + 1.2 * ch / 3.2, ch, az + 3.0 * ch / 3.2);
+    camera.lookAt(ax, 0, az);
+} else {
+    const tilt = 10 * Math.PI / 180;
+    const fitD = (lv.size.d / 2 + 1.1) / Math.tan(24 * Math.PI / 180);
+    const fitW = (lv.size.w / 2 + 1.1) / Math.tan(24 * Math.PI / 180) / camera.aspect;
+    const dist = Math.max(fitD, fitW);
+    camera.position.set(0, Math.cos(tilt) * dist, 0.2 + Math.sin(tilt) * dist);
+    camera.lookAt(0, 0, 0.2);
+}
+
+let frames = 0;
+renderer.setAnimationLoop((ms) => {
+    tickSurfaces(ms / 1000);
+    props.tick(ms / 1000);
+    // Fans and icicles on page time here; ?t=ms freezes their clock there,
+    // to photograph a gust or a fall.
+    const runMs = q.has('t') ? Number(q.get('t')) : ms;
+    props.tickRun(runMs);
+    for (const mg of moltenGlows) mg.glow.value = gateBurning(mg.g, runMs) ? 2.85 : 0.25;
+    // ?ball=x,z puts the marble somewhere, to see a canopy fade over it.
+    if (built.forest) built.forest.tick(ball.position.x, ball.position.z, 16);
+    renderer.render(scene, camera);
+    if (++frames === 3) window.__previewReady = true;
+});
+</script>
+</body>
+</html>

@@ -181,9 +181,10 @@ export function reportGameCompleted(percent) {
 //     runs). Self-throttled to one per MIDGAME_MIN_GAP_MS on top of the SDK's
 //     own cooldown, so a player bouncing between menus is not shown one each
 //     time.
-//   - rewarded: only ever on a tap the player chose, for a reward the SERVER
-//     grants (server.js's AD REWARDS) -- this resolves true only when the ad
-//     ran to the end.
+//   - rewarded: only ever on a tap the player chose, for a reward the game
+//     grants (shopCatalog.js AD_REWARDS) -- this resolves true only when the
+//     ad ran to the end. Offer one only while adsAvailable(): CrazyGames
+//     forbids a rewarded button that cannot pay.
 // While an ad plays the game must be silent and paused: listeners registered
 // with onAdPlaying hear true/false (main.js suspends the audio context), and
 // a gameplay that was running is reported stopped for the ad's duration.
@@ -202,6 +203,21 @@ let lastAdFailure = null;
 const adListeners = new Set();
 export function onAdPlaying(fn) { adListeners.add(fn); return () => adListeners.delete(fn); }
 export function isAdPlaying() { return adPlaying; }
+// BUSY is wider than PLAYING: from the request until the ad is done or has
+// failed. CrazyGames requires that the player cannot progress meanwhile, so
+// main.js puts up an input shield for the whole of it.
+const busyListeners = new Set();
+export function onAdBusy(fn) { busyListeners.add(fn); return () => busyListeners.delete(fn); }
+function setAdBusy(on) {
+    adBusy = on;
+    busyListeners.forEach(fn => { try { fn(on); } catch (_) {} });
+}
+// Ads switched off for this game (Basic Launch) or by the platform: once an
+// ad says so, rewarded buttons stop being offered for the session.
+let adsOff = false;
+export function adsAvailable() {
+    return !!(features.ads && sdk && sdk.ad && typeof sdk.ad.requestAd === 'function' && !adsOff);
+}
 function setAdPlaying(on) {
     if (on === adPlaying) return;
     adPlaying = on;
@@ -212,7 +228,7 @@ function requestAd(kind) {
         if (!features.ads) return resolve(false);
         if (adBusy) { lastAdFailure = 'busy'; return resolve(false); }
         if (!sdk || !sdk.ad || typeof sdk.ad.requestAd !== 'function') { lastAdFailure = 'nosdk'; return resolve(false); }
-        adBusy = true;
+        setAdBusy(true);
         lastAdFailure = null;
         const resumeGameplay = gameplayActive;
         if (resumeGameplay) call(s => s.game.gameplayStop());
@@ -222,8 +238,10 @@ function requestAd(kind) {
             done = true;
             lastAdFailure = ok ? null : (why || 'other');
             clearTimeout(giveUp);
-            adBusy = false;
+            const k = String(why || '').toLowerCase();
+            if (!ok && (k.includes('basiclaunch') || k.includes('disabled'))) adsOff = true;
             setAdPlaying(false);
+            setAdBusy(false);
             if (resumeGameplay && gameplayActive) call(s => s.game.gameplayStart());
             resolve(ok);
         };
@@ -253,6 +271,28 @@ export function showMidgameAd() {
 export function showRewardedAd() {
     if (!features.ads) return Promise.resolve(false);
     return requestAd('rewarded');
+}
+
+// ---------------------------------------------------------------------------
+// Banners (CrazyGames in-game banners)
+// ---------------------------------------------------------------------------
+// Only on menu screens players read for a while (the store and the gear
+// page), never during play: CrazyGames' rule. A banner fills the container
+// element `id` (it must already have a size) with whatever responsive size
+// fits. Refreshed at most once per BANNER_MIN_REFRESH_MS and BANNER_MAX
+// times a session per container -- the platform's limits; showing the page
+// again sooner keeps the banner it already has.
+const BANNER_MIN_REFRESH_MS = 60 * 1000;
+const BANNER_MAX = 60;
+const banners = {};
+export function showBanner(id) {
+    if (!features.ads || !sdk || !sdk.banner || typeof sdk.banner.requestResponsiveBanner !== 'function') return Promise.resolve(false);
+    const b = banners[id] || (banners[id] = { at: 0, count: 0 });
+    const now = Date.now();
+    if (now - b.at < BANNER_MIN_REFRESH_MS || b.count >= BANNER_MAX) return Promise.resolve(false);
+    b.at = now; b.count++;
+    return Promise.resolve(call(s => s.banner.requestResponsiveBanner(id)))
+        .then(() => true, (e) => { console.info('[platform] banner ' + id + ': ' + (e && (e.code || e.message))); return false; });
 }
 
 // What to tell the player when showRewardedAd() resolved false. Codes are
@@ -404,4 +444,29 @@ export async function showPlatformLogin() {
     if (!sdk || !sdk.user) return false;
     try { return !!(await sdk.user.showAuthPrompt()); }
     catch (_) { return false; }   // cancelled, or a prompt already open
+}
+
+// ---------------------------------------------------------------------------
+// Save data (PlaneTilt's progress store, progressStore.js)
+// ---------------------------------------------------------------------------
+// One string per key. On CrazyGames this is the SDK's data module, which keeps
+// a guest's save on the device and syncs a signed-in player's to the cloud --
+// the same calls either way, so a guest who signs in keeps their progress. On
+// the web (and on CrazyGames with no SDK) it is localStorage. Either can be
+// unavailable (private mode, blocked storage); reads then return null and
+// writes report false, and the game plays on with progress kept in memory.
+export async function loadSave(key) {
+    await initPlatform();
+    if (sdk && sdk.data) {
+        const v = call(s => s.data.getItem(key));
+        return typeof v === 'string' ? v : null;
+    }
+    try { return g.localStorage ? g.localStorage.getItem(key) : null; } catch (_) { return null; }
+}
+
+export function writeSave(key, value) {
+    if (sdk && sdk.data) {
+        return call(s => { s.data.setItem(key, value); return true; }) === true;
+    }
+    try { if (!g.localStorage) return false; g.localStorage.setItem(key, value); return true; } catch (_) { return false; }
 }

@@ -1,4 +1,9 @@
-# CLAUDE.md -- Marble Rush
+# CLAUDE.md -- PlaneTilt
+
+The game was called Marble Rush until 2026-10-06 (renamed: "Marble Rush" is a
+registered VTech toy brand). The repo and the save key
+(`marbleRush.progress.v1`) keep the old name; never change the save key, or
+every player's progress is lost.
 
 Guidance for Claude working in this repo. The plan and its decisions are in
 `docs/PLAN.md`; read it first.
@@ -10,12 +15,22 @@ side game). The two repos now evolve separately. A fix to the shared physics,
 hazards, tilt math or generator should be ported to the other repo too; say so
 in the PR when one applies.
 
-Still coupled to Ball Smack, and Phase 0's job to cut: `mazeGame.js` imports
-`state.js`, `socket.js`, `scene3d.js`, `cosmetics.js`, `inputTap.js`,
-`uiSfx.js`, `diagnostics.js` and `settings.js`, none of which exist here. The
-plan replaces them with two seams: a **scene host** (`getScene`, `getCamera`,
-`onFrame`, `setExclusiveMode`, `requestRender`, owning its own renderer) and a
-**progress store** (`load`, `recordClear`, `spend`).
+Phase 0 cut the Ball Smack imports. What `mazeGame.js` borrowed now comes
+through two seams: the **scene host** (`sceneHost.js`: `getScene`,
+`getCamera`, `onFrame`, `setExclusiveMode`, `requestRender`, owning the one
+renderer) and the **progress store** (`progressStore.js`: `load`,
+`recordClear`, `spend`, saving through `platform.js`). `main.js` boots them.
+
+## Running and testing
+
+- `python3 -m http.server` in the repo root, open `/` (the importmap uses
+  `node_modules`, so `npm install` first).
+- `npm test` is the Node suite. `npm run test:browser` boots the page in
+  Chromium and plays level 1; `npm run test:browser:bundle` does the same
+  against the built CrazyGames bundle. Run the browser test for any change to
+  `mazeGame.js`, `main.js`, `index.html` or the seams.
+- `scripts/themePreview.html?level=w1_10&theme=lava` renders any level in any
+  theme, for screenshots of visual changes.
 
 ## Rules that carry over from Ball Smack
 
