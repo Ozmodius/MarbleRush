@@ -119,6 +119,11 @@ export function renderStore() {
     }
 
     list.append(h('p', 'shop-section', 'UPGRADES'));
+    // A FREE STEP for a rewarded ad: one tier, on the cheaper tiers only, once
+    // per AD_REWARDS.upgradeCooldownMs. While it cools down a line says when.
+    const adFree = adsAvailable();
+    const upWait = adFree ? ctx.store.adUpgradeWaitMs() : 0;
+    if (adFree && upWait > 0) list.append(h('p', 'shop-note', `Next free upgrade step in ${Math.ceil(upWait / 60000)} min`));
     for (const id of UPGRADE_IDS) {
         const u = UPGRADES[id];
         const tier = p.upgrades[id] || 0;
@@ -130,7 +135,25 @@ export function renderStore() {
                 renderStore();
             });
         if (price === null) btn.disabled = true;
-        list.append(row(u.name, u.blurb, [pips(tier, u.prices.length), btn]));
+        const side = [pips(tier, u.prices.length)];
+        if (adFree && !upWait && ctx.store.adUpgradeEligible(id)) {
+            const f = h('button', 'shop-buy maze-btn maze-btn-ad shop-free');
+            f.type = 'button';
+            f.append(h('span', 'ad-play', '▶'), document.createTextNode('FREE'));
+            f.setAttribute('aria-label', `Watch an ad for a free ${u.name} upgrade`);
+            f.addEventListener('click', async (e) => {
+                e.preventDefault();
+                f.disabled = true;
+                const ok = await showRewardedAd();
+                if (ok && ctx.store.adUpgrade(id).ok) { say('storeMsg', `${u.name} upgraded to tier ${tier + 1}, free`, true); try { sfx.coin(); } catch (_) { /* ignore */ } }
+                else if (!ok) say('storeMsg', adFailureMessage(), false);
+                renderStore();
+                changed();
+            });
+            side.push(f);
+        }
+        side.push(btn);
+        list.append(row(u.name, u.blurb, side));
     }
 
     list.append(h('p', 'shop-section', 'POWER-UPS'));

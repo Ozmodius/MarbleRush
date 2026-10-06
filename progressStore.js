@@ -34,8 +34,9 @@ export function freshProgress() {
         // The shop (shopCatalog.js). Added after the first saves existed, so
         // parseProgress fills them in for a save that predates them.
         marbles: ['classic'], marble: 'classic', upgrades: {}, prizeUses: {},
-        // When the store's free-coins ad last paid (AD_REWARDS.coinsCooldownMs).
-        adCoinsAt: 0
+        // When the store's free-coins ad last paid (AD_REWARDS.coinsCooldownMs),
+        // and when the last free upgrade step was given (upgradeCooldownMs).
+        adCoinsAt: 0, adUpgradeAt: 0
     };
 }
 
@@ -70,6 +71,7 @@ export function parseProgress(text) {
     if (Array.isArray(raw.marbles)) p.marbles = ['classic', ...raw.marbles.filter(id => MARBLES[id] && id !== 'classic')];
     p.marble = p.marbles.includes(raw.marble) ? raw.marble : 'classic';
     p.adCoinsAt = Math.max(0, Number(raw.adCoinsAt) || 0);
+    p.adUpgradeAt = Math.max(0, Number(raw.adUpgradeAt) || 0);
     return p;
 }
 
@@ -243,6 +245,25 @@ export function adDoubleClear(progress, earned) {
     p.wallet += n;
     return { progress: p, ok: true, amount: n };
 }
+// A free upgrade step: the next tier of `id`, if it is cheap enough to be
+// given away (AD_REWARDS.upgradeMaxPrice) and the cooldown is over.
+export function adUpgradeEligible(progress, id) {
+    const price = upgradePrice(progress, id);
+    return price !== null && price <= AD_REWARDS.upgradeMaxPrice;
+}
+export function adUpgradeWaitMs(progress, now = Date.now()) {
+    return Math.max(0, (progress.adUpgradeAt || 0) + AD_REWARDS.upgradeCooldownMs - now);
+}
+export function adUpgrade(progress, id, now = Date.now()) {
+    if (!UPGRADES[id]) return { progress, ok: false, reason: 'unknown' };
+    if (upgradePrice(progress, id) === null) return { progress, ok: false, reason: 'maxed' };
+    if (!adUpgradeEligible(progress, id)) return { progress, ok: false, reason: 'too-dear' };
+    if (adUpgradeWaitMs(progress, now) > 0) return { progress, ok: false, reason: 'cooldown' };
+    const p = JSON.parse(JSON.stringify(progress));
+    p.upgrades[id] = (p.upgrades[id] || 0) + 1;
+    p.adUpgradeAt = now;
+    return { progress: p, ok: true };
+}
 export function adCharge(progress, id) {
     if (!CHARGES[id]) return { progress, ok: false, reason: 'unknown' };
     const p = JSON.parse(JSON.stringify(progress));
@@ -293,6 +314,9 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         adCoins: () => apply(adCoins(progress)),
         adCoinsWaitMs: () => adCoinsWaitMs(progress),
         adDoubleClear: earned => { const out = adDoubleClear(progress, earned); apply(out); return { ok: out.ok, amount: out.amount || 0 }; },
-        adCharge: id => apply(adCharge(progress, id))
+        adCharge: id => apply(adCharge(progress, id)),
+        adUpgrade: id => apply(adUpgrade(progress, id)),
+        adUpgradeEligible: id => adUpgradeEligible(progress, id),
+        adUpgradeWaitMs: () => adUpgradeWaitMs(progress)
     };
 }

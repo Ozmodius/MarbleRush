@@ -546,3 +546,9 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
 @media (min-width: 760px) { .ad-banner { height: 90px; } }
 .ad-shield { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0, 0, 0, 0.55); color: var(--ink-dim); letter-spacing: 0.3em; font-size: 0.8rem; }
 .shop-buy.maze-btn-ad { color: #fff; }
+.shop-note { margin: -2px 0 8px; font-size: 0.75rem; color: var(--ink-dim); }
+/* A row offering a free step stacks its controls -- pips, FREE, price -- so
+   the description keeps its width on a phone. */
+.shop-rowside:has(.shop-free) { flex-direction: column; align-items: stretch; gap: 6px; }
+.shop-rowside:has(.shop-free) .shop-pips { align-self: center; }
+.shop-free { justify-content: center; padding-top: 7px; padding-bottom: 7px; }

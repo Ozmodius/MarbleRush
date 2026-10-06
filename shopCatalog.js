@@ -95,7 +95,11 @@ export const PRIZE_IDS = Object.keys(PRIZES);
 //                  of run -- a fall in the first seconds costs nothing to retry.
 //   try a marble   (Gear page) an unowned marble for the next level, every
 //                  retry of it, then gone -- never ownership, never saved.
-export const AD_REWARDS = { coins: 60, coinsCooldownMs: 3 * 60 * 1000, doubleCap: 500, reviveAfterMs: 8000 };
+//   upgrade step   (Store) the next tier of an upgrade, free, once per
+//                  upgradeCooldownMs, and only for tiers priced at most
+//                  upgradeMaxPrice -- the top tiers stay something to save for.
+export const AD_REWARDS = { coins: 60, coinsCooldownMs: 3 * 60 * 1000, doubleCap: 500, reviveAfterMs: 8000,
+    upgradeCooldownMs: 30 * 60 * 1000, upgradeMaxPrice: 600 };
 
 // The ball a player will roll: their marble plus their upgrades. One function
 // so the profile page's stat bars and buildWorld() can never disagree.

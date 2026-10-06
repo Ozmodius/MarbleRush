@@ -78,7 +78,11 @@ This file records the decisions so they travel with the code.
     starts the next level with that marble, for that level and its retries
     only; leaving or moving on ends it; never ownership, never saved. A clear
     on a trial points to its price in Gear.
-  Not built yet from the list above: a free upgrade step, reveal the route. Watch which rewarded buttons get tapped before
+  - rewarded FREE upgrade step in the Store (added 2026-10-06): the next
+    tier of any upgrade, free, once per 30 minutes (surviving a reload), and
+    only for tiers priced 600 or less -- the top tier of each stays a thing
+    to save for.
+  Not built yet from the list above: reveal the route. Watch which rewarded buttons get tapped before
   adding more.
 
 ## Phasing

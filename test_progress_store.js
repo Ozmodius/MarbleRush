@@ -107,6 +107,21 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const ch = S.adCharge(q, 'shield');
     check(ch.ok && ch.progress.charges.shield === 1 && !S.adCharge(q, 'rocket').ok, 'an ad charge adds one known power-up');
 
+    // 9. A free upgrade step: the next tier, only a cheap one, once per cooldown.
+    let u = S.freshProgress();
+    const t0 = 5000000;
+    let up = S.adUpgrade(u, 'grip', t0);
+    check(up.ok && up.progress.upgrades.grip === 1 && up.progress.wallet === 0, 'a free upgrade step adds one tier and costs nothing');
+    u = up.progress;
+    check(!S.adUpgrade(u, 'brakes', t0 + 1000).ok, 'and only one per cooldown, across upgrades');
+    check(!S.adUpgrade(S.parseProgress(JSON.stringify(u)), 'brakes', t0 + 1000).ok, 'a reload does not reset it');
+    const later = t0 + C.AD_REWARDS.upgradeCooldownMs;
+    up = S.adUpgrade(u, 'grip', later);
+    check(up.ok && up.progress.upgrades.grip === 2, 'it gives again once the cooldown is over');
+    check(S.adUpgrade(up.progress, 'grip', later + C.AD_REWARDS.upgradeCooldownMs).reason === 'too-dear', `a top tier (${C.UPGRADES.grip.prices[2]}) is never given away`);
+    check(!S.adUpgrade(u, 'jetpack', later).ok, 'unknown upgrades are refused');
+    check(C.UPGRADE_IDS.every(id => C.UPGRADES[id].prices[0] <= C.AD_REWARDS.upgradeMaxPrice), 'every upgrade has a first step an ad can give');
+
     if (failures.length) {
         console.error('FAIL: progress store\n - ' + failures.join('\n - '));
         process.exitCode = 1;

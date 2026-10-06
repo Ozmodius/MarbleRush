@@ -530,6 +530,15 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(w1 === w0 + 60, `a finished free-coins ad pays 60 (wallet ${w0} -> ${w1})`);
         check(/IN \d+ MIN/.test(await freeBtn.textContent()) && await freeBtn.isDisabled(), 'then the free coins wait out their cooldown');
         check(await ad.isHidden('#adShield'), 'the ad shield is down once the ad is over');
+        // A FREE upgrade step: one per cooldown, then the buttons go and a
+        // line says when the next one comes.
+        const freeUp = ad.locator('.shop-row', { has: ad.locator('.shop-rowtitle', { hasText: /^Grip$/ }) }).locator('.shop-free');
+        check(await ad.locator('.shop-free').count() === 4, `every upgrade offers a free step (got ${await ad.locator('.shop-free').count()})`);
+        await freeUp.tap();
+        await ad.waitForFunction(() => (window.__mazeDebug.progress().upgrades.grip || 0) === 1, null, { timeout: 5000 }).catch(() => {});
+        const upP = await adbg('progress');
+        check(upP.upgrades.grip === 1 && upP.wallet === w1, `a free step adds a Grip tier and costs nothing (${JSON.stringify(upP.upgrades)}, wallet ${upP.wallet})`);
+        check(await ad.locator('.shop-free').count() === 0 && /Next free upgrade step in \d+ min/.test(await ad.textContent('#storeList')), 'then free steps wait out their cooldown, and say so');
         await ad.tap('#tab_gear');
         check((await adLog()).includes('banner:profileBanner'), 'the gear page asks for a banner');
         await ad.tap('#tab_store');
