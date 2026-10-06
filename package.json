@@ -9,7 +9,9 @@
     "levels": "node scripts/generateMazeLevels.js",
     "test:browser": "node test_maze_boot.js",
     "build:crazygames": "node scripts/buildCrazyGames.js",
-    "test:browser:bundle": "npm run build:crazygames && MAZE_ROOT=dist/crazygames node test_maze_boot.js"
+    "test:browser:bundle": "npm run build:crazygames && MAZE_ROOT=dist/crazygames node test_maze_boot.js",
+    "build:web": "node scripts/buildCrazyGames.js --web",
+    "test:browser:web": "npm run build:web && MAZE_ROOT=dist/web node test_maze_boot.js"
   },
   "dependencies": {
     "cannon-es": "^0.20.0",

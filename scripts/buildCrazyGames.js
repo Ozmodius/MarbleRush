@@ -17,6 +17,12 @@
 // platform.js reads it (CLAUDE.md: one codebase, two platforms).
 //
 // Run: node scripts/buildCrazyGames.js   (or npm run build:crazygames)
+//
+// --web builds the same flat bundle WITHOUT the platform flag or the SDK, into
+// dist/web/ and with no zip: the plain web game, for GitHub Pages (published
+// by .github/workflows/pages.yml). Pages serves only what is committed, and
+// node_modules is not, so the dev page's importmap cannot load there; the
+// bundle has three and cannon-es inside it.
 
 const fs = require('fs');
 const path = require('path');
@@ -24,10 +30,11 @@ const { execFileSync } = require('child_process');
 const esbuild = require('esbuild');
 
 const ROOT = path.join(__dirname, '..');
-const OUT = path.join(ROOT, 'dist', 'crazygames');
-const ZIP = path.join(ROOT, 'dist', 'planetilt-crazygames.zip');
+const WEB = process.argv.includes('--web');
+const OUT = path.join(ROOT, 'dist', WEB ? 'web' : 'crazygames');
+const ZIP = WEB ? null : path.join(ROOT, 'dist', 'planetilt-crazygames.zip');
 
-const PLATFORM_TAGS = [
+const PLATFORM_TAGS = WEB ? '' : [
     '<script>window.__PLATFORM__ = \'crazygames\';</script>',
     '<script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>'
 ].join('\n');
@@ -69,12 +76,15 @@ async function build() {
     const dirs = entries.filter(e => e.isDirectory());
     if (dirs.length) throw new Error('bundle is not flat: ' + dirs.map(d => d.name).join(', '));
 
-    fs.rmSync(ZIP, { force: true });
-    // -j: junk paths, so the zip is flat whatever the working directory.
-    execFileSync('zip', ['-q', '-j', ZIP, ...entries.map(e => path.join(OUT, e.name))]);
-
     const kb = f => (fs.statSync(path.join(OUT, f)).size / 1024).toFixed(0) + ' KB';
-    console.log('Built ' + path.relative(ROOT, ZIP) + ' (' + (fs.statSync(ZIP).size / 1024).toFixed(0) + ' KB):');
+    if (ZIP) {
+        fs.rmSync(ZIP, { force: true });
+        // -j: junk paths, so the zip is flat whatever the working directory.
+        execFileSync('zip', ['-q', '-j', ZIP, ...entries.map(e => path.join(OUT, e.name))]);
+        console.log('Built ' + path.relative(ROOT, ZIP) + ' (' + (fs.statSync(ZIP).size / 1024).toFixed(0) + ' KB):');
+    } else {
+        console.log('Built ' + path.relative(ROOT, OUT) + '/ (web, no SDK):');
+    }
     for (const e of entries) console.log('  ' + e.name.padEnd(18) + kb(e.name));
 }
 

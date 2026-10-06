@@ -20,8 +20,19 @@ Arrow keys / WASD or drag to tilt on desktop; the phone's tilt sensor on a phone
 
 ## Play it on your phone
 
-Phones only hand the tilt sensor to pages served over **HTTPS**, so there are
-two ways, depending on whether you want tilt.
+**Easiest: GitHub Pages.** Every push to `main` builds the web game and
+publishes it (`.github/workflows/pages.yml`) at
+**https://ozmodius.github.io/MarbleRush/** -- HTTPS, so tilt works. Open it
+on the phone, tap PLAY then START, and allow motion when asked. (One-time
+setup: repo Settings -> Pages -> Source: "GitHub Actions".)
+
+Pages publishes the built bundle, not the repo files: the dev page loads
+three.js from `node_modules`, which is not committed, so served straight from
+the repo it hangs on loading.
+
+From your own computer instead -- phones only hand the tilt sensor to pages
+served over **HTTPS**, so there are two ways, depending on whether you want
+tilt.
 
 **With tilt (HTTPS through a free tunnel).** On your computer, in the repo:
 
@@ -61,6 +72,7 @@ npm test                      # levels, hazards, tilt, walls, pickups, progress 
 npm run test:browser          # boot to home, use the tabs, play level 1, shop, pick a marble
 npm run levels                # regenerate mazeLevels.json (seeded, reproduces exactly)
 npm run build:crazygames      # flat bundle + dist/planetilt-crazygames.zip
+npm run build:web             # the same bundle without the SDK, for GitHub Pages (dist/web)
 npm run test:browser:bundle   # the browser test against that bundle
 ```
 
