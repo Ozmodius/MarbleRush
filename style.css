@@ -381,6 +381,55 @@ html, body {
 .home-worlddone { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .home-worldtrack { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
 .home-worldbar { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+/* The PlaneTilt wordmark: system fonts only (the bundle ships no font files),
+   heaviest weight, leaning like a tilted board. The i's dot is a marble. */
+.home-logo {
+  margin: 4px 0 0;
+  align-self: center;
+  font-size: clamp(2.2rem, 11vw, 3.4rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  transform: rotate(-4deg);
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.45)) drop-shadow(0 8px 16px rgba(0, 0, 0, 0.55));
+  white-space: nowrap;
+}
+.logo-plane, .logo-tilt { -webkit-background-clip: text; background-clip: text; color: transparent; }
+.logo-plane { background-image: linear-gradient(#fffaf0, #e8d6b8); }
+.logo-tilt { background-image: linear-gradient(#ffd77a, #f0b23a 55%, #d4861c); }
+.logo-i {
+  /* Drawn, not typed: a stem at x-height plus a marble for the dot, so it is
+     the same on every device whatever fonts it has. An inline-block with no
+     text sits its bottom on the baseline. */
+  display: inline-block;
+  position: relative;
+  width: 0.27em;
+  height: 0.53em;
+  margin: 0 0.02em;
+}
+.logo-i::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 0.17em;
+  height: 100%;
+  transform: translateX(-50%);
+  border-radius: 0.02em;
+  background: linear-gradient(#ffd77a, #f0b23a 55%, #d4861c);
+}
+.logo-i::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -0.33em;
+  width: 0.25em;
+  height: 0.25em;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff, #ffd77a 35%, #e0782a 75%, #8a3c10);
+  box-shadow: 0 0 0.18em rgba(255, 190, 90, 0.7);
+}
 .home-play {
   position: absolute;
   left: 0;
