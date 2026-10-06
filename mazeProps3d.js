@@ -84,14 +84,73 @@ export function buildConveyors(belts, tracked = []) {
 // Coins: every coin of a level in one InstancedMesh, spinning on the spot. A
 // taken coin is scaled to nothing rather than removed, so the instance count
 // never changes mid-run; reset() brings them all back for the next attempt.
+// A MINTED COIN, drawn once and shared: the face (colour and a matching bump
+// map) and the reeded edge. Canvas-made, so the flat bundle ships no images.
+let _coinTex = null;
+function coinTextures() {
+    if (_coinTex) return _coinTex;
+    const N = 128, c = N / 2;
+    const face = document.createElement('canvas'), bump = document.createElement('canvas');
+    face.width = face.height = bump.width = bump.height = N;
+    const f = face.getContext('2d'), b = bump.getContext('2d');
+    // A five-pointed star path, centred.
+    const star = (g, r) => {
+        g.beginPath();
+        for (let k = 0; k < 10; k++) {
+            const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * 0.45 : r;
+            g.lineTo(c + Math.cos(a) * rr, c + Math.sin(a) * rr);
+        }
+        g.closePath();
+    };
+    // Colour: a warm gold field, brighter raised parts, darker recesses.
+    const field = f.createRadialGradient(c - 14, c - 18, 6, c, c, c);
+    field.addColorStop(0, '#f4c24a'); field.addColorStop(0.7, '#d99a1c'); field.addColorStop(1, '#a86d0c');
+    f.fillStyle = field; f.fillRect(0, 0, N, N);
+    f.lineWidth = 9; f.strokeStyle = '#ffe07a'; f.beginPath(); f.arc(c, c, c - 5, 0, Math.PI * 2); f.stroke();       // rim
+    f.lineWidth = 2; f.strokeStyle = '#b07610'; f.beginPath(); f.arc(c, c, c - 11, 0, Math.PI * 2); f.stroke();      // rim's inner edge
+    f.fillStyle = '#ffe48f';
+    for (let k = 0; k < 28; k++) {                                                                                     // bead ring
+        const a = k / 28 * Math.PI * 2;
+        f.beginPath(); f.arc(c + Math.cos(a) * (c - 18), c + Math.sin(a) * (c - 18), 2.2, 0, Math.PI * 2); f.fill();
+    }
+    star(f, 32); f.fillStyle = '#7a4c06'; f.save(); f.translate(2.5, 3.5); f.fill(); f.restore();                   // emboss shadow
+    star(f, 32); f.fillStyle = '#fff0a8'; f.fill();
+    f.lineWidth = 2; f.strokeStyle = '#8a5a08'; f.stroke();
+    // Height: the same shapes in grey, raised parts light.
+    b.fillStyle = '#5a5a5a'; b.fillRect(0, 0, N, N);
+    b.lineWidth = 9; b.strokeStyle = '#ffffff'; b.beginPath(); b.arc(c, c, c - 5, 0, Math.PI * 2); b.stroke();
+    b.fillStyle = '#d0d0d0';
+    for (let k = 0; k < 28; k++) {
+        const a = k / 28 * Math.PI * 2;
+        b.beginPath(); b.arc(c + Math.cos(a) * (c - 18), c + Math.sin(a) * (c - 18), 2.2, 0, Math.PI * 2); b.fill();
+    }
+    star(b, 32); b.fillStyle = '#f0f0f0'; b.fill();
+    // The edge: fine vertical ridges (reeding), repeated round the rim.
+    const edge = document.createElement('canvas');
+    edge.width = 64; edge.height = 8;
+    const e = edge.getContext('2d');
+    for (let x = 0; x < 64; x++) { const v = 150 + 90 * Math.sin(x / 64 * Math.PI * 2 * 8); e.fillStyle = `rgb(${v},${v},${v})`; e.fillRect(x, 0, 1, 8); }
+    const tex = (cv, srgb) => { const t = new THREE.CanvasTexture(cv); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
+    const edgeBump = tex(edge, false);
+    edgeBump.wrapS = THREE.RepeatWrapping; edgeBump.repeat.set(3, 1);
+    _coinTex = { face: tex(face, true), bump: tex(bump, false), edgeBump };
+    return _coinTex;
+}
+
 export function buildCoins(coins, tracked = []) {
     const list = coins || [];
-    const geo = new THREE.CylinderGeometry(COIN_RADIUS, COIN_RADIUS, COIN_RADIUS * 0.28, 24).rotateX(Math.PI / 2);
+    const geo = new THREE.CylinderGeometry(COIN_RADIUS, COIN_RADIUS, COIN_RADIUS * 0.28, 32).rotateX(Math.PI / 2);
     // Gold that reads without an environment map, the same trap the win star
-    // documents: a little emissive keeps it bright under any theme's lights.
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffc83a, metalness: 0.35, roughness: 0.3, emissive: 0xc88400, emissiveIntensity: 0.6 });
-    tracked.push(geo, mat);
-    const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, list.length));
+    // documents: a little emissive keeps it bright under any theme's lights --
+    // through the face texture, so the emblem shows even in the glow. The
+    // cylinder's groups are [edge, top, bottom]: a reeded edge, minted faces.
+    const T = coinTextures();
+    const faceMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: T.face, bumpMap: T.bump, bumpScale: 2.2,
+        metalness: 0.45, roughness: 0.32, emissive: 0xffffff, emissiveMap: T.face, emissiveIntensity: 0.45 });
+    const edgeMat = new THREE.MeshStandardMaterial({ color: 0xe8a826, bumpMap: T.edgeBump, bumpScale: 1.5,
+        metalness: 0.45, roughness: 0.35, emissive: 0xa86e00, emissiveIntensity: 0.45 });
+    tracked.push(geo, faceMat, edgeMat);
+    const mesh = new THREE.InstancedMesh(geo, [edgeMat, faceMat, faceMat], Math.max(1, list.length));
     mesh.count = list.length;
     mesh.castShadow = true;
     const taken = new Set();
