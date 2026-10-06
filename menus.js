@@ -1,6 +1,5 @@
 import { tierForMs, isUnlocked } from './progressStore.js';
-import { worldName } from './worlds.js';
-import { PRIZES } from './shopCatalog.js';
+import { PRIZES, CHARGE_IDS } from './shopCatalog.js';
 import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 import { onFrame, getRenderer } from './sceneHost.js';
 import { showBanner } from './platform.js';
@@ -54,23 +53,14 @@ function renderWallets() {
     for (const id of ['mazeWallet', 'storeWallet', 'profileWallet', 'homeWallet']) { const e = $(id); if (e) e.textContent = w; }
 }
 
-// The home screen's top HUD: the level PLAY will start, its world and how far
-// through it the player is, their medals, and their coins.
+// The home screen's top HUD: the player's gold (coins), medals and power-ups,
+// each labeled. The level PLAY will start shows under the logo, by the button.
 function renderHome() {
     const p = ctx.store.get();
     const levels = ctx.game.getLevels();
     const lv = ctx.game.nextLevel();
     if (!lv) return;
-    const inWorld = levels.filter(l => l.world === lv.world);
-    const slot = inWorld.findIndex(l => l.id === lv.id) + 1;
-    const doneInWorld = inWorld.filter(l => p.cleared[l.id]).length;
     const allDone = levels.every(l => p.cleared[l.id]);
-
-    $('homeLevelNum').textContent = 'LEVEL ' + lv.index;
-    $('homeLevelName').textContent = lv.name;
-    $('homeWorld').textContent = `World ${lv.world}  ·  ${worldName(lv.world)}  ·  ${slot} of ${inWorld.length}`;
-    $('homeWorldBar').style.width = (100 * doneInWorld / Math.max(1, inWorld.length)).toFixed(0) + '%';
-    $('homeWorldDone').textContent = `${doneInWorld} / ${inWorld.length} cleared`;
 
     // Medals by best time, across every level (progressStore.js tierForMs).
     const medals = { gold: 0, silver: 0, bronze: 0 };
@@ -80,6 +70,7 @@ function renderHome() {
         if (t) medals[t]++;
     }
     for (const t of Object.keys(medals)) $('homeMedal_' + t).textContent = String(medals[t]);
+    for (const id of CHARGE_IDS) $('homeCharge_' + id).textContent = String(p.charges?.[id] || 0);
 
     const best = p.cleared[lv.id];
     $('homeGoal').textContent = best

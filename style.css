@@ -353,11 +353,9 @@ html, body {
   gap: 10px;
   background: linear-gradient(rgba(10, 7, 5, 0.85), rgba(10, 7, 5, 0.55) 70%, rgba(10, 7, 5, 0));
 }
-.home-hudrow { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.home-level { display: flex; flex-direction: column; min-width: 0; }
-.home-levelnum { font-size: 0.75rem; letter-spacing: 0.22em; color: var(--accent); }
-.home-levelname { font-size: 1.45rem; letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.home-currency { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+.home-stats { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.home-stat { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.home-statlabel { font-size: 0.65rem; letter-spacing: 0.2em; color: var(--ink-dim); }
 .hud-pill {
   display: inline-flex;
   align-items: center;
@@ -376,11 +374,9 @@ html, body {
 .medal-gold { background: radial-gradient(circle at 35% 35%, #fff1b0, #e3b02e 65%, #9a6f0c); }
 .medal-silver { background: radial-gradient(circle at 35% 35%, #ffffff, #b9c2cc 65%, #6e7781); }
 .medal-bronze { background: radial-gradient(circle at 35% 35%, #ffd2a8, #c27a3e 65%, #7a4416); }
-.home-world { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; font-size: 0.8rem; }
-.home-worldname { color: var(--ink-dim); letter-spacing: 0.04em; }
-.home-worlddone { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
-.home-worldtrack { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-.home-worldbar { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.hud-powerups { font-size: 0.85rem; gap: 8px; }
+.home-pu { display: inline-flex; align-items: center; }
+.home-pu .pu-dot { width: 0.7em; height: 0.7em; border-radius: 2px; margin-right: 5px; }
 /* The PlaneTilt wordmark: system fonts only (the bundle ships no font files),
    heaviest weight, leaning like a tilted board. The i's dot is a marble. */
 .home-logo {

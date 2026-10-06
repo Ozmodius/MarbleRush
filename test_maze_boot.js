@@ -64,8 +64,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await page.isHidden('#bootMsg'), 'the boot message must clear once the game is up');
         check(await page.isVisible('#tabBar'), 'the tab bar shows on the home screen');
         check(await page.evaluate(() => window.__mazeDebug.menuPhase()), 'the home planet is built behind the home screen');
-        check((await page.textContent('#homeLevelNum')).trim() === 'LEVEL 1' && (await page.textContent('#homeLevelName')).trim() === levels[0].name,
-            `home offers level 1 on a fresh save, shows "${await page.textContent('#homeLevelNum')} ${await page.textContent('#homeLevelName')}"`);
+        check(!(await page.$('#homeLevelNum')) && !(await page.$('#homeWorld')), 'the home HUD carries no level info');
+        const homeLabels = await page.$$eval('.home-statlabel', els => els.map(e => e.textContent.trim()));
+        check(['GOLD', 'MEDALS', 'POWER-UPS'].every(l => homeLabels.includes(l)), `the home HUD labels gold, medals and power-ups, shows ${homeLabels}`);
+        for (const id of ['shield', 'slowmo', 'magnet']) check((await page.textContent('#homeCharge_' + id)).trim() === '0', `home shows no ${id} on a fresh save`);
         check((await page.textContent('#homeWallet')).trim() === '0', 'home shows the coin balance');
         // --- the worlds tab lists the ladder ------------------------------
         await page.tap('#tab_worlds');
@@ -405,7 +407,6 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // --- progress survives a reload ----------------------------------
         await page.reload();
         await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
-        check((await page.textContent('#homeLevelNum')).trim() === 'LEVEL 2', 'after a clear and a reload, home offers level 2');
         await page.tap('#tab_worlds');
         const after = await page.$$eval('.level-node', els => els.map(e => ({ cleared: e.classList.contains('is-cleared'), next: e.classList.contains('is-next'), locked: e.disabled })));
         check(after[0].cleared, 'after a reload, level 1 shows as cleared');

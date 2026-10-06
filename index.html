@@ -28,26 +28,28 @@
 <!-- HOME: the current world turns behind this (planet3d.js) -->
 <section id="homeView" class="home" style="display:none">
   <header class="home-hud">
-    <div class="home-hudrow">
-      <div class="home-level">
-        <span id="homeLevelNum" class="home-levelnum"></span>
-        <span id="homeLevelName" class="home-levelname"></span>
+    <div class="home-stats">
+      <div class="home-stat">
+        <span class="home-statlabel">GOLD</span>
+        <span class="hud-pill hud-coins" title="Gold coins"><span class="coin-dot"></span><span id="homeWallet">0</span></span>
       </div>
-      <div class="home-currency">
-        <span class="hud-pill hud-coins" title="Coins"><span class="coin-dot"></span><span id="homeWallet">0</span></span>
+      <div class="home-stat">
+        <span class="home-statlabel">MEDALS</span>
         <span class="hud-pill hud-medals" title="Medals: gold, silver, bronze">
           <span class="medal medal-gold"></span><span id="homeMedal_gold">0</span>
           <span class="medal medal-silver"></span><span id="homeMedal_silver">0</span>
           <span class="medal medal-bronze"></span><span id="homeMedal_bronze">0</span>
         </span>
       </div>
+      <div class="home-stat">
+        <span class="home-statlabel">POWER-UPS</span>
+        <span class="hud-pill hud-powerups">
+          <span class="home-pu" title="Shield"><span class="pu-dot pu-shield"></span><span id="homeCharge_shield">0</span></span>
+          <span class="home-pu" title="Slow-mo"><span class="pu-dot pu-slowmo"></span><span id="homeCharge_slowmo">0</span></span>
+          <span class="home-pu" title="Magnet"><span class="pu-dot pu-magnet"></span><span id="homeCharge_magnet">0</span></span>
+        </span>
+      </div>
     </div>
-    <div class="home-world">
-      <span id="homeWorld" class="home-worldname"></span>
-      <span class="home-worldtrack"><span id="homeWorldBar" class="home-worldbar"></span></span>
-      <span id="homeWorldDone" class="home-worlddone"></span>
-    </div>
-    <!-- The wordmark: tilted like the board, the i dotted with a marble. -->
     <h1 class="home-logo" aria-label="PlaneTilt"><span class="logo-plane" aria-hidden="true">Plane</span><span class="logo-tilt" aria-hidden="true">T<span class="logo-i"></span>lt</span></h1>
   </header>
   <div class="home-play">
