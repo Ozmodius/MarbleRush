@@ -101,6 +101,38 @@ export const PRIZE_IDS = Object.keys(PRIZES);
 export const AD_REWARDS = { coins: 60, coinsCooldownMs: 3 * 60 * 1000, doubleCap: 500, reviveAfterMs: 8000,
     upgradeCooldownMs: 30 * 60 * 1000, upgradeMaxPrice: 600 };
 
+// --- daily rewards and missions (daily.js) ----------------------------------
+// A 7-day calendar: one claim per local calendar day, rising through the week.
+// Miss a day and the week starts again at day 1; after day 7 it loops. Totals
+// about 840 coins and 6 power-ups a week -- worth a few levels, never more than
+// playing (mazeLevels.json pays 120-360 a first clear).
+export const DAILY_CALENDAR = [
+    { coins: 50 },
+    { coins: 80 },
+    { coins: 50, charges: { shield: 1 } },
+    { coins: 120 },
+    { coins: 80, charges: { slowmo: 1, magnet: 1 } },
+    { coins: 160 },
+    { coins: 300, charges: { shield: 1, slowmo: 1, magnet: 1 } }
+];
+
+// Three missions a day, drawn from this pool by the date. `needs` keeps a
+// mission out of a day's draw when the player cannot do it yet (no level
+// cleared to beat, no power-ups to use). Counted by progressStore.js from
+// clears and spent charges -- the run itself reports nothing new.
+export const MISSIONS = {
+    clears:  { text: 'Clear 3 levels', goal: 3, reward: 60 },
+    coins:   { text: 'Collect 25 coins', goal: 25, reward: 50 },
+    silver:  { text: 'Earn silver or better twice', goal: 2, reward: 60 },
+    gold:    { text: 'Win a gold medal', goal: 1, reward: 80 },
+    sweep:   { text: 'Collect every coin in a level', goal: 1, reward: 60 },
+    best:    { text: 'Beat your best time on a level', goal: 1, reward: 70, needs: 'cleared' },
+    powerup: { text: 'Use 2 power-ups', goal: 2, reward: 50, needs: 'charges' }
+};
+export const MISSIONS_PER_DAY = 3;
+// Paid with the claim that completes the day's set.
+export const MISSIONS_BONUS = 100;
+
 // The ball a player will roll: their marble plus their upgrades. One function
 // so the profile page's stat bars and buildWorld() can never disagree.
 export function ballSetup(marbleId, upgrades = {}) {

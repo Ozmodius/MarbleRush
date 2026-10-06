@@ -85,6 +85,23 @@ This file records the decisions so they travel with the code.
   Not built yet from the list above: reveal the route. Watch which rewarded buttons get tapped before
   adding more.
 
+- **Retention pass** (decided 2026-10-06). Three client-side features, rules in
+  `daily.js` (tested by `test_daily.js`), tables in `shopCatalog.js`:
+  - *Daily reward*: a 7-day calendar, one claim per LOCAL calendar day,
+    ~840 coins and 6 power-ups a week; missing a day restarts at day 1, day 7
+    loops. Opens by itself once a session while unclaimed. A rewarded ad
+    doubles the day's coins once (CrazyGames only).
+  - *Daily missions*: three a day drawn from a pool by the date (a reload
+    cannot re-roll them), never one the player cannot do yet (beat-your-best
+    needs a clear; use-power-ups needs the charges). Counted by the progress
+    store from clears and spent charges -- the run reports nothing new.
+    Finishing all three pays a +100 bonus.
+  - *Near miss*: after a clear, the next medal above the player's best and
+    how far off the run was; within 1s (or 15% of that medal's time) RETRY
+    becomes the big button.
+  These pay coins outside levels, so they count against the shop ratio in
+  `mazeLevels.json`'s notes: about a level's pay a day for a daily player.
+
 ## Phasing
 
 | Phase | Size | Contents | Gate to the next |

@@ -56,6 +56,14 @@
   </header>
   <!-- Side rail: the free-coins rewarded ad, only where ads can pay -->
   <div class="home-side">
+    <button id="homeDailyBtn" class="side-btn side-daily" type="button">
+      <span class="side-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="9" width="17" height="11.5" rx="1.5"/><path d="M2.5 9h19V6.5h-19zM12 6.5v14"/><path d="M12 6.5C10 3 6.5 3.2 7 5.4c.3 1.2 2.6 1.1 5 1.1 2.4 0 4.7.1 5-1.1.5-2.2-3-2.4-5 1.1z"/></svg><span id="homeDailyBadge" class="side-badge" hidden>!</span></span>
+      <span class="side-label">DAILY</span>
+    </button>
+    <button id="homeMissionsBtn" class="side-btn side-missions" type="button">
+      <span class="side-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12a1.5 1.5 0 0 1 1.5 1.5v15a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 20V5A1.5 1.5 0 0 1 6 3.5z"/><path d="m8 9 1.5 1.5L12.5 7.5M8 15.5 9.5 17l3-3M14.5 9.5h2.5M14.5 16h2.5"/></svg><span id="homeMissionsBadge" class="side-badge" hidden></span></span>
+      <span class="side-label">MISSIONS</span>
+    </button>
     <button id="homeFreeCoins" class="side-btn side-free" type="button" style="display:none">
       <span class="side-icon"><span class="coin-icon"></span><span class="side-play" aria-hidden="true"></span></span>
       <span id="homeFreeLabel" class="side-label">FREE</span>
@@ -169,6 +177,7 @@
     <div class="fall-countdown"><span id="mazeFallBar"></span></div>
   </div>
   <div id="mazeWinPanel" class="maze-winpanel" style="display:none">
+    <p id="mazeNearMiss" class="near-miss" style="display:none"><span id="mazeNearMedal" class="medal"></span><span id="mazeNearText"></span></p>
     <button id="mazeDoubleBtn" class="maze-btn maze-btn-ad" type="button" style="display:none"><span class="ad-play">▶</span><span id="mazeDoubleText">×2 COINS</span></button>
     <button id="mazeNextBtn" class="maze-btn maze-btn-big" type="button">NEXT</button>
     <button id="mazeReplayBtn" class="maze-btn" type="button" style="display:none">REPLAY</button>
@@ -176,6 +185,31 @@
     <button id="mazeWinExitBtn" class="maze-btn" type="button" style="display:none">EXIT</button>
   </div>
 </section>
+
+<!-- DAILY REWARD: the 7-day calendar (daily.js, dailyUi.js) -->
+<div id="dailyPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="dailyTitle" hidden>
+  <div class="modal-card">
+    <button id="dailyCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+    <h2 id="dailyTitle" class="modal-title">DAILY REWARD</h2>
+    <p id="dailyNote" class="modal-note"></p>
+    <div id="dailyGrid" class="daily-grid"></div>
+    <div class="modal-actions">
+      <button id="dailyClaimBtn" class="maze-btn maze-btn-big" type="button">CLAIM</button>
+      <button id="dailyDoubleBtn" class="maze-btn maze-btn-ad" type="button" hidden><span class="ad-play">▶</span><span id="dailyDoubleText">×2 COINS</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- DAILY MISSIONS: three a day (daily.js, dailyUi.js) -->
+<div id="missionsPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="missionsTitle" hidden>
+  <div class="modal-card">
+    <button id="missionsCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+    <h2 id="missionsTitle" class="modal-title">DAILY MISSIONS</h2>
+    <p id="missionsNote" class="modal-note"></p>
+    <div id="missionsList" class="missions-list"></div>
+    <p id="missionsBonus" class="missions-bonus"></p>
+  </div>
+</div>
 
 <!-- Over everything while an ad is requested or playing: CrazyGames requires
      that the player cannot progress meanwhile (main.js, platform.js onAdBusy). -->

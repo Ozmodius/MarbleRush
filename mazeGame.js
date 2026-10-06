@@ -23,7 +23,8 @@ const marbleName = id => (MARBLES[id] ? MARBLES[id].name.toUpperCase() : String(
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { buildPlanet } from './planet3d.js';
 import { buildSolarSystem } from './solarSystem3d.js';
-import { isUnlocked } from './progressStore.js';
+import { isUnlocked, nearMiss } from './progressStore.js';
+import { MISSIONS } from './shopCatalog.js';
 import { setGameplayActive, features, showMidgameAd, showRewardedAd, adsAvailable, adFailureMessage, happytime, reportGameCompleted } from './platform.js';
 
 // PLANETILT -- the maze itself: level select, building a level, the run.
@@ -1144,6 +1145,7 @@ function win() {
     mazeGroup.rotation.set(0, 0, 0);
     try { uiSfx.open(); } catch (e) { /* ignore */ }
     showClearResult(result, ms);
+    showNearMiss(result);
     lastClear = result && result.accepted && result.earned > 0 ? result : null;
     rewardedThisBreak = false;
     const dbl = el('mazeDoubleText');
@@ -1161,6 +1163,29 @@ function win() {
     // NEXT MAZE only exists when there IS one. On the final level the panel
     // collapses to EXIT, rather than offering a button that would do nothing.
     showEl('mazeNextBtn', !!nextLevelAfter(level));
+}
+
+// THE NEAR MISS: after a clear that left a medal on the table, say which and
+// by how much -- and when it was close, make RETRY the big button, because a
+// player 0.4s off gold wants one more go far more than the next level.
+function showNearMiss(res) {
+    const nm = res && res.accepted ? nearMiss(level, res.runMs, res.bestMs) : null;
+    showEl('mazeNearMiss', !!nm);
+    const replay = el('mazeReplayBtn');
+    if (replay) {
+        replay.classList.toggle('maze-btn-big', !!(nm && nm.close));
+        replay.classList.toggle('is-retry', !!(nm && nm.close));
+        replay.textContent = nm && nm.close ? 'RETRY FOR ' + nm.tier.toUpperCase() : 'REPLAY';
+    }
+    if (!nm) return;
+    const medal = el('mazeNearMedal');
+    if (medal) medal.className = 'medal medal-' + nm.tier;
+    const p = el('mazeNearMiss');
+    if (p) p.classList.toggle('is-close', nm.close);
+    const gap = (nm.gapMs / 1000).toFixed(1) + 's';
+    el('mazeNearText').textContent = nm.close
+        ? `SO CLOSE!  ${gap} FROM ${nm.tier.toUpperCase()}`
+        : `${gap} FASTER FOR ${nm.tier.toUpperCase()}`;
 }
 
 function restart() {
@@ -1795,6 +1820,11 @@ function showClearResult(res, ms) {
     // re-run would read as the game being broken.
     const paid = res.earned > 0 ? '   +' + formatBearings(res.earned) : '';
     setStatus('CLEARED  ' + formatTime(res.runMs) + (icon ? '  ' + icon : '') + beaten + paid);
+    if (res.missionsDone && res.missionsDone.length) {
+        // A finished daily mission, after a beat: claimed on the home screen.
+        const names = res.missionsDone.map(id => MISSIONS[id] ? MISSIONS[id].text.toUpperCase() : id);
+        setTimeout(() => { if (phase === 'won') setStatus('MISSION DONE  ' + names.join('  ·  ')); }, res.prize ? 2800 : 1400);
+    }
     if (res.prize) {
         // Its own line, after a beat, so it is not lost in the time and pay.
         setTimeout(() => { if (phase === 'won') setStatus('PRIZE  ' + prizeName(res.prize)); }, 1400);
