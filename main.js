@@ -35,7 +35,7 @@ async function boot() {
     await store.load();
 
     game.initMazeControls();
-    initShopUi({ store, getLevels: game.getLevels, onChange: marbleChanged });
+    initShopUi({ store, getLevels: game.getLevels, onChange: marbleChanged, tryMarble: game.startMarbleTrial });
     initMenus({ store, game });
     const ok = await game.enterMaze(store);
     loadingStop();

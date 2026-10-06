@@ -68,8 +68,11 @@ This file records the decisions so they travel with the code.
     read for a while; never in a level), refreshed at most once a minute;
   - an input shield while any ad is requested or playing, and UI sounds
     silent while one plays.
-  Not built yet from the list above: try a locked marble, a free upgrade
-  step, reveal the route. Watch which rewarded buttons get tapped before
+  - rewarded TRY on every unowned marble in Gear (added 2026-10-06): the ad
+    starts the next level with that marble, for that level and its retries
+    only; leaving or moving on ends it; never ownership, never saved. A clear
+    on a trial points to its price in Gear.
+  Not built yet from the list above: a free upgrade step, reveal the route. Watch which rewarded buttons get tapped before
   adding more.
 
 ## Phasing

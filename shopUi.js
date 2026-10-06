@@ -11,7 +11,7 @@ import { sfx } from './sfx.js';
 //   PROFILE  pick the marble for the next game (buy the ones not owned),
 //            what you hold, how far you have got
 //
-// initShopUi({ store, getLevels, onChange }) once; menus.js calls renderStore /
+// initShopUi({ store, getLevels, onChange, tryMarble }) once; menus.js calls renderStore /
 // renderProfile when their tab opens. onChange fires after anything that
 // changes what the home screen shows (a marble picked, coins spent).
 
@@ -229,6 +229,22 @@ export function renderProfile() {
         });
         btn.classList.add('marble-action');
         card.append(btn);
+        // TRY IT (rewarded ad): play the next level with it, before buying.
+        if (!owned && adsAvailable() && ctx.tryMarble) {
+            const t = h('button', 'shop-buy maze-btn maze-btn-ad marble-action');
+            t.type = 'button';
+            t.append(h('span', 'ad-play', '▶'), document.createTextNode('TRY'));
+            t.setAttribute('aria-label', `Watch an ad to try ${m.name} for one level`);
+            t.addEventListener('click', async (e) => {
+                e.preventDefault();
+                t.disabled = true;
+                const ok = await showRewardedAd();
+                if (ok && ctx.tryMarble(id)) return;
+                say('profileMsg', ok ? 'No level to try it on' : adFailureMessage(), false);
+                t.disabled = false;
+            });
+            card.append(t);
+        }
         grid.append(card);
     }
 
@@ -265,6 +281,6 @@ export function renderProfile() {
 
 export function clearShopMessages() { say('storeMsg', '', true); say('profileMsg', '', true); }
 
-export function initShopUi({ store, getLevels, onChange }) {
-    ctx = { store, getLevels: getLevels || (() => []), onChange: onChange || null };
+export function initShopUi({ store, getLevels, onChange, tryMarble }) {
+    ctx = { store, getLevels: getLevels || (() => []), onChange: onChange || null, tryMarble: tryMarble || null };
 }

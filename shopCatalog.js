@@ -93,6 +93,8 @@ export const PRIZE_IDS = Object.keys(PRIZES);
 //                  still running (an ad's time counts, so it never buys a
 //                  better time). Once per attempt, and only after reviveAfterMs
 //                  of run -- a fall in the first seconds costs nothing to retry.
+//   try a marble   (Gear page) an unowned marble for the next level, every
+//                  retry of it, then gone -- never ownership, never saved.
 export const AD_REWARDS = { coins: 60, coinsCooldownMs: 3 * 60 * 1000, doubleCap: 500, reviveAfterMs: 8000 };
 
 // The ball a player will roll: their marble plus their upgrades. One function

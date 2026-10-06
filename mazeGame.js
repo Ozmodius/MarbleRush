@@ -18,7 +18,8 @@ import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from 
 import { buildLevelProps } from './mazeProps3d.js';
 import { sfx as uiSfx } from './sfx.js';
 import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
-import { ballSetup, PRIZES, AD_REWARDS } from './shopCatalog.js';
+import { ballSetup, PRIZES, AD_REWARDS, MARBLES } from './shopCatalog.js';
+const marbleName = id => (MARBLES[id] ? MARBLES[id].name.toUpperCase() : String(id));
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { buildPlanet } from './planet3d.js';
 import { buildSolarSystem } from './solarSystem3d.js';
@@ -120,6 +121,10 @@ let offerAdPending = false;      // the offer's countdown waits while its ad run
 let freeShieldTaken = false;     // one free shield per level visit
 let lastClear = null;            // the clear the x2 COINS button would double
 let rewardedThisBreak = false;   // a rewarded ad on this panel stands in for the break ad
+// TRY A MARBLE (rewarded, from the Gear page): an unowned marble for one level
+// -- every retry of it -- and never ownership. Memory only, never saved.
+// { id, levelId } -- levelId is null until the trial's level is started.
+let trialMarble = null;
 
 // The win star floats above the board centre, well clear of the 0.55-high walls
 // so it reads as hanging over the maze rather than sitting in it.
@@ -1143,6 +1148,11 @@ function win() {
     const dbl = el('mazeDoubleText');
     if (dbl && lastClear) dbl.textContent = '×2 COINS  +' + formatBearings(Math.min(AD_REWARDS.doubleCap, lastClear.earned));
     showEl('mazeDoubleBtn', !!lastClear && adsAvailable());
+    // A trial that cleared: say where the marble can be had for keeps.
+    if (trialMarble) {
+        const m = MARBLES[trialMarble.id];
+        setTimeout(() => { if (phase === 'won' && trialMarble) setStatus('KEEP ' + m.name.toUpperCase() + '?  GEAR  ' + formatBearings(m.price)); }, 2200);
+    }
     showWinStar(true);
     showEl('mazeWinPanel', true);
     showEl('mazeReplayBtn', true);
@@ -1328,7 +1338,9 @@ function buildShowcase(kind) {
 }
 
 // Leave whatever is on screen for the menus, and show `tab` (menus.js).
+// Leaving a level ends a marble trial.
 function enterMenus(tab) {
+    trialMarble = null;
     const want = tab === 'worlds' ? 'system' : 'planet';
     if (phase !== 'menu' || backdrop !== want) {
         buildShowcase(want);
@@ -1390,6 +1402,16 @@ export function pickWorld(clientX, clientY) {
 // Turn the solar system by a drag (menus.js), and let it coast on release.
 export function spinWorlds(d) { if (solar) { solar.spinBy(d); requestRender(); } }
 export function releaseWorlds(v) { if (solar) solar.release(v); }
+// After the try-a-marble ad (shopUi.js): play the next level with `id`.
+export function startMarbleTrial(id) {
+    if (!MARBLES[id]) return false;
+    const lv = nextLevel();
+    if (!lv) return false;
+    trialMarble = { id, levelId: null };
+    startLevel(lv.id);
+    return true;
+}
+export function marbleTrial() { return trialMarble ? { ...trialMarble } : null; }
 export function selectWorld(n) { if (solar) solar.select(n); requestRender(); }
 export function worldAnchors() {
     const r = getRenderer(), camera = getCamera();
@@ -1419,7 +1441,10 @@ function startLevel(levelId) {
 
     level = lv;
     const prog = progressNow();
-    ballSpec = ballSetup(prog.marble, prog.upgrades);
+    // A trial binds to the first level started after it, and ends on any other.
+    if (trialMarble && trialMarble.levelId === null) trialMarble.levelId = lv.id;
+    if (trialMarble && trialMarble.levelId !== lv.id) trialMarble = null;
+    ballSpec = ballSetup(trialMarble ? trialMarble.id : prog.marble, prog.upgrades);
     prizeOn = {};
     // Out of the menus: their screens come down and the HUD goes up.
     if (menuHandler) menuHandler(null);
@@ -1445,7 +1470,7 @@ function startLevel(levelId) {
     phase = 'ready';
     lastStepTime = 0;
     smoothed = null;
-    setStatus('TAP START, THEN TILT');
+    setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : 'TAP START, THEN TILT');
     freeShieldTaken = false;
     rewardedThisBreak = false;   // that break is over; this level's are its own
     closeFallOffer();
@@ -1623,6 +1648,7 @@ window.__mazeDebug = {
     } : null),
     // Roll the ball: set its velocity (units/s) without moving it.
     setBallVelocity: (vx, vz) => { if (!ballBody) return false; ballBody.velocity.set(vx, 0, vz); return true; },
+    trial: () => ({ trial: marbleTrial(), ball: ballSpec.id }),
     world5: () => (level ? {
         magnets: (level.magnets || []).length,
         pull: ballBody && level.magnets ? magnetAccel(level.magnets, ballBody.position.x, ballBody.position.z) : null,

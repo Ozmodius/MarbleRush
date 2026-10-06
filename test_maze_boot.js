@@ -590,6 +590,33 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await ad.tap('#mazeExitBtn');
         await ad.waitForSelector('#homeView', { state: 'visible', timeout: 10000 });
         check((await adLog()).filter(x => x === 'ad:midgame').length === mid0 + 1, 'leaving a level shows a break ad');
+
+        // TRY A MARBLE: Gear offers TRY on each marble not owned; the ad starts
+        // the next level with it, for that level only, and grants nothing.
+        await ad.tap('#tab_gear');
+        await ad.waitForSelector('#profileView', { state: 'visible' });
+        const tryBtns = ad.locator('.marble-card .maze-btn-ad');
+        check(await tryBtns.count() === 3, `every marble not owned offers TRY (got ${await tryBtns.count()})`);
+        const steelTry = ad.locator('.marble-card', { has: ad.locator('.marble-name', { hasText: /^Steel$/ }) }).locator('.maze-btn-ad');
+        await steelTry.tap();
+        await ad.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 10000 });
+        let tr = await adbg('trial');
+        check(tr.ball === 'steel' && tr.trial && tr.trial.id === 'steel', `TRY starts the next level with that marble: ${JSON.stringify(tr)}`);
+        check(/TRYING STEEL/.test(await ad.textContent('#mazeStatus')), 'and says so');
+        await ad.tap('#mazeStartBtn');
+        await ad.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+        await adbg('placeBall', levels[1].holes[0].x, levels[1].holes[0].z);
+        await ad.waitForTimeout(900);
+        await adbg('advanceFrames', 2);
+        check((await adbg('trial')).ball === 'steel', 'a retry keeps the trial marble');
+        const trialProg = await adbg('progress');
+        check(!trialProg.marbles.includes('steel') && trialProg.marble === 'classic', 'a trial grants nothing and changes no choice');
+        await ad.tap('#mazeExitBtn');
+        await ad.waitForSelector('#homeView', { state: 'visible', timeout: 10000 });
+        check((await adbg('trial')).trial === null, 'leaving the level ends the trial');
+        await ad.tap('#homePlayBtn');
+        await ad.waitForSelector('#mazeStartBtn', { state: 'visible' });
+        check((await adbg('trial')).ball === 'classic', 'the next level is back on your own marble');
         await adCtx.close();
 
         check(!errors.length, 'no page errors:\n   ' + errors.join('\n   '));
