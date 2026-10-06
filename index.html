@@ -83,6 +83,7 @@
   </header>
   <p id="storeMsg" class="shop-msg" role="status"></p>
   <div id="storeList" class="maze-selectlist"></div>
+  <div id="storeBanner" class="ad-banner" aria-hidden="true"></div>
 </section>
 
 <!-- PROFILE -->
@@ -103,6 +104,7 @@
     <p class="shop-section">CARRYING</p>
     <div id="profileInventory" class="profile-inventory"></div>
   </div>
+  <div id="profileBanner" class="ad-banner" aria-hidden="true"></div>
 </section>
 
 <!-- TAB BAR: every menu screen; hidden during a level -->
@@ -142,14 +144,27 @@
   </div>
   <div class="maze-bottombar">
     <button id="mazeStartBtn" class="maze-btn maze-btn-big" type="button">START</button>
-    <button id="mazeReplayBtn" class="maze-btn" type="button" style="display:none">REPLAY</button>
+    <button id="mazeAdShieldBtn" class="maze-btn maze-btn-ad" type="button" style="display:none"><span class="ad-play">▶</span>FREE SHIELD</button>
+  </div>
+  <!-- After a fall, when a rewarded ad can pay: continue from the last safe
+       spot, or let the countdown run out and retry. -->
+  <div id="mazeFallPanel" class="maze-winpanel maze-fallpanel" style="display:none">
+    <button id="mazeReviveBtn" class="maze-btn maze-btn-big maze-btn-ad" type="button"><span class="ad-play">▶</span>CONTINUE</button>
+    <button id="mazeRetryBtn" class="maze-btn" type="button">RETRY</button>
+    <div class="fall-countdown"><span id="mazeFallBar"></span></div>
   </div>
   <div id="mazeWinPanel" class="maze-winpanel" style="display:none">
+    <button id="mazeDoubleBtn" class="maze-btn maze-btn-ad" type="button" style="display:none"><span class="ad-play">▶</span><span id="mazeDoubleText">×2 COINS</span></button>
     <button id="mazeNextBtn" class="maze-btn maze-btn-big" type="button">NEXT</button>
+    <button id="mazeReplayBtn" class="maze-btn" type="button" style="display:none">REPLAY</button>
     <button id="mazeLevelsBtn" class="maze-btn" type="button">LEVELS</button>
     <button id="mazeWinExitBtn" class="maze-btn" type="button" style="display:none">EXIT</button>
   </div>
 </section>
+
+<!-- Over everything while an ad is requested or playing: CrazyGames requires
+     that the player cannot progress meanwhile (main.js, platform.js onAdBusy). -->
+<div id="adShield" class="ad-shield" style="display:none" role="status" aria-live="polite"><span>AD</span></div>
 
 <script type="module" src="main.js"></script>
 </body>

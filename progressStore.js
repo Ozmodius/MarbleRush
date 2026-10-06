@@ -21,7 +21,7 @@
 // player who edits their own save cheats only themselves; these rules exist so
 // the HONEST game behaves -- a replay must not pay a first clear twice.
 
-import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT } from './shopCatalog.js';
+import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT, AD_REWARDS } from './shopCatalog.js';
 
 export const SAVE_KEY = 'marbleRush.progress.v1';
 export const SAVE_VERSION = 1;
@@ -31,7 +31,9 @@ export function freshProgress() {
         v: SAVE_VERSION, wallet: 0, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: [], charges: {},
         // The shop (shopCatalog.js). Added after the first saves existed, so
         // parseProgress fills them in for a save that predates them.
-        marbles: ['classic'], marble: 'classic', upgrades: {}, prizeUses: {}
+        marbles: ['classic'], marble: 'classic', upgrades: {}, prizeUses: {},
+        // When the store's free-coins ad last paid (AD_REWARDS.coinsCooldownMs).
+        adCoinsAt: 0
     };
 }
 
@@ -65,6 +67,7 @@ export function parseProgress(text) {
     for (const [k, n] of Object.entries(p.upgrades)) p.upgrades[k] = Math.min(n, UPGRADES[k].prices.length);
     if (Array.isArray(raw.marbles)) p.marbles = ['classic', ...raw.marbles.filter(id => MARBLES[id] && id !== 'classic')];
     p.marble = p.marbles.includes(raw.marble) ? raw.marble : 'classic';
+    p.adCoinsAt = Math.max(0, Number(raw.adCoinsAt) || 0);
     return p;
 }
 
@@ -215,6 +218,36 @@ export function consume(progress, bucket, id) {
     return { progress: p, ok: true };
 }
 
+// --- REWARDED ADS (shopCatalog.js AD_REWARDS) -------------------------------
+// Called only after an ad has run to the end (platform.js resolves true only
+// then). Each pays a fixed, bounded amount.
+export function adCoins(progress, now = Date.now()) {
+    if (now - (progress.adCoinsAt || 0) < AD_REWARDS.coinsCooldownMs) return { progress, ok: false, reason: 'cooldown' };
+    const p = JSON.parse(JSON.stringify(progress));
+    p.wallet += AD_REWARDS.coins;
+    p.adCoinsAt = now;
+    return { progress: p, ok: true };
+}
+// How long until the free-coins ad pays again, in ms (0 = now).
+export function adCoinsWaitMs(progress, now = Date.now()) {
+    return Math.max(0, (progress.adCoinsAt || 0) + AD_REWARDS.coinsCooldownMs - now);
+}
+// A clear's pay again: the game offers it once per clear, with `earned` from
+// that clear's own result. Capped, and nothing for a clear that paid nothing.
+export function adDoubleClear(progress, earned) {
+    const n = Math.min(AD_REWARDS.doubleCap, Math.max(0, Math.floor(Number(earned) || 0)));
+    if (!n) return { progress, ok: false, reason: 'nothing' };
+    const p = JSON.parse(JSON.stringify(progress));
+    p.wallet += n;
+    return { progress: p, ok: true, amount: n };
+}
+export function adCharge(progress, id) {
+    if (!CHARGES[id]) return { progress, ok: false, reason: 'unknown' };
+    const p = JSON.parse(JSON.stringify(progress));
+    p.charges[id] = (p.charges[id] || 0) + 1;
+    return { progress: p, ok: true };
+}
+
 // The store: the rules above plus a save adapter { load(key) -> Promise<string|null>,
 // save(key, string) -> boolean }. Every change is written through at once --
 // a phone game can be killed at any moment, and a clear must not be lost to it.
@@ -253,6 +286,11 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         buyCharge: id => apply(buyCharge(progress, id)),
         buyPrizeRefill: id => apply(buyPrizeRefill(progress, id)),
         useCharge: id => apply(consume(progress, 'charges', id)).ok,
-        usePrize: id => apply(consume(progress, 'prizeUses', id)).ok
+        usePrize: id => apply(consume(progress, 'prizeUses', id)).ok,
+        // Rewarded-ad payouts: call only once the ad has finished.
+        adCoins: () => apply(adCoins(progress)),
+        adCoinsWaitMs: () => adCoinsWaitMs(progress),
+        adDoubleClear: earned => { const out = adDoubleClear(progress, earned); apply(out); return { ok: out.ok, amount: out.amount || 0 }; },
+        adCharge: id => apply(adCharge(progress, id))
     };
 }

@@ -89,6 +89,24 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check((await again.load()).wallet === 123, 'a new session loads what the last one saved');
     check(store.spend(23) && JSON.parse(mem.get(S.SAVE_KEY)).wallet === 100, 'a spend is saved at once');
 
+    // 8. Rewarded ads pay fixed, bounded amounts, and the free coins wait out
+    //    their cooldown -- across a save and reload too.
+    const C = await import('./shopCatalog.js');
+    let q = S.freshProgress();
+    let ad = S.adCoins(q, 1000000);
+    check(ad.ok && ad.progress.wallet === C.AD_REWARDS.coins, 'a free-coins ad pays AD_REWARDS.coins');
+    q = ad.progress;
+    check(!S.adCoins(q, 1000000 + 1000).ok, 'and not again inside its cooldown');
+    check(S.adCoinsWaitMs(q, 1000000 + 1000) === C.AD_REWARDS.coinsCooldownMs - 1000, 'the wait is what is left of the cooldown');
+    check(!S.adCoins(S.parseProgress(JSON.stringify(q)), 1000000 + 1000).ok, 'a reload does not reset the cooldown');
+    check(S.adCoins(q, 1000000 + C.AD_REWARDS.coinsCooldownMs).ok, 'it pays again once the cooldown is over');
+    const dbl = S.adDoubleClear(q, 120);
+    check(dbl.ok && dbl.amount === 120 && dbl.progress.wallet === q.wallet + 120, 'doubling a clear pays its pay again');
+    check(S.adDoubleClear(q, 99999).amount === C.AD_REWARDS.doubleCap, 'capped at AD_REWARDS.doubleCap');
+    check(!S.adDoubleClear(q, 0).ok && !S.adDoubleClear(q, -5).ok, 'nothing to double for a clear that paid nothing');
+    const ch = S.adCharge(q, 'shield');
+    check(ch.ok && ch.progress.charges.shield === 1 && !S.adCharge(q, 'rocket').ok, 'an ad charge adds one known power-up');
+
     if (failures.length) {
         console.error('FAIL: progress store\n - ' + failures.join('\n - '));
         process.exitCode = 1;

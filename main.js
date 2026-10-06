@@ -1,4 +1,4 @@
-import { initPlatform, loadingStart, loadingStop, loadSave, writeSave } from './platform.js';
+import { initPlatform, loadingStart, loadingStop, loadSave, writeSave, onAdBusy } from './platform.js';
 import { initSceneHost } from './sceneHost.js';
 import { createProgressStore } from './progressStore.js';
 import * as game from './mazeGame.js';
@@ -19,6 +19,11 @@ function bootMessage(text) {
 async function boot() {
     loadingStart();
     await initPlatform();
+    // While an ad is being fetched or played, nothing under it takes a tap.
+    onAdBusy((busy) => {
+        const shield = document.getElementById('adShield');
+        if (shield) shield.style.display = busy ? '' : 'none';
+    });
 
     if (!initSceneHost(document.getElementById('gameCanvas'))) {
         loadingStop();

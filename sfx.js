@@ -1,4 +1,4 @@
-import { isPlatformMuted } from './platform.js';
+import { isPlatformMuted, isAdPlaying } from './platform.js';
 
 // Tiny synthesized UI sounds -- no audio files to ship in the flat bundle.
 // Replaces Ball Smack's uiSfx.js with the same two calls mazeGame.js used:
@@ -22,7 +22,8 @@ function audio() {
 }
 
 function blip(freqs, dur = 0.09, type = 'sine', gain = 0.08) {
-    if (isPlatformMuted()) return;
+    // Silent while an ad plays (a CrazyGames rule), and when the platform mutes.
+    if (isPlatformMuted() || isAdPlaying()) return;
     const a = audio();
     if (!a) return;
     try {

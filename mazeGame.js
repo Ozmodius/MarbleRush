@@ -18,12 +18,12 @@ import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from 
 import { buildLevelProps } from './mazeProps3d.js';
 import { sfx as uiSfx } from './sfx.js';
 import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
-import { ballSetup, PRIZES } from './shopCatalog.js';
+import { ballSetup, PRIZES, AD_REWARDS } from './shopCatalog.js';
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { buildPlanet } from './planet3d.js';
 import { buildSolarSystem } from './solarSystem3d.js';
 import { isUnlocked } from './progressStore.js';
-import { setGameplayActive, features, showMidgameAd, happytime, reportGameCompleted } from './platform.js';
+import { setGameplayActive, features, showMidgameAd, showRewardedAd, adsAvailable, adFailureMessage, happytime, reportGameCompleted } from './platform.js';
 
 // MARBLE RUSH -- the maze itself: level select, building a level, the run.
 //
@@ -110,6 +110,16 @@ function computeCameraPose() {
 }
 
 const FALL_RESTART_MS = 750;     // let the player watch the ball drop before the reset
+// REWARDED ADS in a level (CrazyGames only; platform.js, shopCatalog.js
+// AD_REWARDS). Never during a run: each is offered at a stop -- the ready
+// screen, a fall, a clear -- and only on the player's tap.
+const REVIVE_WINDOW_MS = 4000;   // how long CONTINUE is offered before the retry
+let revivedThisAttempt = false;  // one continue per attempt
+let offerAt = 0;                 // when the CONTINUE offer went up
+let offerAdPending = false;      // the offer's countdown waits while its ad runs
+let freeShieldTaken = false;     // one free shield per level visit
+let lastClear = null;            // the clear the x2 COINS button would double
+let rewardedThisBreak = false;   // a rewarded ad on this panel stands in for the break ad
 
 // The win star floats above the board centre, well clear of the 0.55-high walls
 // so it reads as hanging over the maze rather than sitting in it.
@@ -785,7 +795,9 @@ function advance(elapsedMs) {
     if (forest) forest.tick(ballBody.position.x, ballBody.position.z, elapsedMs);
 
     if (phase === 'running') checkOutcomes();
-    else if (phase === 'falling' && performance.now() - fallStartedAt > FALL_RESTART_MS) restart();
+    else if (phase === 'falling' && performance.now() - fallStartedAt > FALL_RESTART_MS) {
+        if (reviveOffered()) openFallOffer(); else restart();
+    } else if (phase === 'offer') tickFallOffer();
 }
 
 // Move every gate to where the run clock says it should be, and tell the solver
@@ -1036,6 +1048,78 @@ function fall(message) {
     setStatus(message || 'DOWN THE HOLE');
 }
 
+// CONTINUE after a fall: offered when an ad can pay, once per attempt, and
+// only once the run has gone on long enough that a retry would cost something.
+function reviveOffered() {
+    return adsAvailable() && !revivedThisAttempt && !!(pickupState && pickupState.safe)
+        && performance.now() - runStartedAt >= AD_REWARDS.reviveAfterMs;
+}
+function openFallOffer() {
+    phase = 'offer';
+    offerAt = performance.now();
+    offerAdPending = false;
+    setGameplayActive(false);
+    showEl('mazeFallPanel', true);
+}
+function closeFallOffer() { showEl('mazeFallPanel', false); }
+function tickFallOffer() {
+    if (offerAdPending) return;
+    const left = 1 - (performance.now() - offerAt) / REVIVE_WINDOW_MS;
+    const bar = el('mazeFallBar');
+    if (bar) bar.style.transform = `scaleX(${Math.max(0, left)})`;
+    if (left <= 0) { closeFallOffer(); restart(); }
+}
+async function reviveFromAd() {
+    if (phase !== 'offer' || offerAdPending) return;
+    offerAdPending = true;
+    const ok = await showRewardedAd();
+    offerAdPending = false;
+    if (phase !== 'offer') return;
+    closeFallOffer();
+    if (!ok) { restart(); setStatus(adFailureMessage()); return; }
+    // Back on the last safe spot, stopped, the run's clocks where they were:
+    // the wall clock never stopped, so the ad's time is in the run's time.
+    const back = pickupState.safe;
+    revivedThisAttempt = true;
+    ballBody.collisionResponse = true;
+    ballBody.position.set(back.x, FLOOR_Y + level.ballRadius + 0.02, back.z);
+    ballBody.velocity.setZero();
+    ballBody.angularVelocity.setZero();
+    smoothed = null;
+    recenterPending = true;
+    phase = 'running';
+    setGameplayActive(true);
+    renderPowerups();
+    setStatus('BACK IN');
+}
+
+// x2 COINS on a clear: the clear's own pay again (capped), once.
+async function doubleClearFromAd() {
+    if (phase !== 'won' || !lastClear) return;
+    const ok = await showRewardedAd();
+    if (!ok) { setStatus(adFailureMessage()); return; }
+    const res = store ? store.adDoubleClear(lastClear.earned) : { ok: false };
+    lastClear = null;
+    rewardedThisBreak = true;
+    showEl('mazeDoubleBtn', false);
+    if (res.ok) { setStatus('+' + formatBearings(res.amount) + '  DOUBLED'); try { uiSfx.coin(); } catch (e) { /* ignore */ } }
+}
+
+// FREE SHIELD on the ready screen: a Shield charge, armed when the run starts.
+function offerFreeShield() {
+    const owned = store ? (store.get().charges.shield || 0) : 0;
+    showEl('mazeAdShieldBtn', phase === 'ready' && adsAvailable() && !freeShieldTaken && !owned);
+}
+async function freeShieldFromAd() {
+    if (phase !== 'ready' || freeShieldTaken) return;
+    const ok = await showRewardedAd();
+    if (!ok) { setStatus(adFailureMessage()); return; }
+    freeShieldTaken = true;
+    if (store) store.adCharge('shield');
+    offerFreeShield();
+    setStatus('SHIELD READY  —  IT ARMS WHEN YOU START');
+}
+
 function win() {
     phase = 'won';
     renderPowerups();
@@ -1054,6 +1138,11 @@ function win() {
     mazeGroup.rotation.set(0, 0, 0);
     try { uiSfx.open(); } catch (e) { /* ignore */ }
     showClearResult(result, ms);
+    lastClear = result && result.accepted && result.earned > 0 ? result : null;
+    rewardedThisBreak = false;
+    const dbl = el('mazeDoubleText');
+    if (dbl && lastClear) dbl.textContent = '×2 COINS  +' + formatBearings(Math.min(AD_REWARDS.doubleCap, lastClear.earned));
+    showEl('mazeDoubleBtn', !!lastClear && adsAvailable());
     showWinStar(true);
     showEl('mazeWinPanel', true);
     showEl('mazeReplayBtn', true);
@@ -1067,6 +1156,10 @@ function restart() {
     // A run is gameplay; the level select, the CLEARED panel and the menu are
     // breaks (platform.js -- no-op on the web).
     setGameplayActive(true);
+    revivedThisAttempt = false;
+    closeFallOffer();
+    showEl('mazeDoubleBtn', false);
+    showEl('mazeAdShieldBtn', false);
     placeBallAtStart();
     smoothed = null;
     recenterPending = true;      // re-zero to however they're holding it now
@@ -1353,6 +1446,10 @@ function startLevel(levelId) {
     lastStepTime = 0;
     smoothed = null;
     setStatus('TAP START, THEN TILT');
+    freeShieldTaken = false;
+    rewardedThisBreak = false;   // that break is over; this level's are its own
+    closeFallOffer();
+    offerFreeShield();
     requestRender();
 }
 
@@ -1625,6 +1722,7 @@ async function startRun() {
     }
     clearManual();
     showEl('mazeStartBtn', false);
+    showEl('mazeAdShieldBtn', false);
     recenterPending = true;      // first reading becomes neutral
     neutral = captureNeutral(latestReading.beta, latestReading.gamma);
     restart();
@@ -1684,15 +1782,27 @@ export function initMazeControls() {
     bindTap('mazeStartBtn', () => { startRun(); });
     // EXIT from a level goes back to the level list; there is no other screen
     // to leave to yet.
-    bindTap('mazeExitBtn', () => { enterMenus('home'); });
-    bindTap('mazeWinExitBtn', () => { enterMenus('home'); });
+
     // CrazyGames: moving on from a CLEARED level is a natural break, so it may
     // carry a break ad first (platform.js throttles it; on the web it resolves
     // false at once). Never after a fall: that is mid-attempt, not a break.
     const afterBreak = async (go) => {
-        if (features.ads && phase === 'won') await showMidgameAd();
+        if (features.ads && phase === 'won' && !rewardedThisBreak) await showMidgameAd();
         go();
     };
+    // Leaving a level for the menus is a natural break too (platform.js
+    // spaces break ads at least three minutes apart).
+    const leave = async () => {
+        if (phase === 'running' || phase === 'falling' || phase === 'offer') { closeFallOffer(); phase = 'idle'; setGameplayActive(false); }
+        if (features.ads && !rewardedThisBreak) await showMidgameAd();
+        enterMenus('home');
+    };
+    bindTap('mazeReviveBtn', () => { reviveFromAd(); });
+    bindTap('mazeRetryBtn', () => { if (phase === 'offer' && !offerAdPending) { closeFallOffer(); restart(); } });
+    bindTap('mazeDoubleBtn', () => { doubleClearFromAd(); });
+    bindTap('mazeAdShieldBtn', () => { freeShieldFromAd(); });
+    bindTap('mazeExitBtn', () => { leave(); });
+    bindTap('mazeWinExitBtn', () => { leave(); });
     bindTap('mazeLevelsBtn', () => { afterBreak(() => showLevelSelect()); });
     bindTap('mazeNextBtn', () => {
         afterBreak(() => {

@@ -83,6 +83,18 @@ export const PRIZES = {
 };
 export const PRIZE_IDS = Object.keys(PRIZES);
 
+// --- rewarded ads (platform.js; CrazyGames only) -----------------------------
+// What a rewarded ad the player CHOSE to watch pays. Never anything that makes
+// the ball faster or smaller, never anything a level requires.
+//   coins          the store's "free coins" row, at most once per coinsCooldownMs
+//   doubleClear    a clear's pay doubled: up to doubleCap extra, once per clear
+//   shield         a free Shield charge on the ready screen, once per level visit
+//   revive         after a fall: back on the last safe spot, the run's clock
+//                  still running (an ad's time counts, so it never buys a
+//                  better time). Once per attempt, and only after reviveAfterMs
+//                  of run -- a fall in the first seconds costs nothing to retry.
+export const AD_REWARDS = { coins: 60, coinsCooldownMs: 3 * 60 * 1000, doubleCap: 500, reviveAfterMs: 8000 };
+
 // The ball a player will roll: their marble plus their upgrades. One function
 // so the profile page's stat bars and buildWorld() can never disagree.
 export function ballSetup(marbleId, upgrades = {}) {

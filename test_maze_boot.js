@@ -335,7 +335,9 @@ const check = (c, m) => { if (!c) failures.push(m); };
             await dbg('setRunClock', 1000);
             const w4 = await dbg('world4');
             const wrap = x => Math.atan2(Math.sin(x), Math.cos(x));
-            check(Math.abs(wrap(w4.arms[0].want - w4.arms[0].body)) < 0.01, `an arm's blade is where the run clock says (${w4.arms[0].want.toFixed(3)} vs ${w4.arms[0].body.toFixed(3)})`);
+            // Within one physics step: a real frame can land between the two reads, and
+            // the kinematic body is integrated a step past where the clock set it.
+            check(Math.abs(wrap(w4.arms[0].want - w4.arms[0].body)) < Math.abs(H.armSpin(ar)) / 60 + 0.01, `an arm's blade is where the run clock says (${w4.arms[0].want.toFixed(3)} vs ${w4.arms[0].body.toFixed(3)})`);
             // A ball just ahead of a blade is swept along by it.
             const th = H.armAngle(ar, 1000) + (ar.dir < 0 ? -1 : 1) * 0.3;
             const a0 = await dbg('placeBall', ar.x + Math.cos(th) * 0.6, ar.z + Math.sin(th) * 0.6);
@@ -486,6 +488,109 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await shop.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
         check((await sdbg('progress')).marble === 'rubber', 'the marble choice survives a reload');
         await shopCtx.close();
+
+        // --- ads, against a stand-in CrazyGames SDK -------------------------
+        // The real SDK script is swapped for nothing and window.CrazyGames is
+        // a fake whose ads finish at once, so every rewarded flow can be
+        // driven: free coins and banners in the menus, FREE SHIELD on the
+        // ready screen, CONTINUE after a fall, x2 COINS on a clear, and break
+        // ads only at breaks.
+        const adCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+        await adCtx.route('**/crazygames-sdk-v3.js', r => r.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
+        await adCtx.addInitScript(() => {
+            window.__PLATFORM__ = 'crazygames';
+            const log = window.__adLog = [];
+            const store = {};
+            window.CrazyGames = { SDK: {
+                init: async () => {}, environment: 'local',
+                game: { settings: {}, addSettingsChangeListener() {}, addJoinRoomListener() {}, loadingStart() {}, loadingStop() {}, happytime() {},
+                    gameplayStart() { log.push('play'); }, gameplayStop() { log.push('stop'); }, reportGameCompletedPercentage() {} },
+                user: { addAuthListener() {}, isUserAccountAvailable: false },
+                data: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
+                ad: { requestAd(kind, cb) { log.push('ad:' + kind); if (cb.adStarted) cb.adStarted(); setTimeout(() => cb.adFinished(), 60); } },
+                banner: { requestResponsiveBanner(id) { log.push('banner:' + id); return Promise.resolve(); } }
+            } };
+        });
+        const ad = await adCtx.newPage();
+        ad.on('pageerror', e => errors.push('[ads] ' + e.message));
+        const adbg = (fn, ...args) => ad.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
+        const adLog = () => ad.evaluate(() => window.__adLog.slice());
+        await ad.goto(base);
+        await ad.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+
+        await ad.tap('#tab_store');
+        await ad.waitForSelector('#storeView', { state: 'visible' });
+        check((await adLog()).includes('banner:storeBanner'), 'the store page asks for a banner');
+        const freeBtn = ad.locator('.shop-row', { has: ad.locator('.shop-rowtitle', { hasText: 'Watch a short ad' }) }).locator('.shop-buy');
+        check(await freeBtn.count() === 1, 'the store offers free coins for an ad');
+        const w0 = (await adbg('progress')).wallet;
+        await freeBtn.tap();
+        await ad.waitForFunction((w) => window.__mazeDebug.progress().wallet > w, w0, { timeout: 5000 }).catch(() => {});
+        const w1 = (await adbg('progress')).wallet;
+        check(w1 === w0 + 60, `a finished free-coins ad pays 60 (wallet ${w0} -> ${w1})`);
+        check(/IN \d+ MIN/.test(await freeBtn.textContent()) && await freeBtn.isDisabled(), 'then the free coins wait out their cooldown');
+        check(await ad.isHidden('#adShield'), 'the ad shield is down once the ad is over');
+        await ad.tap('#tab_gear');
+        check((await adLog()).includes('banner:profileBanner'), 'the gear page asks for a banner');
+        await ad.tap('#tab_store');
+        check((await adLog()).filter(x => x === 'banner:storeBanner').length === 1, 'coming back within a minute keeps the banner (no refresh under 60s)');
+
+        // Level 1: FREE SHIELD is offered on the ready screen; leave it for now.
+        await ad.tap('#tab_home');
+        await ad.tap('#homePlayBtn');
+        await ad.waitForSelector('#mazeStartBtn', { state: 'visible' });
+        check(await ad.isVisible('#mazeAdShieldBtn'), 'the ready screen offers a free shield for an ad');
+        await ad.tap('#mazeStartBtn');
+        await ad.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+        check(await ad.isHidden('#mazeAdShieldBtn'), 'and stops offering it once the run starts');
+        const lvOne = levels[0];
+        // A fall in the first seconds: no CONTINUE, straight back to the start.
+        await adbg('placeBall', lvOne.holes[0].x, lvOne.holes[0].z);
+        await ad.waitForTimeout(900);
+        await adbg('advanceFrames', 2);
+        check(await adbg('phase') === 'running' && await ad.isHidden('#mazeFallPanel'), 'an early fall just retries -- nothing to continue');
+        // A fall after a while: CONTINUE is offered; taking it puts the ball back.
+        await adbg('ageRun', 9000);
+        await adbg('placeBall', lvOne.holes[0].x, lvOne.holes[0].z);
+        await ad.waitForTimeout(900);
+        await adbg('advanceFrames', 2);
+        check(await adbg('phase') === 'offer' && await ad.isVisible('#mazeFallPanel'), `a later fall offers CONTINUE (phase ${await adbg('phase')})`);
+        const nAds = (await adLog()).filter(x => x === 'ad:rewarded').length;
+        await ad.tap('#mazeReviveBtn');
+        await ad.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { timeout: 5000 }).catch(() => {});
+        check(await adbg('phase') === 'running' && (await adLog()).filter(x => x === 'ad:rewarded').length === nAds + 1, 'CONTINUE plays an ad and puts the ball back in the run');
+        const pos = await adbg('advanceFrames', 1);
+        check(Math.hypot(pos.x - lvOne.holes[0].x, pos.z - lvOne.holes[0].z) > lvOne.holes[0].r + lvOne.ballRadius, 'back on safe ground, not over the hole');
+        // Once per attempt: the next fall just retries.
+        await adbg('placeBall', lvOne.holes[0].x, lvOne.holes[0].z);
+        await ad.waitForTimeout(900);
+        await adbg('advanceFrames', 2);
+        check(await adbg('phase') === 'running' && await ad.isHidden('#mazeFallPanel'), 'one CONTINUE per attempt');
+        // Win: x2 COINS doubles the clear's pay, and stands in for the break ad.
+        await adbg('ageRun', 60000);
+        check(await adbg('warpToGoal'), 'level 1 clears');
+        check(await ad.isVisible('#mazeDoubleBtn'), 'a paying clear offers x2 COINS');
+        const before = await adbg('progress');
+        await ad.tap('#mazeDoubleBtn');
+        await ad.waitForFunction((w) => window.__mazeDebug.progress().wallet > w, before.wallet, { timeout: 5000 }).catch(() => {});
+        const after2 = await adbg('progress');
+        const earned = after2.wallet - before.wallet;
+        check(earned > 0 && await ad.isHidden('#mazeDoubleBtn'), `x2 COINS pays the clear again, once (+${earned})`);
+        const mid0 = (await adLog()).filter(x => x === 'ad:midgame').length;
+        await ad.tap('#mazeNextBtn');
+        await ad.waitForSelector('#mazeStartBtn', { state: 'visible' });
+        check((await adLog()).filter(x => x === 'ad:midgame').length === mid0, 'no break ad right after a rewarded one');
+        // Level 2's ready screen: take the free shield.
+        await ad.tap('#mazeAdShieldBtn');
+        await ad.waitForFunction(() => (window.__mazeDebug.progress().charges.shield || 0) > 0, null, { timeout: 5000 }).catch(() => {});
+        check(((await adbg('progress')).charges.shield || 0) === 1 && await ad.isHidden('#mazeAdShieldBtn'), 'a free shield is a Shield charge, offered once');
+        // Leaving a level is a break: one break ad, never during the run.
+        const log0 = await adLog();
+        check(!log0.some((x, i) => x.startsWith('ad:') && log0.slice(0, i).lastIndexOf('play') > log0.slice(0, i).lastIndexOf('stop')), 'no ad ever starts while gameplay is reported running');
+        await ad.tap('#mazeExitBtn');
+        await ad.waitForSelector('#homeView', { state: 'visible', timeout: 10000 });
+        check((await adLog()).filter(x => x === 'ad:midgame').length === mid0 + 1, 'leaving a level shows a break ad');
+        await adCtx.close();
 
         check(!errors.length, 'no page errors:\n   ' + errors.join('\n   '));
     } finally {

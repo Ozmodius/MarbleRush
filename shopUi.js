@@ -1,4 +1,5 @@
-import { MARBLES, MARBLE_IDS, UPGRADES, UPGRADE_IDS, CHARGES, CHARGE_IDS, PRIZES, PRIZE_IDS, ballSetup } from './shopCatalog.js';
+import { MARBLES, MARBLE_IDS, UPGRADES, UPGRADE_IDS, CHARGES, CHARGE_IDS, PRIZES, PRIZE_IDS, ballSetup, AD_REWARDS } from './shopCatalog.js';
+import { adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { upgradePrice } from './progressStore.js';
 import { sfx } from './sfx.js';
 
@@ -89,6 +90,33 @@ export function renderStore() {
     const p = ctx.store.get();
     const list = $('storeList');
     list.innerHTML = '';
+
+    // FREE COINS for a rewarded ad: first in the store, offered only where an
+    // ad can actually pay (CrazyGames), once per AD_REWARDS.coinsCooldownMs.
+    if (adsAvailable()) {
+        const wait = ctx.store.adCoinsWaitMs();
+        const b = h('button', 'shop-buy maze-btn maze-btn-ad');
+        b.type = 'button';
+        if (wait > 0) {
+            const m = Math.ceil(wait / 60000);
+            b.textContent = `IN ${m} MIN`;
+            b.disabled = true;
+        } else {
+            b.append(h('span', 'ad-play', '▶'), h('span', 'coin-dot'), document.createTextNode(fmt(AD_REWARDS.coins)));
+            b.addEventListener('click', async (e) => {
+                e.preventDefault();
+                b.disabled = true;
+                const ok = await showRewardedAd();
+                if (ok && ctx.store.adCoins().ok) { say('storeMsg', `+${fmt(AD_REWARDS.coins)} coins`, true); try { sfx.coin(); } catch (_) { /* ignore */ } }
+                else if (!ok) say('storeMsg', adFailureMessage(), false);
+                renderWallets();
+                renderStore();
+                changed();
+            });
+        }
+        list.append(h('p', 'shop-section', 'FREE COINS'));
+        list.append(row('Watch a short ad', `${fmt(AD_REWARDS.coins)} coins, every few minutes.`, [b]));
+    }
 
     list.append(h('p', 'shop-section', 'UPGRADES'));
     for (const id of UPGRADE_IDS) {

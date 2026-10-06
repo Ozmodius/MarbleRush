@@ -52,6 +52,25 @@ This file records the decisions so they travel with the code.
   never during a run; CrazyGames spaces midgame ads about 3 minutes apart.
   Rewarded ads are always the player's tap: revive after a fall (the strongest),
   double coins, try a locked character, a free upgrade step, reveal the route.
+- **Ad revenue pass** (built 2026-10-06). All CrazyGames-only, all offered only
+  while an ad can actually pay (platform.js `adsAvailable`), amounts in
+  shopCatalog.js `AD_REWARDS`:
+  - rewarded CONTINUE after a fall (back on the last safe spot, clock still
+    running; once per attempt, only after 8s of run, a 4s offer then retry);
+  - rewarded x2 COINS on a paying clear (capped at 500), which stands in for
+    that break's midgame ad;
+  - rewarded FREE SHIELD on the ready screen (once per level visit, only when
+    no shield is held);
+  - rewarded FREE COINS in the store (60, once per 3 minutes, survives reload);
+  - midgame ads now also on leaving a level (back button, EXIT), still
+    self-throttled to 3 minutes;
+  - responsive banners at the foot of the Store and Gear pages only (pages
+    read for a while; never in a level), refreshed at most once a minute;
+  - an input shield while any ad is requested or playing, and UI sounds
+    silent while one plays.
+  Not built yet from the list above: try a locked marble, a free upgrade
+  step, reveal the route. Watch which rewarded buttons get tapped before
+  adding more.
 
 ## Phasing
 

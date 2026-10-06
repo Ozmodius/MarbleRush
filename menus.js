@@ -3,6 +3,7 @@ import { worldName } from './worlds.js';
 import { PRIZES } from './shopCatalog.js';
 import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 import { onFrame, getRenderer } from './sceneHost.js';
+import { showBanner } from './platform.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
 // board mazeGame.js keeps as the backdrop, plus the home screen's top HUD.
@@ -41,8 +42,9 @@ function show(tab) {
         if (b) { b.classList.toggle('is-active', t === tab); b.setAttribute('aria-current', t === tab ? 'page' : 'false'); }
     }
     if (tab === 'home') renderHome();
-    else if (tab === 'gear') { clearShopMessages(); renderProfile(); }
-    else if (tab === 'store') { clearShopMessages(); renderStore(); }
+    // Banners only on these two: pages players read for a while, never play.
+    else if (tab === 'gear') { clearShopMessages(); renderProfile(); showBanner('profileBanner'); }
+    else if (tab === 'store') { clearShopMessages(); renderStore(); showBanner('storeBanner'); }
     else if (tab === 'worlds') renderWorlds();
     renderWallets();
 }

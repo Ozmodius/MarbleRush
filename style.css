@@ -478,3 +478,20 @@ html, body {
   .level-node.is-next { animation: nodePulse 1.8s ease-in-out infinite; }
   @keyframes nodePulse { 50% { box-shadow: 0 0 0 5px rgba(240, 178, 58, 0.08); } }
 }
+
+/* --- ads (CrazyGames only; platform.js) ------------------------------------ */
+/* A rewarded-ad button: green, with a play mark, so it never reads as a buy. */
+.maze-btn-ad { background: #2f9e5a; color: #fff; border-color: transparent; display: inline-flex; align-items: center; gap: 8px; }
+.maze-btn-ad .ad-play { font-size: 0.75em; opacity: 0.9; }
+.maze-fallpanel { flex-direction: row; align-items: center; }
+/* x2 COINS gets a row of its own above NEXT / REPLAY / LEVELS. */
+#mazeDoubleBtn { flex: 0 0 auto; margin: 0 calc(50% - 150px); justify-content: center; width: 300px; max-width: 100%; }
+.fall-countdown { flex-basis: 100%; height: 4px; max-width: 260px; margin: 2px auto 0; background: rgba(255, 255, 255, 0.15); border-radius: 2px; overflow: hidden; }
+.fall-countdown span { display: block; height: 100%; width: 100%; background: var(--accent); transform-origin: left; }
+/* Banner slots at the foot of the store and gear pages. Responsive banners
+   pick a size that fits: 320x50 on a phone, 728x90 on a wide screen. Nothing
+   on the web build, which has no ads. */
+.ad-banner { display: none; flex: 0 0 auto; width: 100%; max-width: 728px; height: 50px; margin: 0 auto; }
+html[data-platform="crazygames"] .ad-banner { display: block; }
+@media (min-width: 760px) { .ad-banner { height: 90px; } }
+.ad-shield { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0, 0, 0, 0.55); color: var(--ink-dim); letter-spacing: 0.3em; font-size: 0.8rem; }
