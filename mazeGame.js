@@ -26,7 +26,7 @@ import { buildSolarSystem } from './solarSystem3d.js';
 import { isUnlocked } from './progressStore.js';
 import { setGameplayActive, features, showMidgameAd, showRewardedAd, adsAvailable, adFailureMessage, happytime, reportGameCompleted } from './platform.js';
 
-// MARBLE RUSH -- the maze itself: level select, building a level, the run.
+// PLANETILT -- the maze itself: level select, building a level, the run.
 //
 // Copied from 3dBallSmack's Marble Maze side game (CLAUDE.md) and cut loose
 // from it in Phase 0. What it used to borrow from Ball Smack now comes through

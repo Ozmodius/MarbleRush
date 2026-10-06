@@ -1,6 +1,6 @@
 // THE PROGRESS STORE -- the other Phase 0 seam (CLAUDE.md, docs/PLAN.md).
 //
-// In Ball Smack the server held the maze ledger and paid out; Marble Rush has
+// In Ball Smack the server held the maze ledger and paid out; Planetilt has
 // no server (docs/PLAN.md: "No server"), so this module is that ledger. Three
 // calls, as planned:
 //
@@ -23,6 +23,8 @@
 
 import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT, AD_REWARDS } from './shopCatalog.js';
 
+// The game was called Marble Rush when saves began; the key keeps that name
+// on purpose -- renaming it would wipe every player's progress.
 export const SAVE_KEY = 'marbleRush.progress.v1';
 export const SAVE_VERSION = 1;
 

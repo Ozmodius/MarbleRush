@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// MARBLE RUSH: the game boots and a level PLAYS, in a real browser.
+// PLANETILT: the game boots and a level PLAYS, in a real browser.
 //
 // Phase 0's gate (docs/PLAN.md) is "a level plays on desktop and phone". The
 // Node tests prove the rules; this proves the page: index.html -> main.js ->

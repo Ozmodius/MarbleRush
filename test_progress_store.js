@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// MARBLE RUSH: the progress store's rules (progressStore.js).
+// PLANETILT: the progress store's rules (progressStore.js).
 //
 // With no server, this is the ledger. What it must get right:
 //   1. The ladder: a level is playable only once the one before it is cleared.

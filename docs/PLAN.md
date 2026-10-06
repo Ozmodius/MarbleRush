@@ -1,10 +1,16 @@
-# Marble Rush plan (summary)
+# Planetilt plan (summary)
 
 The full plan, with the reasoning, lives in the shared doc
-[Marble Rush plan](https://claude.ai/code/artifact/249070c4-ac34-4651-93d8-2500aa092808).
+[Planetilt plan](https://claude.ai/code/artifact/249070c4-ac34-4651-93d8-2500aa092808).
 This file records the decisions so they travel with the code.
 
 ## Decisions
+
+- **Name: Planetilt** (decided 2026-10-06). Was Marble Rush, which is a
+  registered VTech toy trademark and already the name of two games. Planetilt
+  turned up no game or product in a web search; it still needs a proper
+  trademark search (USPTO classes 9, 28, 41) before it is registered or
+  launched. The save key keeps the old name (progressStore.js).
 
 - **Its own repo** (decided 2026-10-05). The plan first suggested a second build
   target inside 3dBallSmack; Oz chose a separate repo instead. The maze code was

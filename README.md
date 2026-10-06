@@ -1,4 +1,4 @@
-# Marble Rush
+# Planetilt
 
 A tilt-controlled marble maze for CrazyGames: short levels, characters with
 their own feel, upgrades, stars and a daily maze. Spun out of
@@ -60,7 +60,7 @@ and reload the page.
 npm test                      # levels, hazards, tilt, walls, pickups, progress store, shop, forest
 npm run test:browser          # boot to home, use the tabs, play level 1, shop, pick a marble
 npm run levels                # regenerate mazeLevels.json (seeded, reproduces exactly)
-npm run build:crazygames      # flat bundle + dist/marble-rush-crazygames.zip
+npm run build:crazygames      # flat bundle + dist/planetilt-crazygames.zip
 npm run test:browser:bundle   # the browser test against that bundle
 ```
 

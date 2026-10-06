@@ -1,4 +1,9 @@
-# CLAUDE.md -- Marble Rush
+# CLAUDE.md -- Planetilt
+
+The game was called Marble Rush until 2026-10-06 (renamed: "Marble Rush" is a
+registered VTech toy brand). The repo and the save key
+(`marbleRush.progress.v1`) keep the old name; never change the save key, or
+every player's progress is lost.
 
 Guidance for Claude working in this repo. The plan and its decisions are in
 `docs/PLAN.md`; read it first.

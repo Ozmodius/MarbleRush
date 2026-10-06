@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Build the CrazyGames bundle: dist/crazygames/ and dist/marble-rush-crazygames.zip.
+// Build the CrazyGames bundle: dist/crazygames/ and dist/planetilt-crazygames.zip.
 //
 // THE BUNDLE IS FLAT -- no folders (CLAUDE.md). CrazyGames' drag-and-drop
 // upload can drop subfolders, and a game missing its scripts is a black
@@ -25,7 +25,7 @@ const esbuild = require('esbuild');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'dist', 'crazygames');
-const ZIP = path.join(ROOT, 'dist', 'marble-rush-crazygames.zip');
+const ZIP = path.join(ROOT, 'dist', 'planetilt-crazygames.zip');
 
 const PLATFORM_TAGS = [
     '<script>window.__PLATFORM__ = \'crazygames\';</script>',

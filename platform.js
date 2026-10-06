@@ -447,7 +447,7 @@ export async function showPlatformLogin() {
 }
 
 // ---------------------------------------------------------------------------
-// Save data (Marble Rush's progress store, progressStore.js)
+// Save data (Planetilt's progress store, progressStore.js)
 // ---------------------------------------------------------------------------
 // One string per key. On CrazyGames this is the SDK's data module, which keeps
 // a guest's save on the device and syncs a signed-in player's to the cloud --

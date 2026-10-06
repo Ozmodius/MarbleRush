@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// MARBLE RUSH: the shop -- catalog rules and purchases (shopCatalog.js,
+// PLANETILT: the shop -- catalog rules and purchases (shopCatalog.js,
 // progressStore.js).
 //
 //   1. THE RULE (CLAUDE.md): nothing bought makes the ball faster or smaller.

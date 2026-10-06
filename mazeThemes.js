@@ -2,7 +2,7 @@
 // goal ring, backdrop), bound to a level by mazeLevels.json's `theme` field.
 //
 // Lifted verbatim from 3dBallSmack's cosmetics.js `mazeTheme` block when
-// Marble Rush was split out. In Ball Smack a theme is an admin-authored
+// Planetilt was split out. In Ball Smack a theme is an admin-authored
 // cosmetic; here there is no cosmetics catalog, so this file IS the catalog.
 // Imports nothing, so the Node verifier (test_maze_levels.js) can read it.
 export const MAZE_THEMES = {

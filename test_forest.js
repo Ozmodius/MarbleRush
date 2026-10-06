@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// MARBLE RUSH: the forest dressing keeps faith with the physics
+// PLANETILT: the forest dressing keeps faith with the physics
 // (forestDressing.js). Walls still collide as boxes; this checks what is DRAWN
 // in their place, on every level, at no forest, half forest and full forest.
 //
