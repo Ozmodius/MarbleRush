@@ -21,7 +21,7 @@
 // player who edits their own save cheats only themselves; these rules exist so
 // the HONEST game behaves -- a replay must not pay a first clear twice.
 
-import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT, AD_REWARDS } from './shopCatalog.js';
+import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT, AD_REWARDS, LOOKS } from './shopCatalog.js';
 import * as daily from './daily.js';
 
 // The game was called Marble Rush when saves began; the key keeps that name
@@ -39,7 +39,9 @@ export function freshProgress() {
         // and when the last free upgrade step was given (upgradeCooldownMs).
         adCoinsAt: 0, adUpgradeAt: 0,
         // The 7-day calendar and today's missions (daily.js).
-        daily: { streak: 0, last: '', doubled: '' }, missions: null
+        daily: { streak: 0, last: '', doubled: '' }, missions: null,
+        // Skins and trails (shopCatalog.js LOOKS): owned, and worn.
+        skins: ['plain'], skin: 'plain', trails: ['none'], trail: 'none'
     };
 }
 
@@ -75,6 +77,10 @@ export function parseProgress(text) {
     p.marble = p.marbles.includes(raw.marble) ? raw.marble : 'classic';
     p.adCoinsAt = Math.max(0, Number(raw.adCoinsAt) || 0);
     p.adUpgradeAt = Math.max(0, Number(raw.adUpgradeAt) || 0);
+    for (const L of Object.values(LOOKS)) {
+        if (Array.isArray(raw[L.owned])) p[L.owned] = [L.base, ...raw[L.owned].filter(id => L.table[id] && id !== L.base)];
+        p[L.chosen] = p[L.owned].includes(raw[L.chosen]) ? raw[L.chosen] : L.base;
+    }
     p.daily = daily.parseDaily(raw.daily);
     p.missions = daily.parseMissions(raw.missions);
     return p;
@@ -220,6 +226,30 @@ export function upgradePrice(progress, id) {
     const tier = progress.upgrades[id] || 0;
     return u && tier < u.prices.length ? u.prices[tier] : null;
 }
+// Skins and trails: bought with coins, or given as a player-level reward
+// (grantLook) -- a reward is never for sale. Buying one wears it.
+export function buyLook(progress, kind, id) {
+    const L = LOOKS[kind];
+    const item = L && L.table[id];
+    return purchase(progress, item && Number.isFinite(item.price) ? item.price : NaN,
+        p => { p[L.owned].push(id); p[L.chosen] = id; },
+        !item ? 'unknown' : progress[L.owned].includes(id) ? 'owned' : !Number.isFinite(item.price) ? 'reward' : null);
+}
+export function grantLook(progress, kind, id) {
+    const L = LOOKS[kind];
+    if (!L || !L.table[id] || progress[L.owned].includes(id)) return { progress, ok: false, reason: !L || !L.table[id] ? 'unknown' : 'owned' };
+    const p = JSON.parse(JSON.stringify(progress));
+    p[L.owned].push(id);
+    return { progress: p, ok: true };
+}
+export function selectLook(progress, kind, id) {
+    const L = LOOKS[kind];
+    if (!L || !progress[L.owned].includes(id)) return { progress, ok: false, reason: 'not-owned' };
+    const p = JSON.parse(JSON.stringify(progress));
+    p[L.chosen] = id;
+    return { progress: p, ok: true };
+}
+
 export function buyUpgrade(progress, id) {
     const price = upgradePrice(progress, id);
     return purchase(progress, price === null ? NaN : price, p => { p.upgrades[id] = (p.upgrades[id] || 0) + 1; },
@@ -345,6 +375,8 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         buyMarble: id => apply(buyMarble(progress, id)),
         selectMarble: id => apply(selectMarble(progress, id)),
         buyUpgrade: id => apply(buyUpgrade(progress, id)),
+        buyLook: (kind, id) => apply(buyLook(progress, kind, id)),
+        selectLook: (kind, id) => apply(selectLook(progress, kind, id)),
         buyCharge: id => apply(buyCharge(progress, id)),
         buyPrizeRefill: id => apply(buyPrizeRefill(progress, id)),
         // A spent power-up also counts toward a "use power-ups" mission.

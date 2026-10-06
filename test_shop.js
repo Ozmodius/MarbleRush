@@ -102,6 +102,28 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(tamper.marble === 'classic' && !tamper.marbles.includes('nonsense'), 'unknown marbles in a save are dropped');
     check(tamper.upgrades.grip === 3 && !('bogus' in tamper.upgrades), 'upgrade tiers in a save are capped and unknown tracks dropped');
 
+    // Skins and trails: looks only, bought or earned, never both.
+    for (const [kind, L] of Object.entries(C.LOOKS)) {
+        for (const [id, item] of Object.entries(L.table)) {
+            check(Number.isFinite(item.price) !== Number.isFinite(item.level), `${kind} ${id} is either sold (price) or earned (level), not both or neither`);
+            check(!('stats' in item) && !('grip' in item) && !('radius' in item), `${kind} ${id} carries no stats: looks only`);
+        }
+        check(L.table[L.base].price === 0, `${kind}: the base look is free`);
+    }
+    let lk = { ...S.freshProgress(), wallet: 1000 };
+    check(lk.skin === 'plain' && lk.trail === 'none' && lk.skins.join() === 'plain' && lk.trails.join() === 'none', 'a new player wears Plain and no trail');
+    let lr = S.buyLook(lk, 'skin', 'stripe');
+    check(lr.ok && lr.progress.skin === 'stripe' && lr.progress.wallet === 1000 - C.SKINS.stripe.price, 'buying a skin charges its price and wears it');
+    check(S.buyLook(lr.progress, 'skin', 'stripe').reason === 'owned', 'a skin is bought once');
+    check(S.buyLook(lk, 'skin', 'galaxy').reason === 'reward', 'a level-reward skin cannot be bought');
+    check(S.buyLook({ ...lk, wallet: 10 }, 'trail', 'flame').reason === 'short', 'no buying what you cannot afford');
+    check(!S.selectLook(lk, 'trail', 'comet').ok, 'only owned looks can be worn');
+    const gr = S.grantLook(lk, 'trail', 'rainbow');
+    check(gr.ok && gr.progress.trails.includes('rainbow') && gr.progress.trail === 'none' && S.selectLook(gr.progress, 'trail', 'rainbow').ok, 'a granted look is owned, and worn once chosen');
+    const back = S.parseProgress(JSON.stringify({ ...lr.progress, skins: ['stripe', 'bogus'], trails: ['flame'], trail: 'bogus' }));
+    check(back.skins.join() === 'plain,stripe' && back.skin === 'stripe' && back.trails.join() === 'none,flame' && back.trail === 'none', `looks round-trip and junk is dropped: ${JSON.stringify([back.skins, back.skin, back.trails, back.trail])}`);
+    check(C.ballSetup('steel', {}).grip === C.ballSetup('steel', {}).grip, 'ballSetup takes no look at all');
+
     if (failures.length) {
         console.error('FAIL: shop\n - ' + failures.join('\n - '));
         process.exitCode = 1;

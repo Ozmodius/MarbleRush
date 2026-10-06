@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makeFloorMaterial, makeBallMaterial } from './mazeTheme3d.js';
 import { applySurface } from './mazeSurface3d.js';
+import { applySkin } from './skins3d.js';
 
 // THE HOME SCREEN'S PLANET: the current world as a big marble, turning slowly
 // in space, with the player's chosen marble orbiting it as a moon.
@@ -89,7 +90,7 @@ export function atmosphere(color) {
 // Build the planet for `theme` (a resolved theme) with the marble `look`
 // (shopCatalog.js; null = Classic, wearing the theme's marble colour).
 // Everything allocated is pushed onto `tracked` for disposal.
-export function buildPlanet(theme, look, tracked = []) {
+export function buildPlanet(theme, look, tracked = [], skin = 'plain') {
     const group = new THREE.Group();
 
     const planetMat = makePlanetMaterial(theme, PLANET_R);
@@ -124,7 +125,7 @@ export function buildPlanet(theme, look, tracked = []) {
 
     // The moon: the marble the player will roll next.
     const moonGeo = new THREE.SphereGeometry(0.5, 48, 32);
-    const moonMat = makeBallMaterial(theme, look);
+    const moonMat = applySkin(makeBallMaterial(theme, look), skin);
     const moon = new THREE.Mesh(moonGeo, moonMat);
     const orbit = new THREE.Group();
     orbit.rotation.set(0.28, 0, 0.12);

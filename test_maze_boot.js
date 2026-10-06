@@ -523,6 +523,26 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await shop.reload();
         await homeUp(shop);
         check((await sdbg('progress')).marble === 'rubber', 'the marble choice survives a reload');
+        // Skins and trails on the Gear page: buy, wear, keep; reward ones locked.
+        await shop.tap('#tab_gear');
+        await shop.waitForSelector('#profileView', { state: 'visible' });
+        const lookBtn = (k) => shop.locator(`.look-card[data-look="${k}"] .look-action`);
+        check(await lookBtn('skin:galaxy').isDisabled() && /LEVEL 8/.test(await lookBtn('skin:galaxy').textContent()), 'a level-reward skin shows its level and cannot be bought');
+        const lw0 = (await sdbg('progress')).wallet;
+        await lookBtn('skin:stripe').tap();
+        await lookBtn('trail:comet').tap();
+        let lp = await sdbg('progress');
+        check(lp.skin === 'stripe' && lp.trail === 'comet' && lp.wallet === lw0 - 300 - 400, `buying a skin and a trail wears them and charges their prices: ${JSON.stringify([lp.skin, lp.trail, lw0, lp.wallet])}`);
+        check((await lookBtn('skin:stripe').textContent()).trim() === 'WORN', 'the worn skin says so');
+        await lookBtn('skin:plain').tap();
+        check((await sdbg('progress')).skin === 'plain' && (await sdbg('progress')).skins.includes('stripe'), 'wearing another keeps the one bought');
+        await lookBtn('skin:stripe').tap();
+        await shop.reload();
+        await homeUp(shop);
+        lp = await sdbg('progress');
+        check(lp.skin === 'stripe' && lp.trail === 'comet', 'skin and trail survive a reload');
+        check(await sdbg('startLevelForTest', levels[0].id), 'can build level 1 with a skin and trail on');
+        check(await sdbg('ballColor') === '#ffffff' && (await sdbg('trail')) !== null, `the ball wears the skin (its colour comes from the skin's picture) and the trail is laid: ${await sdbg('ballColor')}`);
         await shopCtx.close();
 
         // --- ads, against a stand-in CrazyGames SDK -------------------------

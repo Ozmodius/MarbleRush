@@ -1,4 +1,6 @@
-import { MARBLES, MARBLE_IDS, UPGRADES, UPGRADE_IDS, CHARGES, CHARGE_IDS, PRIZES, PRIZE_IDS, ballSetup, AD_REWARDS } from './shopCatalog.js';
+import { MARBLES, MARBLE_IDS, UPGRADES, UPGRADE_IDS, CHARGES, CHARGE_IDS, PRIZES, PRIZE_IDS, ballSetup, AD_REWARDS, LOOKS } from './shopCatalog.js';
+import { skinDataUrl } from './skins3d.js';
+import { trailCss } from './trail3d.js';
 import { adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { upgradePrice } from './progressStore.js';
 import { sfx } from './sfx.js';
@@ -203,18 +205,59 @@ const STAT_BARS = [
     { key: 'response', label: 'Response', lo: 0.8, hi: 1.4 }
 ];
 
-function swatch(id, big) {
+// A marble as a little sphere; with a skin, the skin's drawing wrapped on it
+// (half the picture: the side facing you).
+function swatch(id, big, skin) {
     const m = MARBLES[id];
     const s = h('span', 'marble-swatch' + (big ? ' is-big' : ''));
     s.style.setProperty('--m', m.swatch);
+    const url = skin ? skinDataUrl(skin) : null;
+    if (url) { s.classList.add('is-skin'); s.style.setProperty('--skin', `url(${url})`); }
     return s;
+}
+
+// SKINS and TRAILS: a card each -- preview, name, and BUY / WEAR / WORN, or the
+// player level that unlocks a reward one.
+function renderLooks(kind, gridId) {
+    const L = LOOKS[kind];
+    const p = ctx.store.get();
+    const lvl = ctx.store.playerLevel ? ctx.store.playerLevel().level : 1;
+    const grid = $(gridId);
+    grid.innerHTML = '';
+    for (const [id, item] of Object.entries(L.table)) {
+        const owned = p[L.owned].includes(id);
+        const worn = p[L.chosen] === id;
+        const card = h('div', 'look-card' + (worn ? ' is-selected' : '') + (!owned && !Number.isFinite(item.price) ? ' is-locked' : ''));
+        card.dataset.look = kind + ':' + id;
+        let prev;
+        if (kind === 'skin') prev = swatch(p.marble, false, id);
+        else {
+            prev = h('span', 'trail-swatch');
+            const css = trailCss(id);
+            if (css) prev.style.background = css; else prev.classList.add('is-none');
+        }
+        card.append(prev, h('span', 'look-name', item.name));
+        card.title = item.blurb;
+        let btn;
+        if (worn) { btn = buyButton(0, 0, () => {}, 'WORN'); btn.disabled = true; }
+        else if (owned) btn = buyButton(0, 0, () => { ctx.store.selectLook(kind, id); say('profileMsg', `${item.name} on`, true); renderProfile(); changed(); }, 'WEAR');
+        else if (!Number.isFinite(item.price)) { btn = buyButton(0, 0, () => {}, 'LEVEL ' + item.level); btn.disabled = true; btn.title = `Unlocks at player level ${item.level} (you are level ${lvl})`; }
+        else btn = buyButton(item.price, p.wallet, () => {
+            buyResult('profileMsg', ctx.store.buyLook(kind, id), `${item.name} bought and on`);
+            renderProfile();
+            changed();
+        });
+        btn.classList.add('look-action');
+        card.append(btn);
+        grid.append(card);
+    }
 }
 
 export function renderProfile() {
     const p = ctx.store.get();
     const cur = p.marble;
     $('profileMarble').innerHTML = '';
-    $('profileMarble').append(swatch(cur, true));
+    $('profileMarble').append(swatch(cur, true, p.skin));
     $('profileMarbleName').textContent = MARBLES[cur].name;
 
     const grid = $('profileMarbles');
@@ -270,6 +313,9 @@ export function renderProfile() {
         }
         grid.append(card);
     }
+
+    renderLooks('skin', 'profileSkins');
+    renderLooks('trail', 'profileTrails');
 
     // How far you have got, and what you are carrying.
     const ids = new Set(ctx.getLevels().map(l => l.id));

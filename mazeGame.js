@@ -25,6 +25,8 @@ import { buildPlanet } from './planet3d.js';
 import { buildSolarSystem } from './solarSystem3d.js';
 import { isUnlocked, nearMiss } from './progressStore.js';
 import { MISSIONS } from './shopCatalog.js';
+import { applySkin } from './skins3d.js';
+import { createTrail } from './trail3d.js';
 import { setGameplayActive, features, showMidgameAd, showRewardedAd, adsAvailable, adFailureMessage, happytime, reportGameCompleted } from './platform.js';
 
 // PLANETILT -- the maze itself: level select, building a level, the run.
@@ -141,6 +143,7 @@ let levelsPromise = null;
 let scene = null;
 let mazeGroup = null;
 let ballMesh = null;
+let trail = null;                // the worn trail (trail3d.js), or null
 let ballBody = null;
 let world = null;
 let level = null;
@@ -532,10 +535,15 @@ function buildLevelMeshes(lv, theme) {
     // can rely on the ball reading against their own floor, instead of hoping
     // it does against 4+ marble skins they have never seen together.
     const ballGeo = track(new THREE.SphereGeometry(lv.ballRadius, 28, 20));
-    const ballMat = track(makeBallMaterial(theme, ballSpec.look));
+    // A worn skin paints over that (skins3d.js): colours only, the marble's
+    // own shine kept. The trail is the player's too (trail3d.js).
+    const worn = progressNow();
+    const ballMat = track(applySkin(makeBallMaterial(theme, ballSpec.look), worn.skin));
     ballMesh = new THREE.Mesh(ballGeo, ballMat);
     ballMesh.castShadow = true;
     group.add(ballMesh);
+    trail = createTrail(worn.trail, lv.ballRadius);
+    if (trail) group.add(trail.object);
 
     track(group);
     return { group, wallSpecs };
@@ -798,6 +806,7 @@ function advance(elapsedMs) {
 
     ballMesh.position.copy(ballBody.position);
     ballMesh.quaternion.copy(ballBody.quaternion);
+    if (trail) trail.update(ballBody.position, elapsedMs);
     // Leafy branches fade while the marble is under them (forest3d.js).
     if (forest) forest.tick(ballBody.position.x, ballBody.position.z, elapsedMs);
 
@@ -1355,7 +1364,7 @@ function buildShowcase(kind) {
         const theme = resolveMazeTheme(planetThemeOverride || lv.theme);
         // Space, tinted by the world: its backdrop colour, much darker.
         scene.background = new THREE.Color(theme.backdropColor).multiplyScalar(0.45);
-        planet = buildPlanet(theme, ballSpec.look, tracked);
+        planet = buildPlanet(theme, ballSpec.look, tracked, prog.skin);
         mazeGroup = planet.group;
     }
     tracked.forEach(track);
@@ -1509,6 +1518,7 @@ function teardownLevel() {
     setGameplayActive(false);
     if (mazeGroup && scene) scene.remove(mazeGroup);
     disposeAll();
+    if (trail) { trail.dispose(); trail = null; }
     mazeGroup = null;
     ballMesh = null;
     ballBody = null;
@@ -1678,6 +1688,10 @@ window.__mazeDebug = {
     // Roll the ball: set its velocity (units/s) without moving it.
     setBallVelocity: (vx, vz) => { if (!ballBody) return false; ballBody.velocity.set(vx, 0, vz); return true; },
     trial: () => ({ trial: marbleTrial(), ball: ballSpec.id }),
+    trail: () => (trail ? trail.info() : null),
+    // The 3D view as a PNG data URL, rendered now: for screenshots taken under
+    // a test clock, when no browser frame may come.
+    snapshot: () => { const r = getRenderer(); if (!r || !scene) return null; r.render(scene, getCamera()); return r.domElement.toDataURL('image/png'); },
     // The CONTINUE countdown runs on the wall clock; a test holds it rather
     // than racing a throttled sandbox to the button.
     holdFallOffer: (on) => { offerHeld = !!on; return phase; },
