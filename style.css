@@ -766,6 +766,10 @@ html, body {
 .world-sheethead { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .world-sheetnum { margin: 0; font-size: 0.64rem; letter-spacing: 0.22em; color: var(--accent); }
 .world-sheetname { margin: 0; font-size: 1.05rem; letter-spacing: 0.04em; text-wrap: balance; }
+.mode-switch { display: inline-flex; padding: 2px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line); }
+.mode-btn { font: inherit; font-size: 0.68rem; font-weight: 900; letter-spacing: 0.12em; padding: 5px 12px; border: 0; border-radius: 999px; color: var(--ink-dim); background: none; cursor: pointer; }
+.mode-btn.is-on { color: #3a2408; background: linear-gradient(#ffd66e, #e69a22); }
+#modeWalk.is-on { color: #fff; background: linear-gradient(#6fc3ff, #2f74d0); }
 .world-sheetdone { color: var(--ink-dim); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 .world-sheetnote { margin: 0; font-size: 0.75rem; font-weight: 500; color: var(--ink-dim); min-height: 1.2em; }
 .world-sheetprize { margin: 0; font-size: 0.7rem; font-weight: 500; color: var(--ink-dim); display: flex; align-items: center; gap: 8px; }
@@ -1033,3 +1037,89 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
 .level-nextnum { flex: none; min-width: 3.2em; font-weight: 900; color: #b49aff; }
 .level-nexttext { color: var(--ink-dim); margin: 0; }
 @media (prefers-reduced-motion: reduce) { #levelPanel.is-up .level-big, .lvl-fill { animation: none !important; transition: none !important; } }
+
+/* --- the Labyrinth (walking a level) ----------------------------------------- */
+.walk-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 45%, rgba(0, 0, 0, 0.75) 100%);
+}
+.walk-stick {
+  position: fixed;
+  width: 110px;
+  height: 110px;
+  margin: -55px 0 0 -55px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: rgba(10, 7, 5, 0.25);
+  pointer-events: none;
+  z-index: 4;
+}
+.walk-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, #d8d0c2 70%);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5);
+  transform: translate(var(--dx, 0), var(--dy, 0));
+}
+.maze-walkbtn { display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(#6fc3ff, #2f74d0); color: #fff; border-color: transparent; box-shadow: 0 3px 0 #1d4a8a; }
+.walk-icon { font-size: 1.05em; }
+
+.walk-compass {
+  position: absolute;
+  bottom: calc(24px + var(--safe-bottom));
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 8px;
+  border-radius: 999px;
+  background: rgba(10, 7, 5, 0.72);
+  border: 1px solid var(--line);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.compass-arrow {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(95, 224, 142, 0.25), rgba(95, 224, 142, 0) 70%);
+  position: relative;
+}
+.compass-arrow::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 1px;
+  margin-left: -7px;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 22px solid #5fe08e;
+}
+.compass-label { font-size: 0.62rem; letter-spacing: 0.16em; color: var(--ink-dim); }
+.walk-map {
+  position: absolute;
+  top: calc(128px + var(--safe-top));
+  right: 10px;
+  border-radius: 10px;
+  border: 2px solid rgba(255, 214, 110, 0.4);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.comfort-list { display: flex; flex-direction: column; gap: 10px; }
+.comfort-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.06); font-size: 0.9rem; }
+.comfort-row input[type=range] { grid-column: 1 / -1; grid-row: 2; width: 100%; accent-color: #6fc3ff; }
+.comfort-val { grid-column: 2; grid-row: 1; color: #6fc3ff; font-weight: 900; font-variant-numeric: tabular-nums; }
+.comfort-toggle input { width: 22px; height: 22px; accent-color: #6fc3ff; }
+.explorer-badge { flex: none; width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(#6fc3ff, #2f74d0); position: relative; }
+.explorer-compass::after { content: ""; position: absolute; left: 6px; top: 3px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 15px solid #fff; }
+.explorer-map { border-radius: 5px; background: repeating-linear-gradient(90deg, #f4ead9 0 6px, #6b4a2e 6px 8px), #f4ead9; }

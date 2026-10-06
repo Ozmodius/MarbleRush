@@ -21,7 +21,7 @@
 // player who edits their own save cheats only themselves; these rules exist so
 // the HONEST game behaves -- a replay must not pay a first clear twice.
 
-import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT, AD_REWARDS, LOOKS, DAILY_MAZE } from './shopCatalog.js';
+import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT, AD_REWARDS, LOOKS, DAILY_MAZE, WALK, EXPLORER, COMFORT } from './shopCatalog.js';
 import * as daily from './daily.js';
 import * as levelUp from './playerLevel.js';
 import { XP } from './shopCatalog.js';
@@ -30,6 +30,22 @@ import { XP } from './shopCatalog.js';
 // on purpose -- renaming it would wipe every player's progress.
 export const SAVE_KEY = 'marbleRush.progress.v1';
 export const SAVE_VERSION = 1;
+
+export function defaultComfort() {
+    const c = {};
+    for (const [k, v] of Object.entries(COMFORT)) c[k] = v.def;
+    return c;
+}
+// A comfort block with every value known and inside its range.
+export function cleanComfort(raw) {
+    const c = defaultComfort();
+    if (!raw || typeof raw !== 'object') return c;
+    for (const [k, v] of Object.entries(COMFORT)) {
+        if (typeof v.def === 'boolean') { if (typeof raw[k] === 'boolean') c[k] = raw[k]; }
+        else if (Number.isFinite(raw[k])) c[k] = Math.max(v.min, Math.min(v.max, raw[k]));
+    }
+    return c;
+}
 
 export function freshProgress() {
     return {
@@ -49,7 +65,10 @@ export function freshProgress() {
         // Today's daily maze: { date, id, best, paid, gold } (daily.js).
         dailyMaze: null,
         // Ball cam (mazeGame.js): the closer camera that follows the ball.
-        ballCam: false
+        ballCam: false,
+        // The Labyrinth (walkMode.js): best walk per level, explorer kit
+        // owned, and the comfort settings.
+        walks: {}, explorer: [], comfort: defaultComfort()
     };
 }
 
@@ -95,6 +114,13 @@ export function parseProgress(text) {
     p.daily = daily.parseDaily(raw.daily);
     p.dailyMaze = daily.parseDailyMaze(raw.dailyMaze);
     p.ballCam = raw.ballCam === true;
+    if (raw.walks && typeof raw.walks === 'object') {
+        for (const [id, w] of Object.entries(raw.walks)) {
+            if (w && Number.isFinite(w.bestMs)) p.walks[id] = { bestMs: w.bestMs, coins: Math.max(0, w.coins | 0), gold: !!w.gold };
+        }
+    }
+    if (Array.isArray(raw.explorer)) p.explorer = raw.explorer.filter((id, i, a) => EXPLORER[id] && a.indexOf(id) === i);
+    p.comfort = cleanComfort(raw.comfort);
     p.missions = daily.parseMissions(raw.missions);
     return p;
 }
@@ -118,8 +144,10 @@ export function tierLimits(lv) {
 // level, and how much faster this run needed to be for it. `close` marks a
 // miss worth a big RETRY (within a second, or 15% of that medal's time).
 // Null once the level is gold -- nothing left to chase.
-export function nearMiss(lv, runMs, bestMs) {
+// `goldMs` is the par to measure against: the level's own, or a walk par.
+export function nearMiss(lv, runMs, bestMs, goldMs = lv && lv.goldMs) {
     if (!lv || !Number.isFinite(runMs)) return null;
+    lv = { goldMs };
     const best = Number.isFinite(bestMs) ? Math.min(bestMs, runMs) : runMs;
     const have = tierForMs(lv, best);
     const order = ['bronze', 'silver', 'gold'];
@@ -225,6 +253,52 @@ export function applyDailyClear(progress, today, durationMs, coins, now = Date.n
             tier, goldFirst, earned, coinsEarned: firstClear ? got : 0, wallet: p.wallet, highestIndex: p.highestIndex, prize: null
         }
     };
+}
+
+// --- THE LABYRINTH (walking a level) ----------------------------------------
+// A walk's medals measure against walkGoldMs, not the rolling gold time.
+export function walkGoldMs(lv) { return Math.round(lv.goldMs * WALK.parShare); }
+export function walkTierForMs(lv, ms) { return tierForMs({ goldMs: walkGoldMs(lv) }, ms); }
+
+// A walk to the goal. Only a level already CLEARED by rolling can be walked,
+// and not under its minMs (no walk is faster than the fastest roll). Pays once
+// each: payShare of the first-clear pay plus the coins taken on the first walk,
+// and the level's gold bonus on the first walk gold. Replays chase the time.
+export function applyWalkClear(progress, levels, payouts, levelId, durationMs, coins) {
+    const lv = (levels || []).find(l => l.id === levelId);
+    const no = reason => ({ progress, result: { accepted: false, levelId, reason, walk: true } });
+    if (!lv) return no('unknown-level');
+    if (!progress.cleared[lv.id]) return no('not-rolled');
+    if (!Number.isFinite(durationMs) || durationMs < lv.minMs) return no('too-fast');
+    const p = JSON.parse(JSON.stringify(progress));
+    const got = Math.max(0, Math.min(Array.isArray(lv.coins) ? lv.coins.length : 0, Math.floor(Number(coins) || 0)));
+    const prev = p.walks[lv.id];
+    const firstClear = !prev;
+    const tier = walkTierForMs(lv, durationMs);
+    const goldFirst = tier === 'gold' && !(prev && prev.gold);
+    const coinsEarned = Math.max(0, got - (prev ? prev.coins : 0));
+    const earned = (firstClear ? Math.round(basePayout(payouts, lv) * WALK.payShare) : 0) + coinsEarned + (goldFirst ? goldBonus(payouts, lv) : 0);
+    p.wallet += earned;
+    p.walks[lv.id] = { bestMs: prev ? Math.min(prev.bestMs, durationMs) : durationMs, coins: Math.max(prev ? prev.coins : 0, got), gold: !!(prev && prev.gold) || tier === 'gold' };
+    return {
+        progress: p,
+        result: {
+            accepted: true, walk: true, levelId: lv.id, firstClear, runMs: durationMs, bestMs: p.walks[lv.id].bestMs, prevBestMs: prev ? prev.bestMs : undefined,
+            tier, goldFirst, earned, coinsEarned, wallet: p.wallet, highestIndex: p.highestIndex, prize: null, parMs: walkGoldMs(lv)
+        }
+    };
+}
+
+export function buyExplorer(progress, id) {
+    const e = EXPLORER[id];
+    return purchase(progress, e ? e.price : NaN, q => { q.explorer.push(id); },
+        !e ? 'unknown' : progress.explorer.includes(id) ? 'owned' : null);
+}
+
+export function setComfort(progress, patch) {
+    const p = JSON.parse(JSON.stringify(progress));
+    p.comfort = cleanComfort({ ...progress.comfort, ...(patch || {}) });
+    return { progress: p, ok: true };
 }
 
 // XP for clears made before player levels existed: what each would have
@@ -507,6 +581,22 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         },
         msUntilTomorrow: () => daily.msUntilTomorrow(clock()),
         playerLevel: () => levelUp.levelInfo(progress.xp || 0),
+        // The Labyrinth.
+        recordWalkClear(levelId, durationMs, coins) {
+            const out = applyWalkClear(progress, levels, payouts, levelId, durationMs, coins);
+            if (!out.result.accepted) return out.result;
+            const r = out.result;
+            const lv = levels.find(l => l.id === levelId);
+            const got = Math.max(0, Math.min(lv.coins ? lv.coins.length : 0, Math.floor(Number(coins) || 0)));
+            const m = daily.trackMissions(out.progress, daily.clearEvents(lv, r, got, r.prevBestMs), clock());
+            progress = m.progress;
+            const xp = (r.firstClear ? XP.walkFirst : XP.walkReplay) + (r.goldFirst ? XP.goldFirst : 0);
+            const gained = earn(xp);
+            persist();
+            return { ...r, missionsDone: m.done, xp, levelUps: gained, wallet: progress.wallet };
+        },
+        buyExplorer: id => apply(buyExplorer(progress, id)),
+        setComfort: patch => { apply(setComfort(progress, patch)); return progress.comfort; },
         setBallCam(on) { progress = { ...progress, ballCam: !!on }; persist(); return progress.ballCam; },
         // Levels gained since the last call (each { level, reward }); the
         // caller shows them, so they are handed out once.

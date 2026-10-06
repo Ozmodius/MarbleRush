@@ -18,12 +18,15 @@ import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from 
 import { buildLevelProps } from './mazeProps3d.js';
 import { sfx as uiSfx } from './sfx.js';
 import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
-import { ballSetup, PRIZES, AD_REWARDS, MARBLES } from './shopCatalog.js';
+import { ballSetup, PRIZES, AD_REWARDS, MARBLES, WALK } from './shopCatalog.js';
 const marbleName = id => (MARBLES[id] ? MARBLES[id].name.toUpperCase() : String(id));
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { buildPlanet } from './planet3d.js';
 import { buildSolarSystem } from './solarSystem3d.js';
-import { isUnlocked, nearMiss } from './progressStore.js';
+import { isUnlocked, nearMiss, walkGoldMs } from './progressStore.js';
+import { createWalkHud } from './walkHud.js';
+import { openComfort, closeComfort } from './comfortUi.js';
+import { createWalkInput, wantedVelocity, walkImpulse, clampPitch, lookPoint, openingYaw, EYE_ABOVE_CENTRE } from './walkMode.js';
 import { MISSIONS } from './shopCatalog.js';
 import { applySkin } from './skins3d.js';
 import { createTrail } from './trail3d.js';
@@ -96,6 +99,7 @@ const _camPos = new THREE.Vector3();
 // is the shape that matters. Fitting whichever axis binds means it is correct
 // on every device, in either orientation, with no per-device tuning.
 function computeCameraPose() {
+    if (walkMode && ballBody) return computeWalkPose();
     const camera = getCamera();
     const fov = ((camera && camera.fov) || 48) * Math.PI / 180;
     const aspect = (camera && camera.aspect) || (768 / 1180);
@@ -158,6 +162,80 @@ const _camLook = new THREE.Vector3();
 
 function ballCamWanted() {
     return ballCamOn && !!ballBody && (phase === 'running' || phase === 'falling' || phase === 'offer');
+}
+
+// THE LABYRINTH (walkMode.js): this level WALKED in first person. The ball's
+// body is the walker; the camera is its eye.
+let walkMode = false;
+let walkYaw = 0, walkPitch = 0, walkStartYaw = 0;
+let walkWant = { x: 0, z: 0 };
+let walkSpeedNow = 0, walkTurning = false, walkBob = 0;
+let walkInput = null;
+let walkHud = null;               // compass and map (walkHud.js), when owned
+let walkHintShown = false;
+let savedFov = null;
+const WALK_HINT = 'LEFT: MOVE  ·  RIGHT: LOOK  ·  OR WASD';
+const _walkEye = new THREE.Vector3();
+const _walkLook = new THREE.Vector3();
+
+function comfortNow() { return progressNow().comfort || { fov: 75, sens: 1, invertY: false, bob: false, vignette: true }; }
+
+// The camera's field of view is the scene host's; walking widens it to the
+// comfort setting, and anything else puts the original back.
+function setWalkFov(on) {
+    const camera = getCamera();
+    if (!camera) return;
+    if (on) {
+        if (savedFov === null) savedFov = camera.fov;
+        camera.fov = comfortNow().fov;
+    } else if (savedFov !== null) { camera.fov = savedFov; savedFov = null; }
+    camera.updateProjectionMatrix();
+}
+
+function computeWalkPose() {
+    const p = ballBody.position;
+    const bob = comfortNow().bob ? Math.sin(walkBob) * 0.012 * Math.min(1, walkSpeedNow / WALK.speed) : 0;
+    _walkEye.set(p.x, p.y + EYE_ABOVE_CENTRE + bob, p.z);
+    const lp = lookPoint(_walkEye, walkYaw, walkPitch);
+    _walkLook.set(lp.x, lp.y, lp.z);
+    return { pos: _walkEye, lookAt: _walkLook };
+}
+
+// This frame's controls: look always (on the ready screen too), and the
+// walking velocity asked for while the run is on.
+function stepWalkControls(elapsedMs, lookOnly) {
+    const c = comfortNow();
+    const inp = walkInput ? walkInput.read(elapsedMs, { sens: c.sens, invertY: c.invertY })
+        : { move: { fwd: 0, strafe: 0 }, dYaw: 0, dPitch: 0, turning: false };
+    walkYaw += inp.dYaw;
+    walkPitch = clampPitch(walkPitch + inp.dPitch);
+    walkTurning = inp.dYaw !== 0 || inp.dPitch !== 0;
+    walkWant = lookOnly ? { x: 0, z: 0 } : wantedVelocity(inp.move, walkYaw);
+    if (world) world.gravity.set(0, -GRAVITY, 0);
+    if (mazeGroup) mazeGroup.rotation.set(0, 0, 0);
+}
+
+// One physics step of walking: lean toward the asked-for velocity (traps add
+// their own pushes on top), and spin the body as if rolling so floor friction
+// does not drag at it.
+function applyWalk(dt) {
+    const v = ballBody.velocity;
+    const imp = walkImpulse({ x: v.x, z: v.z }, walkWant, dt);
+    if (imp.x || imp.z) ballBody.wakeUp();
+    v.x += imp.x; v.z += imp.z;
+    const r = level.ballRadius;
+    ballBody.angularVelocity.set(v.z / r, 0, -v.x / r);
+}
+
+// The edges darken while moving or turning (the comfort vignette).
+let vignetteNow = 0;
+function updateWalkVignette(elapsedMs) {
+    const e = el('walkVignette');
+    if (!e) return;
+    const want = walkMode && comfortNow().vignette && phase === 'running'
+        ? Math.min(1, walkSpeedNow / WALK.speed * 0.55 + (walkTurning ? 0.45 : 0)) : 0;
+    vignetteNow += (want - vignetteNow) * (1 - Math.exp(-elapsedMs / 180));
+    e.style.opacity = vignetteNow.toFixed(3);
 }
 
 const FALL_RESTART_MS = 750;     // let the player watch the ball drop before the reset
@@ -589,7 +667,9 @@ function buildLevelMeshes(lv, theme) {
     ballMesh = new THREE.Mesh(ballGeo, ballMat);
     ballMesh.castShadow = true;
     group.add(ballMesh);
-    trail = createTrail(worn.trail, lv.ballRadius);
+    // Walking, the ball is the walker: no marble on screen, no trail.
+    ballMesh.visible = !walkMode;
+    trail = walkMode ? null : createTrail(worn.trail, lv.ballRadius);
     if (trail) group.add(trail.object);
 
     track(group);
@@ -799,7 +879,9 @@ function step() {
 let lastFrameMs = 0;              // real ms of the frame being advanced, for pickup timers
 function advance(elapsedMs) {
     lastFrameMs = elapsedMs;
-    if (phase === 'running') {
+    if (phase === 'running' && walkMode) stepWalkControls(elapsedMs, false);
+    else if (phase === 'ready' && walkMode) stepWalkControls(elapsedMs, true);
+    if (phase === 'running' && !walkMode) {
         // Manual input is already in screen terms and needs no calibration.
         const manual = manualActive() || !sensorSeen;
         const { tilt, gravity } = computeTilt(manual ? manualReading() : latestReading,
@@ -823,7 +905,8 @@ function advance(elapsedMs) {
         // board's visible lean calibrated to the old value.
         mazeGroup.rotation.z = -clamp(tilt.gamma / MAX_TILT_DEG, -1, 1) * VISUAL_TILT_MAX_RAD;
         mazeGroup.rotation.x = clamp(tilt.beta / MAX_TILT_DEG, -1, 1) * VISUAL_TILT_MAX_RAD;
-
+    }
+    if (phase === 'running') {
         // The gate clock only advances while the run is RUNNING. Paused on the
         // ready screen, frozen during the fall animation and after a win: gates
         // that kept sliding behind a "DOWN THE HOLE" banner would have moved on
@@ -847,13 +930,19 @@ function advance(elapsedMs) {
     const simMs = phase === 'running' ? elapsedMs * timeScale(pickupState) : elapsedMs;
     const steps = Math.min(Math.max(1, Math.round((simMs / 1000) / FIXED_STEP)), MAX_CATCHUP_STEPS);
     for (let i = 0; i < steps; i++) {
-        if (phase === 'running') { applyConveyor(FIXED_STEP); applyWind(FIXED_STEP); applyGeysers(FIXED_STEP); applyToys(); applyFoundry(FIXED_STEP); }
+        if (phase === 'running') { if (walkMode) applyWalk(FIXED_STEP); applyConveyor(FIXED_STEP); applyWind(FIXED_STEP); applyGeysers(FIXED_STEP); applyToys(); applyFoundry(FIXED_STEP); }
         world.step(FIXED_STEP);
     }
 
     ballMesh.position.copy(ballBody.position);
     ballMesh.quaternion.copy(ballBody.quaternion);
     if (trail) trail.update(ballBody.position, elapsedMs);
+    if (walkMode) {
+        if (walkHud) walkHud.update(ballBody.position.x, ballBody.position.z, walkYaw, elapsedMs);
+        walkSpeedNow = Math.hypot(ballBody.velocity.x, ballBody.velocity.z);
+        walkBob += walkSpeedNow * (elapsedMs / 1000) * 9;
+        updateWalkVignette(elapsedMs);
+    }
     // Leafy branches fade while the marble is under them (forest3d.js).
     if (forest) forest.tick(ballBody.position.x, ballBody.position.z, elapsedMs);
 
@@ -1195,6 +1284,7 @@ function win() {
     // The daily maze is off the ladder and pays by its own rules.
     const coinsTaken = pickupState ? pickupState.coins : 0;
     const result = !store ? null
+        : walkMode ? store.recordWalkClear(level.id, ms, coinsTaken)
         : isDaily(level) ? store.recordDailyClear(level.id, ms, coinsTaken)
         : store.recordClear(level.id, ms, coinsTaken);
     // Level gravity back to straight down. Tilt is only sampled while the phase
@@ -1217,19 +1307,22 @@ function win() {
         setTimeout(() => { if (phase === 'won' && trialMarble) setStatus('KEEP ' + m.name.toUpperCase() + '?  GEAR  ' + formatBearings(m.price)); }, 2200);
     }
     showWinStar(true);
+    if (walkHud) walkHud.show(false);
     showEl('mazeWinPanel', true);
     showEl('mazeReplayBtn', true);
     showEl('mazeLevelsBtn', true);
     // NEXT MAZE only exists when there IS one. On the final level the panel
     // collapses to EXIT, rather than offering a button that would do nothing.
-    showEl('mazeNextBtn', !isDaily(level) && !!nextLevelAfter(level));
+    showEl('mazeNextBtn', !walkMode && !isDaily(level) && !!nextLevelAfter(level));
+    // A level just rolled can be walked next (the Labyrinth).
+    showEl('mazeWalkBtn', !walkMode && !isDaily(level) && !!(result && result.accepted));
 }
 
 // THE NEAR MISS: after a clear that left a medal on the table, say which and
 // by how much -- and when it was close, make RETRY the big button, because a
 // player 0.4s off gold wants one more go far more than the next level.
 function showNearMiss(res) {
-    const nm = res && res.accepted ? nearMiss(level, res.runMs, res.bestMs) : null;
+    const nm = res && res.accepted ? nearMiss(level, res.runMs, res.bestMs, res.parMs || level.goldMs) : null;
     showEl('mazeNearMiss', !!nm);
     const replay = el('mazeReplayBtn');
     if (replay) {
@@ -1257,6 +1350,7 @@ function restart() {
     showEl('mazeDoubleBtn', false);
     showEl('mazeAdShieldBtn', false);
     placeBallAtStart();
+    if (walkMode) { walkYaw = walkStartYaw; walkPitch = -0.08; if (walkHud) walkHud.show(true); }
     smoothed = null;
     recenterPending = true;      // re-zero to however they're holding it now
     runStartedAt = performance.now();
@@ -1519,6 +1613,15 @@ export function setMenuHandler(fn) { menuHandler = fn; }
 export function showMenus(tab) { enterMenus(tab); }
 export function playLevel(id) { startLevel(id || (nextLevel() && nextLevel().id)); }
 
+// Walk a level in first person (the Labyrinth). Only a level already cleared
+// by rolling: the walk is a second way through, not a way past.
+export function walkLevel(id) {
+    const lv = allLevels.find(l => l.id === id);
+    if (!lv || !progressNow().cleared[id]) return false;
+    startLevel(id, { walk: true });
+    return walkMode && !!level && level.id === id;
+}
+
 // Today's daily maze (daily.js picks it). False when it is locked or there is
 // no pool.
 export function playDaily() {
@@ -1533,10 +1636,11 @@ function showLevelSelect() { enterMenus('worlds'); }
 // Build and enter one level. Everything from the previous level is disposed
 // first -- levels are rebuilt per run, unlike the game board which is built
 // once for the page's lifetime.
-function startLevel(levelId) {
+function startLevel(levelId, opts = {}) {
     const lv = allLevels.find(l => l.id === levelId) || dailyLevels.find(l => l.id === levelId);
     if (!lv || !scene) return;
     teardownLevel();
+    walkMode = !!opts.walk;
 
     level = lv;
     const prog = progressNow();
@@ -1559,6 +1663,20 @@ function startLevel(levelId) {
     scene.add(mazeGroup);
     buildWorld(lv, built.wallSpecs);
     placeBallAtStart();
+    // Walking: face down the open corridor, look a touch down, widen the view.
+    walkStartYaw = openingYaw(lv);
+    walkYaw = walkStartYaw; walkPitch = -0.08; walkSpeedNow = 0; vignetteNow = 0;
+    if (walkInput) walkInput.reset();
+    setWalkFov(walkMode);
+    document.body.classList.toggle('is-walking', walkMode);
+    showEl('mazeCamBtn', !walkMode);
+    showEl('mazeRecenterBtn', !walkMode);
+    showEl('mazeComfortBtn', walkMode);
+    if (walkMode) {
+        const kit = prog.explorer || [];
+        walkHud = createWalkHud({ level: lv, compass: kit.includes('compass'), map: kit.includes('map') });
+        walkHud.update(lv.start.x, lv.start.z, walkYaw, 1000);
+    }
 
     showEl('mazeSelect', false);
     showEl('mazeHud', true);
@@ -1568,12 +1686,12 @@ function startLevel(levelId) {
     showEl('mazeLevelsBtn', false);
     showEl('mazeStartBtn', true);
     const nameEl = el('mazeLevelName');
-    if (nameEl) nameEl.textContent = lv.name;
+    if (nameEl) nameEl.textContent = (walkMode ? 'Walk · ' : '') + lv.name;
 
     phase = 'ready';
     lastStepTime = 0;
     smoothed = null;
-    setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : 'TAP START, THEN TILT');
+    setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : walkMode ? 'TAP START, THEN FIND THE EXIT' : 'TAP START, THEN TILT');
     freeShieldTaken = false;
     rewardedThisBreak = false;   // that break is over; this level's are its own
     closeFallOffer();
@@ -1587,6 +1705,8 @@ function teardownLevel() {
     if (mazeGroup && scene) scene.remove(mazeGroup);
     disposeAll();
     if (trail) { trail.dispose(); trail = null; }
+    if (walkMode) { walkMode = false; setWalkFov(false); document.body.classList.remove('is-walking'); updateWalkVignette(1000); closeComfort(); }
+    if (walkHud) { walkHud.dispose(); walkHud = null; }
     mazeGroup = null;
     ballMesh = null;
     ballBody = null;
@@ -1717,6 +1837,17 @@ window.__mazeDebug = {
     // than one step past the furthest cleared, whichever level was built, so
     // the worst this does is let someone look at a level early.
     playDaily: () => playDaily(),
+    // The Labyrinth: start a walk, hold a move (as keys would), turn, and read
+    // where the walker is and what the camera sees.
+    walkLevel: (id) => walkLevel(id),
+    walkMove: (m) => { if (walkInput) walkInput.setTestMove(m); return true; },
+    walkTurn: (rad) => { walkYaw += rad; return walkYaw; },
+    walk: () => ({
+        compass: !!(el('walkCompass') && !el('walkCompass').hidden), map: !!(el('walkMap') && !el('walkMap').hidden),
+        on: walkMode, yaw: walkYaw, pitch: walkPitch, speed: walkSpeedNow,
+        fov: getCamera() ? getCamera().fov : null, ballVisible: !!(ballMesh && ballMesh.visible),
+        eye: walkMode && ballBody ? (() => { const p = computeWalkPose(); return { x: p.pos.x, y: p.pos.y, z: p.pos.z, lx: p.lookAt.x, ly: p.lookAt.y, lz: p.lookAt.z }; })() : null
+    }),
     // Ball cam: switch it, and read where the camera is and how zoomed.
     ballCam: (on) => { if (on !== undefined) setBallCam(on); return { on: ballCamOn, zoom: camZoom, pose: level ? (() => { const p = computeCameraPose(); return { x: p.pos.x, y: p.pos.y, z: p.pos.z, lx: p.lookAt.x, lz: p.lookAt.z }; })() : null }; },
     dailyMaze: () => (store && store.dailyMaze ? store.dailyMaze() : null),
@@ -1860,6 +1991,16 @@ async function startRun() {
     // bound to, and placeBallAtStart would dereference a null body. Cheap guard
     // against a real crash rather than a theoretical one.
     if (!level || !ballBody) return;
+    if (walkMode) {
+        // Walking needs no motion sensor: joystick and look, or keys.
+        clearManual();
+        showEl('mazeStartBtn', false);
+        showEl('mazeAdShieldBtn', false);
+        restart();
+        walkHintShown = true;
+        setStatus(WALK_HINT);
+        return;
+    }
     const perm = await requestTiltPermission();
     const tiltOk = !(perm === 'denied' || perm === 'unsupported');
     if (tiltOk) bindOrientation();
@@ -1977,6 +2118,13 @@ export function initMazeControls() {
     bindTap('mazeUse_slowmo', () => { useRunCharge('slowmo'); });
     bindTap('mazeUse_magnet', () => { useRunCharge('magnet'); });
     bindTap('mazeCamBtn', () => { setBallCam(!ballCamOn); });
+    bindTap('mazeComfortBtn', () => { if (store) openComfort(store, () => { if (walkMode) setWalkFov(true); }); });
+    bindTap('mazeWalkBtn', () => { const id = level && level.id; if (id) afterBreak(() => walkLevel(id)); });
+    walkInput = createWalkInput({
+        active: () => active && walkMode && (phase === 'running' || phase === 'ready'),
+        onFirstInput: () => { if (walkHintShown && phase === 'running') { walkHintShown = false; setStatus(''); } },
+        stickEl: el('walkStick')
+    });
     bindTap('mazeRecenterBtn', () => {
         recenterPending = true;
         setStatus('RECENTERED');

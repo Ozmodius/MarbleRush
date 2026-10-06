@@ -194,6 +194,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // 120 + 1 coin, and its 120 XP reaches player level 2, which pays 60.
         check(prog.wallet === 120 + 1 + 60 && prog.xp === 120, `a first clear with one coin pays 121 and its level-up 60: wallet ${prog.wallet}, xp ${prog.xp}`);
         check(/CLEARED/.test(await page.textContent('#mazeStatus')), 'the status line reports the clear');
+        check(await page.isVisible('#mazeWalkBtn'), 'a rolled clear offers WALK IT');
         // That clear was silver, 5s off gold: the near-miss line says so.
         check(await page.isVisible('#mazeNearMiss') && /^\d+\.\ds FASTER FOR GOLD$/.test((await page.textContent('#mazeNearText')).trim())
             && (await page.textContent('#mazeReplayBtn')).trim() === 'REPLAY',
@@ -627,6 +628,79 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const tomorrow = await ddbg('dailyMaze');
         check(tomorrow.lv.id !== dlv.id && !tomorrow.paid, `tomorrow brings a new maze, unpaid: ${tomorrow.lv.id}`);
         await dCtx.close();
+
+        // --- the Labyrinth: walking a level in first person ------------------
+        const wCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+        await wCtx.addInitScript(() => {
+            if (sessionStorage.getItem('seeded')) return;
+            sessionStorage.setItem('seeded', '1');
+            const d = new Date(); const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const cleared = { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 }, w1_03: { bestMs: 99000, coins: 0 } };
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 1000, xp: 0, highestIndex: 3, cleared, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: key } }));
+        });
+        const wp = await wCtx.newPage();
+        wp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
+        const wdbg = (fn, ...args) => wp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
+        await wp.goto(base);
+        await homeUp(wp);
+        // Explorer kit: the Compass from the store.
+        await wp.tap('#tab_store');
+        await wp.waitForSelector('#storeView', { state: 'visible' });
+        await wp.locator('.shop-row[data-explorer="compass"] .shop-buy').tap();
+        check((await wdbg('progress')).explorer.includes('compass') && (await wdbg('progress')).wallet === 600, 'the Compass is bought in the store');
+        // The worlds sheet in WALK mode: rolled levels only.
+        await wp.tap('#tab_worlds');
+        await wp.waitForSelector('#mazeSelect', { state: 'visible' });
+        await wp.tap('#modeWalk');
+        const wNodes = await wp.$$eval('.level-node', els => els.map(e => e.disabled));
+        check(!wNodes[0] && !wNodes[2] && wNodes[3], `in WALK mode only rolled levels open: ${JSON.stringify(wNodes.slice(0, 4))}`);
+        await wp.locator('.level-node').first().tap();
+        await wp.waitForSelector('#mazeStartBtn', { state: 'visible' });
+        let wk = await wdbg('walk');
+        check(wk.on && !wk.ballVisible && wk.fov === 75 && wk.compass && !wk.map, `walking: first person, no marble, FOV 75, compass shown, map not owned: ${JSON.stringify(wk)}`);
+        check(wk.eye.y < 0.55 && wk.eye.y > 0.2, `the eye is below the wall tops (${wk.eye.y.toFixed(2)})`);
+        check(/^Walk · /.test((await wp.textContent('#mazeLevelName')).trim()) && await wp.isHidden('#mazeCamBtn') && await wp.isVisible('#mazeComfortBtn'), 'the HUD says Walk and offers comfort, not ball cam');
+        // Comfort: a wider view, saved and applied at once.
+        await wp.tap('#mazeComfortBtn');
+        await wp.waitForSelector('#comfortPanel', { state: 'visible' });
+        await wp.evaluate(() => { const s = document.getElementById('comfortFov'); s.value = '90'; s.dispatchEvent(new Event('input')); });
+        check((await wdbg('walk')).fov === 90 && (await wdbg('progress')).comfort.fov === 90, 'a field of view change applies at once and is saved');
+        await wp.tap('#comfortCloseBtn');
+        // Walk forward, stop.
+        await wp.tap('#mazeStartBtn');
+        await wp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+        const wlv = levels.find(l => l.id === 'w1_01');
+        const wp0 = await wdbg('advanceFrames', 1, 16);
+        const yaw0 = (await wdbg('walk')).yaw;
+        await wdbg('walkMove', { fwd: 1 });
+        const wp1 = await wdbg('advanceFrames', 30, 16);
+        const along = (wp1.x - wp0.x) * -Math.sin(yaw0) + (wp1.z - wp0.z) * -Math.cos(yaw0);
+        check(along > 0.4, `W walks forward the way the eye faces (${along.toFixed(2)} units in 0.5s)`);
+        check(Math.abs((await wdbg('walk')).speed - 1.8) < 0.2, `at walking pace (${(await wdbg('walk')).speed.toFixed(2)})`);
+        await wdbg('walkMove', null);
+        await wdbg('advanceFrames', 30, 16);
+        check((await wdbg('walk')).speed < 0.2, 'and stops when let go');
+        await wdbg('walkTurn', Math.PI / 2);
+        wk = await wdbg('walk');
+        check(Math.abs((wk.eye.lx - wk.eye.x) - (-Math.sin(wk.yaw)) * Math.cos(wk.pitch)) < 1e-6, 'turning turns the view');
+        // A pit is a pit.
+        await wdbg('placeBall', wlv.holes[0].x, wlv.holes[0].z);
+        await wdbg('advanceFrames', 2);
+        check(await wdbg('phase') === 'falling', 'walking over a hole falls in');
+        await wp.evaluate(() => new Promise(r => setTimeout(r, 900)));
+        await wdbg('advanceFrames', 1);
+        check(await wdbg('phase') === 'running' && Math.abs((await wdbg('walk')).yaw - yaw0) < 1e-6, 'then the walk restarts, facing the way it began');
+        // The exit: a walk is recorded and paid, off the roll records.
+        await wdbg('ageRun', Math.round(wlv.goldMs * 1.4));
+        check(await wdbg('warpToGoal'), 'reaching the exit wins the walk');
+        const wprog = await wdbg('progress');
+        check(wprog.walks.w1_01 && wprog.wallet === 600 + 60 && wprog.cleared.w1_01.bestMs === 99000,
+            `the first walk pays half the first-clear pay, kept apart from rolling: ${JSON.stringify({ w: wprog.walks, wallet: wprog.wallet })}`);
+        check(await wp.isHidden('#mazeNextBtn') && await wp.isVisible('#mazeNearMiss') && /FOR GOLD|FROM GOLD/.test(await wp.textContent('#mazeNearText')), 'a walk has no NEXT, and names the walk gold still to win');
+        await wp.tap('#mazeLevelsBtn');
+        await wp.waitForSelector('#mazeSelect', { state: 'visible' });
+        check((await wdbg('walk')).on === false && (await wdbg('walk')).fov !== 90, 'leaving the walk puts the camera back');
+        await wCtx.close();
 
         // --- ads, against a stand-in CrazyGames SDK -------------------------
         // The real SDK script is swapped for nothing and window.CrazyGames is

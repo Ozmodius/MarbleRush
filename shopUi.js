@@ -1,4 +1,4 @@
-import { MARBLES, MARBLE_IDS, UPGRADES, UPGRADE_IDS, CHARGES, CHARGE_IDS, PRIZES, PRIZE_IDS, ballSetup, AD_REWARDS, LOOKS } from './shopCatalog.js';
+import { MARBLES, MARBLE_IDS, UPGRADES, UPGRADE_IDS, CHARGES, CHARGE_IDS, PRIZES, PRIZE_IDS, ballSetup, AD_REWARDS, LOOKS, EXPLORER, EXPLORER_IDS } from './shopCatalog.js';
 import { skinDataUrl } from './skins3d.js';
 import { trailCss } from './trail3d.js';
 import { adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
@@ -190,6 +190,18 @@ export function renderStore() {
                 : [h('span', 'shop-locked', `Clear World ${z.world}`)];
             list.append(row(z.name, z.blurb + (earned ? ` ${z.refill.uses} uses per refill; one use covers one level.` : ''), side, h('span', 'prize-badge')));
         }
+    }
+
+    // EXPLORER: kit for walking a level (the Labyrinth). Bought once.
+    list.append(h('p', 'shop-section', 'EXPLORER  ·  WALK MODE'));
+    for (const id of EXPLORER_IDS) {
+        const e = EXPLORER[id];
+        const owned = p.explorer.includes(id);
+        const side = owned ? [h('span', 'shop-owned', 'OWNED')]
+            : [buyButton(e.price, p.wallet, () => { buyResult('storeMsg', ctx.store.buyExplorer(id), `${e.name} bought`); renderStore(); changed(); })];
+        const r = row(e.name, e.blurb, side, h('span', 'explorer-badge explorer-' + id));
+        r.dataset.explorer = id;
+        list.append(r);
     }
     renderWallets();
 }
