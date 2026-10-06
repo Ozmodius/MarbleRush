@@ -1,6 +1,6 @@
 // THE PROGRESS STORE -- the other Phase 0 seam (CLAUDE.md, docs/PLAN.md).
 //
-// In Ball Smack the server held the maze ledger and paid out; Planetilt has
+// In Ball Smack the server held the maze ledger and paid out; PlaneTilt has
 // no server (docs/PLAN.md: "No server"), so this module is that ledger. Three
 // calls, as planned:
 //

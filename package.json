@@ -2,7 +2,7 @@
   "name": "planetilt",
   "version": "0.1.0",
   "private": true,
-  "description": "Planetilt: a tilt-controlled marble maze for CrazyGames.",
+  "description": "PlaneTilt: a tilt-controlled marble maze for CrazyGames.",
   "license": "UNLICENSED",
   "scripts": {
     "test": "node test_maze_levels.js && node test_maze_hazards.js && node test_maze_tilt.js && node test_maze_walls.js && node test_maze_pickups.js && node test_progress_store.js && node test_shop.js && node test_forest.js",

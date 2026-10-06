@@ -135,7 +135,7 @@ async function run() {
         `a rotated screen must not create movement from a still device, got ${JSON.stringify(rotStill.gravity)}`);
 
     // The sensitivity slider's clamp (Ball Smack's settings.js) is not part of
-    // Planetilt yet; when the game gets its own settings module, pin its
+    // PlaneTilt yet; when the game gets its own settings module, pin its
     // clamp to T.MIN_SENSITIVITY / T.MAX_SENSITIVITY here.
 
     if (failures.length) {

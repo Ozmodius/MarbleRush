@@ -1,4 +1,4 @@
-# CLAUDE.md -- Planetilt
+# CLAUDE.md -- PlaneTilt
 
 The game was called Marble Rush until 2026-10-06 (renamed: "Marble Rush" is a
 registered VTech toy brand). The repo and the save key

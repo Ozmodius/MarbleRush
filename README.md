@@ -1,4 +1,4 @@
-# Planetilt
+# PlaneTilt
 
 A tilt-controlled marble maze for CrazyGames: short levels, characters with
 their own feel, upgrades, stars and a daily maze. Spun out of
