@@ -586,11 +586,23 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await dp.tap('#homeDailyMaze');
         await dp.waitForSelector('#mazeStartBtn', { state: 'visible' });
         check((await dp.textContent('#mazeLevelName')).trim() === 'Daily Maze', 'the HUD names the daily maze');
+        // BALL CAM: off by default; the HUD button turns it on and it is saved.
+        check(!(await ddbg('ballCam')).on && (await dp.getAttribute('#mazeCamBtn', 'aria-pressed')) === 'false', 'ball cam starts off');
+        const fullY = (await ddbg('ballCam')).pose.y;
+        await dp.tap('#mazeCamBtn');
+        check((await ddbg('ballCam')).on && (await ddbg('progress')).ballCam === true && (await dp.getAttribute('#mazeCamBtn', 'aria-pressed')) === 'true', 'the camera button turns ball cam on, and saves it');
+        check((await ddbg('ballCam')).zoom < 0.05, 'the ready screen still shows the whole level');
         await dp.tap('#mazeStartBtn');
         await dp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+        // Frames, not a clock: the zoom eases in per frame.
+        await dp.waitForFunction(() => window.__mazeDebug.ballCam().zoom > 0.6, null, { timeout: 20000 }).catch(() => {});
+        const bc = await ddbg('ballCam');
+        check(bc.zoom > 0.6 && bc.pose.y < fullY * 0.8, `in the run the camera closes in on the ball (zoom ${bc.zoom.toFixed(2)}, height ${bc.pose.y.toFixed(1)} vs ${fullY.toFixed(1)})`);
         const dlv = today.lv;
         await ddbg('ageRun', Math.round(dlv.goldMs * 1.2));
         check(await ddbg('warpToGoal'), 'the daily maze can be won');
+        await dp.waitForFunction(() => window.__mazeDebug.ballCam().zoom < 0.1, null, { timeout: 20000 }).catch(() => {});
+        check((await ddbg('ballCam')).zoom < 0.1, 'and pulls back out to the whole level at the clear');
         let dprog = await ddbg('progress');
         check(dprog.dailyMaze && dprog.dailyMaze.paid && dprog.wallet >= 150 && dprog.highestIndex === 3 && !dprog.cleared[dlv.id],
             `a daily clear pays 150, off the ladder: ${JSON.stringify({ dm: dprog.dailyMaze, w: dprog.wallet, hi: dprog.highestIndex })}`);
@@ -604,6 +616,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const w1d = (await ddbg('progress')).wallet;
         await dp.tap('#homeDailyMaze');
         await dp.waitForSelector('#mazeStartBtn', { state: 'visible' });
+        check((await dp.getAttribute('#mazeCamBtn', 'aria-pressed')) === 'true', 'ball cam stays on for the next level');
         await dp.tap('#mazeStartBtn');
         await dp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         await ddbg('ageRun', Math.round(dlv.goldMs * 1.4));

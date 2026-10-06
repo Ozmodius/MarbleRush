@@ -47,7 +47,9 @@ export function freshProgress() {
         // Player level (playerLevel.js): total XP.
         xp: 0,
         // Today's daily maze: { date, id, best, paid, gold } (daily.js).
-        dailyMaze: null
+        dailyMaze: null,
+        // Ball cam (mazeGame.js): the closer camera that follows the ball.
+        ballCam: false
     };
 }
 
@@ -92,6 +94,7 @@ export function parseProgress(text) {
     p.xp = raw.xp === undefined ? null : Math.max(0, Math.floor(Number(raw.xp) || 0));
     p.daily = daily.parseDaily(raw.daily);
     p.dailyMaze = daily.parseDailyMaze(raw.dailyMaze);
+    p.ballCam = raw.ballCam === true;
     p.missions = daily.parseMissions(raw.missions);
     return p;
 }
@@ -504,6 +507,7 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         },
         msUntilTomorrow: () => daily.msUntilTomorrow(clock()),
         playerLevel: () => levelUp.levelInfo(progress.xp || 0),
+        setBallCam(on) { progress = { ...progress, ballCam: !!on }; persist(); return progress.ballCam; },
         // Levels gained since the last call (each { level, reward }); the
         // caller shows them, so they are handed out once.
         takeLevelUps: () => { const out = levelUps; levelUps = []; return out; },

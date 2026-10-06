@@ -108,8 +108,21 @@ This file records the decisions so they travel with the code.
 | --- | --- | --- | --- |
 | 0. Spike (done 2026-10-05) | Small | Scene host and progress store seams; `index.html` boots level 1 with no server; build script makes a flat CrazyGames zip | A level plays on desktop and phone |
 | 1. MVP launch | Large | 50 levels in worlds 1-5 (below), each with its theme, three traps and a prize; coins and power-ups (in-maze and pre-bought); Classic + 3 characters, 4 upgrade tracks, stars, coins, cloud save; midgame + revive/double-coins rewarded; Basic then Full Launch | Basic Launch retention and session length look healthy |
-| 2. Retention | Medium | Daily maze and streak, player level, trails and skins, character trials, ball cam | Ball cam gets real play and lifts retention |
+| 2. Retention (built 2026-10-06, ahead of Basic Launch data) | Medium | Daily maze and streak, player level, trails and skins, character trials, ball cam | Ball cam gets real play and lifts retention |
 | 3. Labyrinth | Large | Walk-through first-person mode on the same generator; joystick + mouse-look; explorer upgrades; comfort settings | |
+
+Phase 2 as built (2026-10-06), on Oz's call to go ahead before Basic Launch:
+- *Streak* is the 7-day calendar and *character trials* the TRY-a-marble ad
+  (both earlier). *Daily maze*: a verified pool of 60 (`dailyLevels.json`,
+  12 a world), one a day by date from the worlds the player has reached,
+  unlocked after 3 clears; first clear 150 + coins, first gold +100.
+- *Player level*: XP from clears, golds, missions and dailies; every level
+  pays coins, and levels 5/8/12/15 are the only way to the reward looks.
+- *Trails and skins*: looks only, sold for coins or earned by level.
+- *Ball cam*: a closer, board-aligned follow camera (tilt directions
+  unchanged), eased in on START and out at the clear; a HUD toggle, saved.
+  Its gate ("gets real play") needs usage numbers this build cannot see
+  -- CrazyGames' dashboard or an analytics call would be the way to judge it.
 
 ## Worlds
 

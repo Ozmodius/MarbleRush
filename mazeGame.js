@@ -106,12 +106,58 @@ function computeCameraPose() {
     const needHalfD = level.size.d / 2 + CAM_MARGIN;
     const dist = Math.max(needHalfW / halfH, needHalfD / halfV);
 
+    // Ease toward ball cam or the full view (per frame, by the frame's time).
+    const dt = Math.min(100, lastFrameMs || 16);
+    camZoom += ((ballCamWanted() ? 1 : 0) - camZoom) * (1 - Math.exp(-dt / BALL_CAM_ZOOM_MS));
+    if (camZoom < 0.002 && !ballCamWanted()) camZoom = 0;
+    const d = dist * (1 - (1 - BALL_CAM_ZOOM) * camZoom);
+    _camLook.copy(CAM_LOOKAT);
+    if (camZoom > 0 && ballBody) {
+        // Follow the ball, clamped so the closer view stays over the board.
+        const spanX = Math.max(0, level.size.w / 2 + CAM_MARGIN - d * halfH);
+        const spanZ = Math.max(0, level.size.d / 2 + CAM_MARGIN - d * halfV);
+        const tx = Math.max(-spanX, Math.min(spanX, ballBody.position.x));
+        const tz = Math.max(-spanZ, Math.min(spanZ, ballBody.position.z)) + CAM_LOOKAT.z;
+        if (!camFollowSet) { _camFollow.set(tx, 0, tz); camFollowSet = true; }
+        const k = 1 - Math.exp(-dt / BALL_CAM_EASE_MS);
+        _camFollow.x += (tx - _camFollow.x) * k;
+        _camFollow.z += (tz - _camFollow.z) * k;
+        _camLook.x = CAM_LOOKAT.x + (_camFollow.x - CAM_LOOKAT.x) * camZoom;
+        _camLook.z = CAM_LOOKAT.z + (_camFollow.z - CAM_LOOKAT.z) * camZoom;
+    } else camFollowSet = false;
+
     _camPos.set(
-        CAM_LOOKAT.x,
-        CAM_LOOKAT.y + Math.cos(CAM_TILT_RAD) * dist,
-        CAM_LOOKAT.z + Math.sin(CAM_TILT_RAD) * dist
+        _camLook.x,
+        _camLook.y + Math.cos(CAM_TILT_RAD) * d,
+        _camLook.z + Math.sin(CAM_TILT_RAD) * d
     );
-    return { pos: _camPos, lookAt: CAM_LOOKAT };
+    return { pos: _camPos, lookAt: _camLook };
+}
+
+// The HUD's camera button.
+function setBallCam(on) {
+    ballCamOn = !!on;
+    if (store && store.setBallCam) store.setBallCam(ballCamOn);
+    const b = el('mazeCamBtn');
+    if (b) { b.setAttribute('aria-pressed', String(ballCamOn)); b.classList.toggle('is-on', ballCamOn); }
+}
+
+// BALL CAM (docs/PLAN.md phase 2; the HUD's camera button, saved). The same
+// tilt and the same board-aligned view as the full camera -- so "lean right"
+// still rolls right on screen -- only closer, following the ball. The view
+// never looks past the board's edge, and it eases in on START and back out at
+// a clear, so the ready screen and the result always show the whole level.
+const BALL_CAM_ZOOM = 0.55;        // distance as a share of the full-board camera's
+const BALL_CAM_EASE_MS = 140;      // how quickly the view catches the ball
+const BALL_CAM_ZOOM_MS = 420;      // how quickly it zooms in or out
+let ballCamOn = false;
+let camZoom = 0;                   // 0 = whole board, 1 = ball cam
+const _camFollow = new THREE.Vector3();
+let camFollowSet = false;
+const _camLook = new THREE.Vector3();
+
+function ballCamWanted() {
+    return ballCamOn && !!ballBody && (phase === 'running' || phase === 'falling' || phase === 'offer');
 }
 
 const FALL_RESTART_MS = 750;     // let the player watch the ball drop before the reset
@@ -1499,6 +1545,10 @@ function startLevel(levelId) {
     if (trialMarble && trialMarble.levelId !== lv.id) trialMarble = null;
     ballSpec = ballSetup(trialMarble ? trialMarble.id : prog.marble, prog.upgrades);
     prizeOn = {};
+    ballCamOn = !!prog.ballCam;
+    camZoom = 0;
+    camFollowSet = false;
+    { const b = el('mazeCamBtn'); if (b) { b.setAttribute('aria-pressed', String(ballCamOn)); b.classList.toggle('is-on', ballCamOn); } }
     // Out of the menus: their screens come down and the HUD goes up.
     if (menuHandler) menuHandler(null);
     const theme = resolveLevelTheme(lv);
@@ -1667,6 +1717,8 @@ window.__mazeDebug = {
     // than one step past the furthest cleared, whichever level was built, so
     // the worst this does is let someone look at a level early.
     playDaily: () => playDaily(),
+    // Ball cam: switch it, and read where the camera is and how zoomed.
+    ballCam: (on) => { if (on !== undefined) setBallCam(on); return { on: ballCamOn, zoom: camZoom, pose: level ? (() => { const p = computeCameraPose(); return { x: p.pos.x, y: p.pos.y, z: p.pos.z, lx: p.lookAt.x, lz: p.lookAt.z }; })() : null }; },
     dailyMaze: () => (store && store.dailyMaze ? store.dailyMaze() : null),
     // Move the progress store's clock by days (the daily rules read it).
     shiftDays: (n) => { if (store && store.setClock) { const off = n * 86400000; store.setClock(() => Date.now() + off); } return true; },
@@ -1924,6 +1976,7 @@ export function initMazeControls() {
     bindTap('mazeReplayBtn', () => { afterBreak(() => restart()); });
     bindTap('mazeUse_slowmo', () => { useRunCharge('slowmo'); });
     bindTap('mazeUse_magnet', () => { useRunCharge('magnet'); });
+    bindTap('mazeCamBtn', () => { setBallCam(!ballCamOn); });
     bindTap('mazeRecenterBtn', () => {
         recenterPending = true;
         setStatus('RECENTERED');
