@@ -86,6 +86,13 @@ float mrCrack(vec2 p) {
     }
     return sqrt(d2) - sqrt(d1);
 }
+// Cracks (mrCrack) wrapped round a sphere: projected from all three axes and
+// blended by which way the surface faces, so they never streak at the equator.
+float mrCrackTri(vec3 p, vec3 n) {
+    vec3 w = pow(abs(n), vec3(4.0));
+    w /= dot(w, vec3(1.0));
+    return w.x * mrCrack(p.yz) + w.y * mrCrack(p.xz) + w.z * mrCrack(p.xy);
+}
 // WORLD 4's foam mat, tiles one unit square. Every edge between two tiles
 // has a jigsaw tab: a disc of radius FOAM_TAB_R centred FOAM_TAB_OFF past the
 // edge's middle, belonging to the tile on one side (hashed from the edge, so
@@ -167,16 +174,23 @@ const PATTERN_GLSL = {
     // streaks into stripes at the equator; this projects the cracks from all
     // three axes and blends by which way the surface faces.
     lavaPlanet: /* glsl */`
+        // Big basalt plates split by glowing rifts, finer cracks inside each
+        // plate, cooled grey ash fields, and molten hotspots (calderas) that
+        // burn brightest of all.
+        vec3 mrU = normalize(vMrPos);
         vec3 mrP = vMrPos * mrScale;
         float mrN = mrFbm(mrP * 2.0);
-        vec2 mrWarp = (vec2(mrN, mrFbm(mrP * 2.0 + 4.3)) - 0.5) * 1.1;
-        vec3 mrW = pow(abs(normalize(vMrPos)), vec3(4.0));
-        mrW /= dot(mrW, vec3(1.0));
-        float mrE = mrW.x * mrCrack(mrP.yz * 1.05 + mrWarp) + mrW.y * mrCrack(mrP.xz * 1.05 + mrWarp) + mrW.z * mrCrack(mrP.xy * 1.05 + mrWarp);
-        float mrSeam = 1.0 - smoothstep(0.0, 0.06, mrE);
+        vec3 mrWarp = (vec3(mrN, mrFbm(mrP * 2.0 + 4.3), mrFbm(mrP * 2.0 + 8.1)) - 0.5) * 1.1;
+        float mrE = mrCrackTri(mrP * 1.05 + mrWarp, mrU);
+        float mrE2 = mrCrackTri(mrP * 3.4 + mrWarp * 2.0 + 5.0, mrU);
+        float mrSeam = 1.0 - smoothstep(0.0, 0.05, mrE);
+        float mrFine = (1.0 - smoothstep(0.0, 0.035, mrE2)) * smoothstep(0.04, 0.2, mrE);
+        float mrAsh = smoothstep(0.55, 0.75, mrFbm(mrP * 1.3 + 11.0));
+        float mrSpot = smoothstep(0.78, 0.9, mrFbm(mrP * 2.6 + 21.0));
         float mrTone = clamp(smoothstep(0.0, 0.5, mrE) * 0.7 + mrN * 0.5, 0.0, 1.0);
-        float mrH = smoothstep(0.0, 0.25, mrE) * 0.6 + mrFbm(mrP * 8.0) * 0.4;
-        float mrHot = mrSeam * (0.65 + 0.35 * mrN);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.32, 0.29, 0.27), mrAsh * 0.6);
+        float mrH = smoothstep(0.0, 0.25, mrE) * 0.6 + mrFbm(mrP * 8.0) * 0.3 + mrFbm(mrP * 24.0) * 0.15 - mrFine * 0.3;
+        float mrHot = clamp(mrSeam * (0.65 + 0.35 * mrN) + mrFine * 0.45 * (1.0 - mrAsh) + mrSpot, 0.0, 1.0);
     `,
     // Rock whose deepest crevices and foot smoulder. Glow lives low on the wall
     // and in the noise troughs only, so the crest the eye reads as the wall's
@@ -425,6 +439,85 @@ const PATTERN_GLSL = {
         float mrH = -mrSeamS + mrRiv * 0.8 + mrN * 0.2;
         float mrHot = 0.0;
     `,
+    // WORLD 1's PLANET (planet3d.js): the forest the Workshop grows into,
+    // seen from orbit -- deep oceans shading to shallows, sandy coasts,
+    // forest canopy in clumps with clearings, rivers, rocky highlands and
+    // snow on the peaks and poles. Oceans are glossy, land is matte. Owns
+    // its palette.
+    forestPlanet: /* glsl */`
+        vec3 mrU = normalize(vMrPos);
+        float mrN = mrFbm(mrU * 2.2);
+        float mrC = mrN + 0.28 * mrFbm(mrU * 7.0 + 2.0) + 0.09 * mrFbm(mrU * 22.0 + 5.0);
+        const float mrSea = 0.66;
+        float mrLand = smoothstep(mrSea - 0.004, mrSea + 0.004, mrC);
+        float mrDepth = clamp((mrSea - mrC) * 3.0, 0.0, 1.0);
+        vec3 mrOcean = mix(vec3(0.12, 0.42, 0.55), vec3(0.02, 0.09, 0.24), smoothstep(0.0, 0.6, mrDepth));
+        float mrShore = 1.0 - smoothstep(0.0, 0.03, abs(mrC - mrSea));
+        float mrTrees = mrFbm(mrU * 46.0);
+        vec3 mrLandC = mix(vec3(0.06, 0.20, 0.06), vec3(0.22, 0.42, 0.13), smoothstep(0.3, 0.75, mrTrees));
+        float mrClear = smoothstep(0.6, 0.72, mrFbm(mrU * 11.0 + 3.0));
+        mrLandC = mix(mrLandC, vec3(0.52, 0.45, 0.24) * (0.85 + 0.3 * mrTrees), mrClear * 0.75);
+        float mrHigh = smoothstep(0.92, 1.02, mrC);
+        mrLandC = mix(mrLandC, mix(vec3(0.38, 0.31, 0.24), vec3(0.6, 0.56, 0.5), mrFbm(mrU * 30.0)), mrHigh);
+        float mrRiver = (1.0 - smoothstep(0.0, 0.018, mrCrackTri(mrU * 3.2 + mrN, mrU))) * (1.0 - mrHigh) * smoothstep(mrSea + 0.01, mrSea + 0.06, mrC);
+        mrLandC = mix(mrLandC, vec3(0.10, 0.34, 0.50), mrRiver * 0.85);
+        mrLandC = mix(mrLandC, vec3(0.80, 0.72, 0.50), mrShore * 0.85);
+        float mrSnowP = clamp(smoothstep(1.04, 1.12, mrC) + smoothstep(0.80, 0.88, abs(mrU.y) + (mrFbm(mrU * 9.0) - 0.5) * 0.12), 0.0, 1.0);
+        vec3 mrCol = mix(mrOcean, mrLandC, mrLand);
+        diffuseColor.rgb = mix(mrCol, vec3(0.94, 0.96, 0.98), mrSnowP);
+        mrRough = mix(0.28, 0.95, max(mrLand, mrSnowP * 0.6));
+        float mrTone = 0.0;
+        // The relief takes a SOFT coastline: the sharp one the colour uses
+        // would bump into a line of black specks along every shore.
+        float mrLandSoft = smoothstep(mrSea - 0.04, mrSea + 0.06, mrC);
+        float mrH = mrLandSoft * (mrC * 1.2 + mrTrees * 0.35 + mrHigh * mrFbm(mrU * 30.0) * 0.6) - mrRiver * 0.15;
+        float mrHot = 0.0;
+    `,
+    // WORLD 2's PLANET: an ice world -- snowfields, glossy blue glacier
+    // sheets, a network of deep crevasses at two scales, dark rock ridges
+    // breaking through, frozen seas with pale pressure cracks, and bright
+    // polar caps. Owns its palette.
+    icePlanet: /* glsl */`
+        vec3 mrU = normalize(vMrPos);
+        float mrN = mrFbm(mrU * 2.4);
+        float mrC = mrN + 0.25 * mrFbm(mrU * 8.0 + 1.0) + 0.08 * mrFbm(mrU * 26.0);
+        float mrSeaI = 1.0 - smoothstep(0.58, 0.62, mrC);
+        float mrSheet = smoothstep(0.62, 0.7, mrFbm(mrU * 3.5 + 7.0)) * (1.0 - mrSeaI);
+        float mrRock = smoothstep(0.98, 1.06, mrC) * smoothstep(0.45, 0.6, mrFbm(mrU * 18.0));
+        float mrCrev = (1.0 - smoothstep(0.0, 0.02, mrCrackTri(mrU * 4.0 + mrN * 0.8, mrU))) * (1.0 - mrSeaI);
+        float mrCrev2 = (1.0 - smoothstep(0.0, 0.03, mrCrackTri(mrU * 11.0 + 3.0, mrU))) * mrSheet;
+        float mrPress = (1.0 - smoothstep(0.0, 0.015, mrCrackTri(mrU * 6.0 + 9.0, mrU))) * mrSeaI;
+        vec3 mrSnowC = vec3(0.90, 0.94, 0.98) * (0.92 + 0.1 * mrFbm(mrU * 40.0));
+        vec3 mrCol = mix(mrSnowC, vec3(0.45, 0.72, 0.90), mrSheet);
+        mrCol = mix(mrCol, vec3(0.16, 0.36, 0.55), mrSeaI);
+        mrCol = mix(mrCol, vec3(0.75, 0.88, 0.96), mrPress * 0.8);
+        mrCol = mix(mrCol, vec3(0.28, 0.27, 0.30), mrRock);
+        mrCol = mix(mrCol, vec3(0.10, 0.30, 0.52), max(mrCrev, mrCrev2 * 0.8));
+        float mrCap = smoothstep(0.78, 0.86, abs(mrU.y) + (mrFbm(mrU * 8.0) - 0.5) * 0.15);
+        diffuseColor.rgb = mix(mrCol, vec3(0.97, 0.99, 1.0), mrCap);
+        mrRough = mix(mix(0.85, 0.2, max(mrSheet, mrSeaI * 0.8)), 0.8, mrCap);
+        float mrTone = 0.0;
+        float mrH = mrC * 0.6 + mrRock * mrFbm(mrU * 30.0) * 0.6 - (mrCrev + mrCrev2) * 0.35 + mrFbm(mrU * 50.0) * 0.1;
+        float mrHot = 0.0;
+    `,
+    // A planet's CLOUD layer (planet3d.js): a thin shell over the surface,
+    // white weather for the forest and ice worlds, dark smoke for lava
+    // (mrColor2 is the cloud colour, mrBlend how much sky they cover).
+    // Writes alpha; the material is transparent.
+    clouds: /* glsl */`
+        vec3 mrU = normalize(vMrPos);
+        float mrN = mrFbm(mrU * 3.0 + vec3(mrTime * 0.01, 0.0, 0.0));
+        vec3 mrWarpC = vec3(mrN, mrFbm(mrU * 3.0 + 5.0), mrFbm(mrU * 3.0 + 9.0)) - 0.5;
+        float mrCl = mrFbm(mrU * 4.5 + mrWarpC * 1.6) + 0.3 * mrFbm(mrU * 14.0 + mrWarpC);
+        float mrCover = smoothstep(1.02 - mrBlend, 1.22 - mrBlend, mrCl);
+        // Thinner at the poles, banded a little by latitude, like weather.
+        mrCover *= 0.75 + 0.25 * sin(mrU.y * 9.0 + mrN * 4.0);
+        diffuseColor.rgb = mrColor2;
+        diffuseColor.a = mrCover * 0.85;
+        float mrTone = 0.0;
+        float mrH = mrCl;
+        float mrHot = 0.0;
+    `,
     // WORLD 5's PLANET (planet3d.js): a riveted steel sphere -- plates on a
     // latitude/longitude grid, rust patches, and a hazard-striped band round
     // the equator. Owns its palette.
@@ -443,9 +536,24 @@ const PATTERN_GLSL = {
         vec3 mrSteel = vec3(0.42, 0.45, 0.49) * (0.85 + 0.25 * mrN);
         mrSteel = mix(mrSteel, vec3(0.45, 0.22, 0.09) * (0.8 + 0.4 * mrN), mrRust * 0.8);
         mrSteel = mix(mrSteel, mix(vec3(0.07), vec3(0.95, 0.72, 0.08), mrStripe), mrBand);
+        // Trenches: deep grooves along some meridians, lit blue inside.
+        float mrTr = min(fract(mrLon / 4.0), 1.0 - fract(mrLon / 4.0)) * 4.0 * mrSq;
+        float mrTrench = 1.0 - smoothstep(0.05, 0.09, mrTr);
+        float mrTrLight = (1.0 - smoothstep(0.0, 0.02, mrTr)) * step(0.5, fract(mrLat * 3.0 + mrLon));
+        // Windows: rows of small amber lights on some plates, as if lived in.
+        vec2 mrWc = vec2(fract(mrLon * 6.0), fract(mrLat * 5.0)) - 0.5;
+        vec2 mrCell = floor(vec2(mrLon * 6.0, mrLat * 5.0));
+        float mrLit = step(0.55, fract(sin(dot(mrCell, vec2(12.9898, 78.233))) * 43758.5453));
+        float mrWin = (1.0 - smoothstep(0.1, 0.16, length(mrWc * vec2(1.0, 1.6)))) * mrLit * mrSq * (1.0 - mrBand) * (1.0 - mrRust);
+        // Vents: dark round grilles here and there.
+        float mrVent = smoothstep(0.8, 0.86, mrFbm(mrU * 9.0 + 4.0));
+        mrSteel *= 1.0 - 0.55 * mrVent * (0.6 + 0.4 * step(0.5, fract((mrU.x + mrU.z) * 60.0)));
+        mrSteel = mix(mrSteel, vec3(0.05, 0.06, 0.08), mrTrench);
         diffuseColor.rgb = mrSteel * (1.0 - 0.5 * mrSeamP) * (1.0 + 0.4 * mrRiv);
+        mrEmit = vec3(1.0, 0.62, 0.22) * mrWin * 0.9 + vec3(0.3, 0.75, 1.0) * mrTrLight * mrTrench * 1.2;
+        mrRough = mix(0.45, 0.85, mrRust);
         float mrTone = 0.0;
-        float mrH = -mrSeamP + mrRiv;
+        float mrH = -mrSeamP + mrRiv - mrTrench * 1.5 - mrVent * 0.4 + mrFbm(mrU * 40.0) * 0.1;
         float mrHot = 0.0;
     `,
     // WORLD 4's PLANET (planet3d.js): a beach ball -- six bright panels
@@ -463,9 +571,22 @@ const PATTERN_GLSL = {
                    : mrPanel < 5.0 ? vec3(0.18, 0.66, 0.31) : vec3(1.0, 0.48, 0.10);
         float mrCap = smoothstep(0.86, 0.88, abs(mrU.y));
         float mrSeamB = (1.0 - smoothstep(0.0, 0.012, mrEdge)) * (1.0 - mrCap);
-        diffuseColor.rgb = mix(mix(mrPal, vec3(0.97, 0.97, 0.93), mrCap), vec3(0.75, 0.73, 0.70), mrSeamB);
+        // Printed polka dots in a contrasting colour, a dashed stitch beside
+        // each seam, a valve on the cap, scuffs, and a plastic shine.
+        vec3 mrDc = mrU * 7.0;
+        vec3 mrDi = floor(mrDc), mrDf = fract(mrDc) - 0.5;
+        float mrDot = (1.0 - smoothstep(0.22, 0.26, length(mrDf))) * step(0.45, fract(sin(dot(mrDi, vec3(12.9898, 78.233, 37.719))) * 43758.5453)) * (1.0 - mrCap);
+        vec3 mrDotC = mrPanel < 1.0 || mrPanel > 4.0 ? vec3(0.98, 0.95, 0.85) : mrPanel < 2.0 ? vec3(0.88, 0.23, 0.23) : vec3(0.98, 0.97, 0.9);
+        float mrStitch = (1.0 - smoothstep(0.012, 0.02, abs(mrEdge - 0.035))) * step(0.5, fract(mrU.y * 40.0)) * (1.0 - mrCap);
+        float mrValve = 1.0 - smoothstep(0.035, 0.045, length(mrU.xz)) ;
+        vec3 mrBall = mix(mix(mrPal, vec3(0.97, 0.97, 0.93), mrCap), mrDotC, mrDot);
+        mrBall = mix(mrBall, mrBall * 0.7, mrStitch);
+        mrBall = mix(mrBall, vec3(0.85, 0.85, 0.82), mrValve * step(0.0, mrU.y));
+        mrBall *= 1.0 - 0.12 * smoothstep(0.6, 0.8, mrFbm(mrU * 20.0));
+        diffuseColor.rgb = mix(mrBall, vec3(0.75, 0.73, 0.70), mrSeamB);
+        mrRough = 0.32;
         float mrTone = 0.0;
-        float mrH = -mrSeamB + mrN * 0.05;
+        float mrH = -mrSeamB - mrStitch * 0.3 + mrDot * 0.08 + mrValve * 0.5 + mrN * 0.05;
         float mrHot = 0.0;
     `,
     // A FLARING SEAM's band (world 3): a crusted fissure with molten veins
@@ -537,6 +658,10 @@ export function applySurface(mat, opts) {
         shader.fragmentShader = shader.fragmentShader
             .replace('#include <common>', '#include <common>\n' + NOISE_GLSL)
             .replace('#include <color_fragment>', `#include <color_fragment>
+                // A pattern may set these: its own roughness (an ocean is
+                // glossy, land is not) and light of its own (a city's lamps).
+                float mrRough = -1.0;
+                vec3 mrEmit = vec3(0.0);
                 ${body}
                 diffuseColor.rgb = mix(diffuseColor.rgb, mrColor2, mrTone);
                 // A hot seam is not lit rock: darken it so the glow, not the
@@ -556,7 +681,10 @@ export function applySurface(mat, opts) {
                 }`)
             // A slow, uneven pulse: each patch of lava breathes on its own phase
             // so the floor shimmers rather than blinking as one.
+            .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+                if (mrRough >= 0.0) roughnessFactor = mrRough;`)
             .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+                totalEmissiveRadiance += mrEmit;
                 float mrPulse = 0.82 + 0.18 * sin(mrTime * 1.7 + mrN * 12.0);
                 totalEmissiveRadiance += mrGlowColor * (mrGlow * mrHot * mrPulse);`);
     };

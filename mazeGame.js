@@ -118,6 +118,7 @@ const REVIVE_WINDOW_MS = 4000;   // how long CONTINUE is offered before the retr
 let revivedThisAttempt = false;  // one continue per attempt
 let offerAt = 0;                 // when the CONTINUE offer went up
 let offerAdPending = false;      // the offer's countdown waits while its ad runs
+let offerHeld = false;           // tests only: hold the countdown (it runs on the wall clock)
 let freeShieldTaken = false;     // one free shield per level visit
 let lastClear = null;            // the clear the x2 COINS button would double
 let rewardedThisBreak = false;   // a rewarded ad on this panel stands in for the break ad
@@ -1068,7 +1069,7 @@ function openFallOffer() {
 }
 function closeFallOffer() { showEl('mazeFallPanel', false); }
 function tickFallOffer() {
-    if (offerAdPending) return;
+    if (offerAdPending || offerHeld) return;
     const left = 1 - (performance.now() - offerAt) / REVIVE_WINDOW_MS;
     const bar = el('mazeFallBar');
     if (bar) bar.style.transform = `scaleX(${Math.max(0, left)})`;
@@ -1629,7 +1630,10 @@ window.__mazeDebug = {
         const wasPhase = phase;
         phase = 'running';
         advance(1000 / 60);
-        phase = wasPhase;
+        // Put the phase back -- unless that step changed it (the ball was
+        // placed over a hole and fell): undoing a fall would restart it a
+        // frame later, which is what made tests timing it flaky.
+        if (phase === 'running') phase = wasPhase;
         return { x: ballBody.position.x, z: ballBody.position.z };
     },
     // Age the current run by `ms` of wall clock. The run timer reads the real
@@ -1649,6 +1653,9 @@ window.__mazeDebug = {
     // Roll the ball: set its velocity (units/s) without moving it.
     setBallVelocity: (vx, vz) => { if (!ballBody) return false; ballBody.velocity.set(vx, 0, vz); return true; },
     trial: () => ({ trial: marbleTrial(), ball: ballSpec.id }),
+    // The CONTINUE countdown runs on the wall clock; a test holds it rather
+    // than racing a throttled sandbox to the button.
+    holdFallOffer: (on) => { offerHeld = !!on; return phase; },
     world5: () => (level ? {
         magnets: (level.magnets || []).length,
         pull: ballBody && level.magnets ? magnetAccel(level.magnets, ballBody.position.x, ballBody.position.z) : null,

@@ -550,6 +550,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await adbg('advanceFrames', 2);
         check(await adbg('phase') === 'running' && await ad.isHidden('#mazeFallPanel'), 'an early fall just retries -- nothing to continue');
         // A fall after a while: CONTINUE is offered; taking it puts the ball back.
+        // (Its 4s countdown runs on the wall clock, so it is held for the tap.)
+        await adbg('holdFallOffer', true);
         await adbg('ageRun', 9000);
         await adbg('placeBall', lvOne.holes[0].x, lvOne.holes[0].z);
         await ad.waitForTimeout(900);
@@ -559,6 +561,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await ad.tap('#mazeReviveBtn');
         await ad.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { timeout: 5000 }).catch(() => {});
         check(await adbg('phase') === 'running' && (await adLog()).filter(x => x === 'ad:rewarded').length === nAds + 1, 'CONTINUE plays an ad and puts the ball back in the run');
+        await adbg('holdFallOffer', false);
         const pos = await adbg('advanceFrames', 1);
         check(Math.hypot(pos.x - lvOne.holes[0].x, pos.z - lvOne.holes[0].z) > lvOne.holes[0].r + lvOne.ballRadius, 'back on safe ground, not over the hole');
         // Once per attempt: the next fall just retries.

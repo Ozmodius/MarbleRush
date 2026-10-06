@@ -38,7 +38,13 @@ export function starfield(count, seed) {
 // from three axes (lavaPlanet), and the pattern scaled to the sphere so every
 // planet, big or small, shows about the same number of continents. Shared
 // with the solar system (solarSystem3d.js).
-const PLANET_PATTERN = { plain: 'rock', rock: 'rock', lavaCracks: 'lavaPlanet', woodToDirt: 'rock', foamMat: 'beachBall', treadPlate: 'steelPlanet' };
+const PLANET_PATTERN = { plain: 'rock', rock: 'rock', lavaCracks: 'lavaPlanet', woodToDirt: 'forestPlanet', snow: 'icePlanet', foamMat: 'beachBall', treadPlate: 'steelPlanet' };
+// Weather by planet surface: cloud colour and how much sky it covers (0..1).
+const CLOUDS = {
+    forestPlanet: { color: '#ffffff', cover: 0.42 },
+    icePlanet: { color: '#f4f8ff', cover: 0.34 },
+    lavaPlanet: { color: '#2a2220', cover: 0.3 }
+};
 export function makePlanetMaterial(theme, r) {
     const surfaceTheme = { ...theme, floorPattern: PLANET_PATTERN[theme.floorPattern] || 'rock', floorTextures: null };
     const mat = makeFloorMaterial(surfaceTheme, 10);
@@ -53,7 +59,10 @@ export function makePlanetMaterial(theme, r) {
 
 // The glow colour round a world: its lava glow if it has one, else a pale
 // tint of its floor.
+// Worlds with skies get a sky-coloured edge, whatever their floor colour.
+const SKY_GLOW = { woodToDirt: '#8fcaff', snow: '#cfe8ff' };
 export function planetGlow(theme) {
+    if (SKY_GLOW[theme.floorPattern]) return SKY_GLOW[theme.floorPattern];
     return (theme.floorGlow > 0 || theme.wallGlow > 0)
         ? theme.glowColor
         : '#' + new THREE.Color(theme.floorColor).lerp(new THREE.Color('#ffffff'), 0.45).getHexString();
@@ -99,6 +108,20 @@ export function buildPlanet(theme, look, tracked = []) {
     group.add(new THREE.Mesh(atmoGeo, atmoMat));
 
 
+    // CLOUDS over the worlds that have weather: a thin shell drifting a
+    // little faster than the ground turns. White over forest and ice, dark
+    // smoke over lava; none on the toy and steel worlds.
+    const cloud = CLOUDS[PLANET_PATTERN[theme.floorPattern]];
+    let clouds = null;
+    if (cloud) {
+        const cloudGeo = new THREE.SphereGeometry(PLANET_R * 1.025, 96, 64);
+        const cloudMat = applySurface(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, transparent: true, depthWrite: false }),
+            { pattern: 'clouds', color2: new THREE.Color(cloud.color), blend: cloud.cover, bump: 0.6, grit: 0 });
+        clouds = new THREE.Mesh(cloudGeo, cloudMat);
+        spinner.add(clouds);
+        tracked.push(cloudGeo, cloudMat);
+    }
+
     // The moon: the marble the player will roll next.
     const moonGeo = new THREE.SphereGeometry(0.5, 48, 32);
     const moonMat = makeBallMaterial(theme, look);
@@ -119,6 +142,7 @@ export function buildPlanet(theme, look, tracked = []) {
         radius: MOON_ORBIT + 0.6,
         tick(seconds) {
             planet.rotation.y = seconds * 0.12;
+            if (clouds) clouds.rotation.y = seconds * 0.16;
             const a = seconds * 0.35;
             moon.position.set(Math.cos(a) * MOON_ORBIT, 0, Math.sin(a) * MOON_ORBIT);
             moon.rotation.y = seconds * 1.4;
