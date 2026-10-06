@@ -1,9 +1,10 @@
 import { tierForMs, isUnlocked } from './progressStore.js';
-import { worldName } from './worlds.js';
-import { PRIZES } from './shopCatalog.js';
+import { PRIZES, CHARGE_IDS, AD_REWARDS } from './shopCatalog.js';
 import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 import { onFrame, getRenderer } from './sceneHost.js';
-import { showBanner } from './platform.js';
+import { showBanner, adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
+import { sfx } from './sfx.js';
+import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels } from './dailyUi.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
 // board mazeGame.js keeps as the backdrop, plus the home screen's top HUD.
@@ -41,36 +42,93 @@ function show(tab) {
         const b = $('tab_' + t);
         if (b) { b.classList.toggle('is-active', t === tab); b.setAttribute('aria-current', t === tab ? 'page' : 'false'); }
     }
-    if (tab === 'home') renderHome();
+    if (tab !== 'home') closeDailyPanels();
+    if (tab === 'home') { renderHome(); maybeAutoOpenDaily(); }
     // Banners only on these two: pages players read for a while, never play.
     else if (tab === 'gear') { clearShopMessages(); renderProfile(); showBanner('profileBanner'); }
     else if (tab === 'store') { clearShopMessages(); renderStore(); showBanner('storeBanner'); }
     else if (tab === 'worlds') renderWorlds();
     renderWallets();
+    renderBadges();
 }
 
+let shownWallet = null;
 function renderWallets() {
-    const w = fmt(ctx.store.get().wallet);
+    const n = ctx.store.get().wallet;
+    const w = fmt(n);
     for (const id of ['mazeWallet', 'storeWallet', 'profileWallet', 'homeWallet']) { const e = $(id); if (e) e.textContent = w; }
+    // The gold chip bumps when the balance goes up while it is on screen.
+    if (shownWallet !== null && n > shownWallet && current === 'home') bump('homeGoldChip');
+    shownWallet = n;
 }
 
-// The home screen's top HUD: the level PLAY will start, its world and how far
-// through it the player is, their medals, and their coins.
+function bump(id) {
+    const e = $(id);
+    if (!e) return;
+    e.classList.remove('is-bump');
+    void e.offsetWidth; // restart the animation
+    e.classList.add('is-bump');
+}
+
+// The red ! on STORE: a free reward is waiting there right now.
+function renderBadges() {
+    const b = $('storeBadge');
+    if (b) b.hidden = !(adsAvailable() && ctx.store.adCoinsWaitMs() <= 0);
+}
+
+// The side rail's FREE button: the store's free-coins ad, one tap from home.
+// Shown only where an ad can pay; while it cools down it counts down.
+function renderFreeCoins() {
+    const btn = $('homeFreeCoins');
+    if (!btn) return;
+    if (!adsAvailable()) { btn.style.display = 'none'; return; }
+    btn.style.display = '';
+    if (btn.dataset.busy) return;
+    const wait = ctx.store.adCoinsWaitMs();
+    btn.disabled = wait > 0;
+    if (wait > 0) {
+        const s = Math.ceil(wait / 1000);
+        $('homeFreeLabel').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    } else {
+        $('homeFreeLabel').textContent = '+' + fmt(AD_REWARDS.coins);
+    }
+}
+
+let toastTimer = 0;
+function toast(text, good) {
+    const t = $('homeToast');
+    if (!t) return;
+    t.textContent = text;
+    t.classList.toggle('is-good', !!good);
+    t.classList.add('is-on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('is-on'), 1800);
+}
+
+async function freeCoinsFromAd() {
+    const btn = $('homeFreeCoins');
+    if (!btn || btn.disabled || btn.dataset.busy) return;
+    btn.dataset.busy = '1';
+    btn.disabled = true;
+    const ok = await showRewardedAd();
+    delete btn.dataset.busy;
+    if (ok && ctx.store.adCoins().ok) {
+        toast('+' + fmt(AD_REWARDS.coins), true);
+        try { sfx.coin(); } catch (_) { /* ignore */ }
+    } else if (!ok) toast(adFailureMessage(), false);
+    if (current === 'home') renderHome();
+    renderWallets();
+    renderBadges();
+}
+
+// The home screen's top HUD: the player's gold (coins), medals and power-ups,
+// each labeled. The level PLAY will start shows under the logo, by the button.
 function renderHome() {
     const p = ctx.store.get();
     const levels = ctx.game.getLevels();
     const lv = ctx.game.nextLevel();
     if (!lv) return;
-    const inWorld = levels.filter(l => l.world === lv.world);
-    const slot = inWorld.findIndex(l => l.id === lv.id) + 1;
-    const doneInWorld = inWorld.filter(l => p.cleared[l.id]).length;
     const allDone = levels.every(l => p.cleared[l.id]);
-
-    $('homeLevelNum').textContent = 'LEVEL ' + lv.index;
-    $('homeLevelName').textContent = lv.name;
-    $('homeWorld').textContent = `World ${lv.world}  ·  ${worldName(lv.world)}  ·  ${slot} of ${inWorld.length}`;
-    $('homeWorldBar').style.width = (100 * doneInWorld / Math.max(1, inWorld.length)).toFixed(0) + '%';
-    $('homeWorldDone').textContent = `${doneInWorld} / ${inWorld.length} cleared`;
 
     // Medals by best time, across every level (progressStore.js tierForMs).
     const medals = { gold: 0, silver: 0, bronze: 0 };
@@ -80,12 +138,16 @@ function renderHome() {
         if (t) medals[t]++;
     }
     for (const t of Object.keys(medals)) $('homeMedal_' + t).textContent = String(medals[t]);
+    for (const id of CHARGE_IDS) $('homeCharge_' + id).textContent = String(p.charges?.[id] || 0);
 
     const best = p.cleared[lv.id];
     $('homeGoal').textContent = best
         ? `Best ${(best.bestMs / 1000).toFixed(1)}s  ·  gold under ${(lv.goldMs / 1000).toFixed(1)}s`
         : `Gold under ${(lv.goldMs / 1000).toFixed(1)}s  ·  ${(lv.coins || []).length} coins to find`;
-    $('homePlayBtn').textContent = allDone ? 'PLAY AGAIN' : 'PLAY';
+    $('homePlayLabel').textContent = allDone ? 'PLAY AGAIN' : 'PLAY';
+    $('homePlayLevel').textContent = 'LEVEL ' + lv.index;
+    renderFreeCoins();
+    renderDailyButtons();
     renderWallets();
 }
 
@@ -185,6 +247,7 @@ function placeLabels() {
 
 export function initMenus({ store, game }) {
     ctx = { store, game };
+    initDailyUi({ store, onChange: () => { if (current === 'home') renderHome(); renderWallets(); renderBadges(); } });
     game.setMenuHandler((tab) => show(tab));
     for (const t of Object.keys(TABS)) {
         const b = $('tab_' + t);
@@ -192,6 +255,16 @@ export function initMenus({ store, game }) {
     }
     const play = $('homePlayBtn');
     if (play) play.addEventListener('click', (e) => { e.preventDefault(); game.playLevel(); });
+    // The HUD chips go where their thing is: more gold and power-ups in the
+    // store, medals on the worlds map.
+    const go = (id, tab) => { const b = $(id); if (b) b.addEventListener('click', (e) => { e.preventDefault(); game.showMenus(tab); }); };
+    go('homeGoldChip', 'store');
+    go('homeChargeChip', 'store');
+    go('homeMedalChip', 'worlds');
+    const free = $('homeFreeCoins');
+    if (free) free.addEventListener('click', (e) => { e.preventDefault(); freeCoinsFromAd(); });
+    // The FREE countdown and the store badge tick while the menus are up.
+    setInterval(() => { if (current === 'home') renderFreeCoins(); if (current) renderBadges(); }, 1000);
     onFrame(placeLabels);
     // On the canvas while WORLDS is up: a drag sideways spins the solar
     // system (and coasts when let go); a tap picks the planet under it. A

@@ -22,6 +22,7 @@
 // the HONEST game behaves -- a replay must not pay a first clear twice.
 
 import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT, AD_REWARDS } from './shopCatalog.js';
+import * as daily from './daily.js';
 
 // The game was called Marble Rush when saves began; the key keeps that name
 // on purpose -- renaming it would wipe every player's progress.
@@ -36,7 +37,9 @@ export function freshProgress() {
         marbles: ['classic'], marble: 'classic', upgrades: {}, prizeUses: {},
         // When the store's free-coins ad last paid (AD_REWARDS.coinsCooldownMs),
         // and when the last free upgrade step was given (upgradeCooldownMs).
-        adCoinsAt: 0, adUpgradeAt: 0
+        adCoinsAt: 0, adUpgradeAt: 0,
+        // The 7-day calendar and today's missions (daily.js).
+        daily: { streak: 0, last: '', doubled: '' }, missions: null
     };
 }
 
@@ -72,6 +75,8 @@ export function parseProgress(text) {
     p.marble = p.marbles.includes(raw.marble) ? raw.marble : 'classic';
     p.adCoinsAt = Math.max(0, Number(raw.adCoinsAt) || 0);
     p.adUpgradeAt = Math.max(0, Number(raw.adUpgradeAt) || 0);
+    p.daily = daily.parseDaily(raw.daily);
+    p.missions = daily.parseMissions(raw.missions);
     return p;
 }
 
@@ -83,6 +88,27 @@ export function tierForMs(lv, ms) {
     if (ms <= lv.goldMs * 1.5) return 'silver';
     if (ms <= lv.goldMs * 2.25) return 'bronze';
     return null;
+}
+
+// The medal thresholds tierForMs uses, slowest last.
+export function tierLimits(lv) {
+    return { gold: lv.goldMs, silver: lv.goldMs * 1.5, bronze: lv.goldMs * 2.25 };
+}
+
+// The near miss after a clear: the next medal above the player's BEST on this
+// level, and how much faster this run needed to be for it. `close` marks a
+// miss worth a big RETRY (within a second, or 15% of that medal's time).
+// Null once the level is gold -- nothing left to chase.
+export function nearMiss(lv, runMs, bestMs) {
+    if (!lv || !Number.isFinite(runMs)) return null;
+    const best = Number.isFinite(bestMs) ? Math.min(bestMs, runMs) : runMs;
+    const have = tierForMs(lv, best);
+    const order = ['bronze', 'silver', 'gold'];
+    const target = order[order.indexOf(have) + 1];
+    if (!target) return null;
+    const limit = tierLimits(lv)[target];
+    const gapMs = Math.max(1, Math.ceil(runMs - limit));
+    return { tier: target, gapMs, close: gapMs <= Math.max(1000, 0.15 * limit) };
 }
 
 export function isUnlocked(progress, lv) {
@@ -276,8 +302,14 @@ export function adCharge(progress, id) {
 // a phone game can be killed at any moment, and a clear must not be lost to it.
 export function createProgressStore(adapter, levels = [], payouts = {}) {
     let progress = freshProgress();
+    // The clock the daily rules read; tests and the debug hooks move it.
+    let clock = () => Date.now();
     const persist = () => {
         try { adapter.save(SAVE_KEY, JSON.stringify(progress)); } catch (e) { console.warn('[progress] save failed:', e && e.message); }
+    };
+    const rollMissions = () => {
+        const out = daily.missionsToday(progress, clock());
+        if (out.rolled) { progress = out.progress; persist(); }
     };
     const apply = (out) => {
         if (out.ok) { progress = out.progress; persist(); }
@@ -293,9 +325,16 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         get: () => progress,
         setLevels(nextLevels, nextPayouts) { levels = nextLevels || []; payouts = nextPayouts || {}; },
         recordClear(levelId, durationMs, coins) {
-            const out = applyClear(progress, levels, payouts, levelId, durationMs, coins);
-            if (out.result.accepted) { progress = out.progress; persist(); }
-            return out.result;
+            const prev = progress.cleared[levelId];
+            const out = applyClear(progress, levels, payouts, levelId, durationMs, coins, clock());
+            if (!out.result.accepted) return out.result;
+            // Count the clear toward today's missions, and say which it finished.
+            const lv = levels.find(l => l.id === levelId);
+            const got = Math.max(0, Math.min(Array.isArray(lv.coins) ? lv.coins.length : 0, Math.floor(Number(coins) || 0)));
+            const m = daily.trackMissions(out.progress, daily.clearEvents(lv, out.result, got, prev && prev.bestMs), clock());
+            progress = m.progress;
+            persist();
+            return { ...out.result, missionsDone: m.done };
         },
         spend(amount) {
             const out = spendFrom(progress, amount);
@@ -308,7 +347,12 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         buyUpgrade: id => apply(buyUpgrade(progress, id)),
         buyCharge: id => apply(buyCharge(progress, id)),
         buyPrizeRefill: id => apply(buyPrizeRefill(progress, id)),
-        useCharge: id => apply(consume(progress, 'charges', id)).ok,
+        // A spent power-up also counts toward a "use power-ups" mission.
+        useCharge: id => {
+            const out = consume(progress, 'charges', id);
+            if (out.ok) out.progress = daily.trackMissions(out.progress, { powerup: 1 }, clock()).progress;
+            return apply(out).ok;
+        },
         usePrize: id => apply(consume(progress, 'prizeUses', id)).ok,
         // Rewarded-ad payouts: call only once the ad has finished.
         adCoins: () => apply(adCoins(progress)),
@@ -317,6 +361,17 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         adCharge: id => apply(adCharge(progress, id)),
         adUpgrade: id => apply(adUpgrade(progress, id)),
         adUpgradeEligible: id => adUpgradeEligible(progress, id),
-        adUpgradeWaitMs: () => adUpgradeWaitMs(progress)
+        adUpgradeWaitMs: () => adUpgradeWaitMs(progress),
+        // Daily rewards and missions (daily.js).
+        dailyStatus: () => daily.dailyStatus(progress, clock()),
+        claimDaily: () => { const out = daily.claimDaily(progress, clock()); apply(out); return { ok: out.ok, day: out.day, reward: out.reward }; },
+        adDoubleDaily: () => { const out = daily.adDoubleDaily(progress, clock()); apply(out); return { ok: out.ok, amount: out.amount || 0 }; },
+        // The day's set is saved the first time anything reads it, so what the
+        // player is shown cannot change later in the day.
+        missions: () => { rollMissions(); return daily.missionList(progress, clock()); },
+        missionsReady: () => { rollMissions(); return daily.missionsReady(progress, clock()); },
+        claimMission: id => { const out = daily.claimMission(progress, id, clock()); apply(out); return { ok: out.ok, reward: out.reward || 0, bonus: out.bonus || 0 }; },
+        msUntilTomorrow: () => daily.msUntilTomorrow(clock()),
+        setClock(fn) { clock = typeof fn === 'function' ? fn : () => Date.now(); }
     };
 }

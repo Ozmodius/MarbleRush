@@ -50,6 +50,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
     // not this game's error.
     const foreign = t => /crazygames|sdk\./i.test(t);
     const errors = [];
+    // Every fresh boot with today's daily reward unclaimed opens the calendar
+    // over home (dailyUi.js); close it to get on with the rest.
+    const homeUp = async (pg) => {
+        await pg.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+        if (await pg.isVisible('#dailyPanel')) await pg.tap('#dailyCloseBtn');
+        await pg.waitForSelector('#dailyPanel', { state: 'hidden' });
+    };
     try {
         // A phone-shaped viewport with touch: the shape that matters.
         const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
@@ -61,12 +68,23 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // --- boot -> home ------------------------------------------------
         await page.goto(base);
         await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+        check(await page.isVisible('#dailyPanel') && (await page.textContent('#dailyNote')).includes('Day 1'),
+            'a new player is met by the daily calendar, on day 1');
+        await homeUp(page);
+        check(await page.isVisible('#homeDailyBadge'), 'closed unclaimed, the DAILY button keeps a badge');
         check(await page.isHidden('#bootMsg'), 'the boot message must clear once the game is up');
         check(await page.isVisible('#tabBar'), 'the tab bar shows on the home screen');
         check(await page.evaluate(() => window.__mazeDebug.menuPhase()), 'the home planet is built behind the home screen');
-        check((await page.textContent('#homeLevelNum')).trim() === 'LEVEL 1' && (await page.textContent('#homeLevelName')).trim() === levels[0].name,
-            `home offers level 1 on a fresh save, shows "${await page.textContent('#homeLevelNum')} ${await page.textContent('#homeLevelName')}"`);
+        check(!(await page.$('#homeLevelNum')) && !(await page.$('#homeWorld')), 'the home HUD carries no level info');
+        const homeLabels = await page.$$eval('.home-statlabel', els => els.map(e => e.textContent.trim()));
+        check(['GOLD', 'MEDALS', 'POWER-UPS'].every(l => homeLabels.includes(l)), `the home HUD labels gold, medals and power-ups, shows ${homeLabels}`);
+        for (const id of ['shield', 'slowmo', 'magnet']) check((await page.textContent('#homeCharge_' + id)).trim() === '0', `home shows no ${id} on a fresh save`);
         check((await page.textContent('#homeWallet')).trim() === '0', 'home shows the coin balance');
+        check(await page.isHidden('#homeFreeCoins') && await page.isHidden('#storeBadge'), 'off CrazyGames, home offers no free-coins ad and the store no badge');
+        check((await page.textContent('#homePlayLevel')).trim() === 'LEVEL 1', 'the PLAY button names the level it starts');
+        await page.tap('#homeGoldChip');
+        await page.waitForSelector('#storeView', { state: 'visible' });
+        check(true, 'the gold chip opens the store');
         // --- the worlds tab lists the ladder ------------------------------
         await page.tap('#tab_worlds');
         await page.waitForSelector('#mazeSelect', { state: 'visible' });
@@ -88,7 +106,17 @@ const check = (c, m) => { if (!c) failures.push(m); };
             check(await page.locator('.world-label').count() === W.LAUNCH_WORLDS && await page.locator('.world-label.is-coming').count() === 0,
                 'with every launch world built, the system shows them all and none as coming');
         }
-        // A tap on the planet itself (just above its label) picks it too.
+        // A tap on the planet itself (just above its label) picks it too --
+        // once the camera has finished easing into the system view (frames,
+        // not a clock: the planets still drift as the system turns, but by
+        // under a pixel a frame once it has settled).
+        await page.waitForFunction(() => new Promise(res => {
+            const a = window.__mazeDebug.worldAnchors();
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                const b = window.__mazeDebug.worldAnchors();
+                res(a.every((p, i) => Math.hypot(p.x - b[i].x, p.y - b[i].y) < 2));
+            }));
+        }), null, { timeout: 15000 });
         const anchor = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
         await page.mouse.click(anchor.x, anchor.y - 30);
         check((await page.textContent('#worldSheetName')).trim() === 'Toy Box', 'tapping a planet on the canvas selects its world');
@@ -159,6 +187,15 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(prog.cleared[lv1.id] && prog.highestIndex === 1, `the clear is recorded: ${JSON.stringify(prog.cleared)}`);
         check(prog.wallet === 120 + 1, `a first clear with one coin pays 121, wallet is ${prog.wallet}`);
         check(/CLEARED/.test(await page.textContent('#mazeStatus')), 'the status line reports the clear');
+        // That clear was silver, 5s off gold: the near-miss line says so.
+        check(await page.isVisible('#mazeNearMiss') && /^\d+\.\ds FASTER FOR GOLD$/.test((await page.textContent('#mazeNearText')).trim())
+            && (await page.textContent('#mazeReplayBtn')).trim() === 'REPLAY',
+            `a silver clear names the gold still to win, shows "${await page.textContent('#mazeNearText')}"`);
+        // ...and counted toward today's missions.
+        const mis = prog.missions;
+        const want = { clears: 1, coins: 1, silver: 1, gold: 0, sweep: 0 };
+        check(mis && mis.ids.length === 3 && mis.ids.every(id => (mis.counts[id] || 0) === want[id]),
+            `the clear counts toward the day's missions: ${JSON.stringify(mis)}`);
         await page.waitForSelector('#mazeNextBtn', { state: 'visible' });
         await page.tap('#mazeLevelsBtn');
         await page.waitForSelector('#mazeSelect', { state: 'visible' });
@@ -404,8 +441,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
 
         // --- progress survives a reload ----------------------------------
         await page.reload();
-        await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
-        check((await page.textContent('#homeLevelNum')).trim() === 'LEVEL 2', 'after a clear and a reload, home offers level 2');
+        await homeUp(page);
         await page.tap('#tab_worlds');
         const after = await page.$$eval('.level-node', els => els.map(e => ({ cleared: e.classList.contains('is-cleared'), next: e.classList.contains('is-next'), locked: e.disabled })));
         check(after[0].cleared, 'after a reload, level 1 shows as cleared');
@@ -424,7 +460,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         shop.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
         const sdbg = (fn, ...args) => shop.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
         await shop.goto(base);
-        await shop.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+        await homeUp(shop);
         await shop.tap('#tab_store');
         await shop.waitForSelector('#storeView', { state: 'visible' });
         const rowBuy = (title) => shop.locator('.shop-row', { has: shop.locator('.shop-rowtitle', { hasText: new RegExp('^' + title + '$') }) }).locator('.shop-buy');
@@ -485,7 +521,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
             check(await sdbg('phase') === 'running' && (await sdbg('progress')).prizeUses.heatShield === 1, 'with the Heat Shield a flare does not burn, and one use is spent');
         }
         await shop.reload();
-        await shop.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+        await homeUp(shop);
         check((await sdbg('progress')).marble === 'rubber', 'the marble choice survives a reload');
         await shopCtx.close();
 
@@ -516,7 +552,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const adbg = (fn, ...args) => ad.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
         const adLog = () => ad.evaluate(() => window.__adLog.slice());
         await ad.goto(base);
-        await ad.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+        await homeUp(ad);
+        check(await ad.isVisible('#homeFreeCoins') && !(await ad.isDisabled('#homeFreeCoins')) && (await ad.textContent('#homeFreeLabel')).trim() === '+60',
+            'on CrazyGames, home offers free coins for an ad');
+        check(await ad.isVisible('#storeBadge'), 'and the STORE tab carries a badge while the free coins wait');
 
         await ad.tap('#tab_store');
         await ad.waitForSelector('#storeView', { state: 'visible' });
@@ -529,6 +568,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const w1 = (await adbg('progress')).wallet;
         check(w1 === w0 + 60, `a finished free-coins ad pays 60 (wallet ${w0} -> ${w1})`);
         check(/IN \d+ MIN/.test(await freeBtn.textContent()) && await freeBtn.isDisabled(), 'then the free coins wait out their cooldown');
+        check(await ad.isHidden('#storeBadge'), 'the store badge goes once the free coins are taken');
         check(await ad.isHidden('#adShield'), 'the ad shield is down once the ad is over');
         // A FREE upgrade step: one per cooldown, then the buttons go and a
         // line says when the next one comes.
@@ -546,6 +586,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
 
         // Level 1: FREE SHIELD is offered on the ready screen; leave it for now.
         await ad.tap('#tab_home');
+        check(await ad.isDisabled('#homeFreeCoins') && /^\d+:\d\d$/.test((await ad.textContent('#homeFreeLabel')).trim()), 'home counts down to the next free coins');
         await ad.tap('#homePlayBtn');
         await ad.waitForSelector('#mazeStartBtn', { state: 'visible' });
         check(await ad.isVisible('#mazeAdShieldBtn'), 'the ready screen offers a free shield for an ad');
@@ -629,6 +670,24 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await ad.tap('#homePlayBtn');
         await ad.waitForSelector('#mazeStartBtn', { state: 'visible' });
         check((await adbg('trial')).ball === 'classic', 'the next level is back on your own marble');
+
+        // The daily reward: claim day 1 from the DAILY button, then double it
+        // with an ad -- once.
+        await ad.tap('#mazeExitBtn');
+        await ad.waitForSelector('#homeView', { state: 'visible', timeout: 10000 });
+        await ad.tap('#homeDailyBtn');
+        await ad.waitForSelector('#dailyPanel', { state: 'visible' });
+        check(await ad.isHidden('#dailyDoubleBtn'), 'no ×2 before claiming');
+        const dw0 = (await adbg('progress')).wallet;
+        await ad.tap('#dailyClaimBtn');
+        const dw1 = (await adbg('progress')).wallet;
+        check(dw1 === dw0 + 50 && await ad.isDisabled('#dailyClaimBtn') && await ad.isHidden('#homeDailyBadge'), `claiming day 1 pays 50 once (${dw0} -> ${dw1})`);
+        check(await ad.isVisible('#dailyDoubleBtn'), 'then offers ×2 for an ad');
+        await ad.tap('#dailyDoubleBtn');
+        await ad.waitForFunction((w) => window.__mazeDebug.progress().wallet > w, dw1, { timeout: 5000 }).catch(() => {});
+        check((await adbg('progress')).wallet === dw1 + 50 && await ad.isHidden('#dailyDoubleBtn'), 'a finished ad pays day 1 again, and the offer goes');
+        await ad.tap('#dailyCloseBtn');
+        check(await ad.isHidden('#dailyPanel'), 'the calendar closes');
         await adCtx.close();
 
         check(!errors.length, 'no page errors:\n   ' + errors.join('\n   '));
