@@ -1,4 +1,4 @@
-import { tierForMs, isUnlocked } from './progressStore.js';
+import { tierForMs, isUnlocked, walkTierForMs, walkGoldMs } from './progressStore.js';
 import { PRIZES, CHARGE_IDS, AD_REWARDS } from './shopCatalog.js';
 import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 import { onFrame, getRenderer } from './sceneHost.js';
@@ -27,6 +27,9 @@ const TABS = {
 let ctx = null;
 let current = null;
 let selectedWorld = null;
+// The worlds sheet's mode: 'roll' plays a level, 'walk' walks one already
+// rolled (the Labyrinth, walkMode.js).
+let sheetMode = 'roll';
 const $ = id => document.getElementById(id);
 const fmt = n => Number(n).toLocaleString('en-US');
 
@@ -207,33 +210,44 @@ function pickWorld(n) {
 
 function renderSheet(w) {
     const p = ctx.store.get();
+    const walk = sheetMode === 'walk';
+    for (const [id, on] of [['modeRoll', !walk], ['modeWalk', walk]]) {
+        const b = $(id);
+        if (b) { b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', String(on)); }
+    }
     $('worldSheetNum').textContent = 'WORLD ' + w.n;
     $('worldSheetName').textContent = w.name;
     const grid = $('mazeSelectList');
     grid.innerHTML = '';
-    const done = w.levels.filter(l => p.cleared[l.id]).length;
-    $('worldSheetDone').textContent = w.levels.length ? `${done} / ${w.levels.length} cleared` : '';
+    const done = w.levels.filter(l => (walk ? p.walks[l.id] : p.cleared[l.id])).length;
+    $('worldSheetDone').textContent = w.levels.length ? `${done} / ${w.levels.length} ${walk ? 'walked' : 'cleared'}` : '';
 
     const nextIdx = (p.highestIndex || 0) + 1;
     const next = w.levels.find(l => l.index === nextIdx);
     if (w.state === 'coming') $('worldSheetNote').textContent = 'Coming in an update. Its levels are still being built.';
     else if (w.state === 'locked') $('worldSheetNote').textContent = `Clear World ${w.n - 1} to land here.`;
+    else if (walk) $('worldSheetNote').textContent = 'Walk any level you have rolled, in first person. Find the exit; the traps are real.';
     else if (next) $('worldSheetNote').textContent = `Next: ${next.name}  ·  gold under ${(next.goldMs / 1000).toFixed(1)}s`;
     else $('worldSheetNote').textContent = 'Every level cleared. Replay any for a better medal.';
 
     for (const lv of w.levels) {
-        const c = p.cleared[lv.id];
-        const tier = c ? tierForMs(lv, c.bestMs) : null;
-        const open = isUnlocked(p, lv);
+        const rolled = p.cleared[lv.id];
+        const c = walk ? p.walks[lv.id] : rolled;
+        const tier = c ? (walk ? walkTierForMs(lv, c.bestMs) : tierForMs(lv, c.bestMs)) : null;
+        const open = walk ? !!rolled : isUnlocked(p, lv);
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'level-node' + (c ? ' is-cleared' : '') + (open ? '' : ' is-locked') + (lv.index === nextIdx ? ' is-next' : '');
+        b.className = 'level-node' + (c ? ' is-cleared' : '') + (open ? '' : ' is-locked') + (!walk && lv.index === nextIdx ? ' is-next' : '');
         if (tier) b.dataset.tier = tier;
         b.disabled = !open;
         b.textContent = String(w.levels.indexOf(lv) + 1);
-        b.setAttribute('aria-label', `${lv.name}${c ? ', cleared' + (tier ? ', ' + tier : '') : ''}${open ? '' : ', locked'}`);
-        b.title = lv.name;
-        b.addEventListener('click', (e) => { e.preventDefault(); if (open) ctx.game.playLevel(lv.id); });
+        b.setAttribute('aria-label', `${walk ? 'Walk ' : ''}${lv.name}${c ? (walk ? ', walked' : ', cleared') + (tier ? ', ' + tier : '') : ''}${open ? '' : walk ? ', roll it first' : ', locked'}`);
+        b.title = walk ? `${lv.name} — walk gold under ${(walkGoldMs(lv) / 1000).toFixed(1)}s` : lv.name;
+        b.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (!open) return;
+            if (walk) ctx.game.walkLevel(lv.id); else ctx.game.playLevel(lv.id);
+        });
         grid.append(b);
     }
 
@@ -279,6 +293,14 @@ export function initMenus({ store, game }) {
     go('homeGoldChip', 'store');
     go('homeChargeChip', 'store');
     go('homeMedalChip', 'worlds');
+    for (const [id, mode] of [['modeRoll', 'roll'], ['modeWalk', 'walk']]) {
+        const b = $(id);
+        if (b) b.addEventListener('click', (e) => {
+            e.preventDefault();
+            sheetMode = mode;
+            renderSheet(ctx.game.worldsInfo().find(w => w.n === selectedWorld) || ctx.game.worldsInfo()[0]);
+        });
+    }
     const maze = $('homeDailyMaze');
     if (maze) maze.addEventListener('click', (e) => {
         e.preventDefault();

@@ -109,7 +109,7 @@ This file records the decisions so they travel with the code.
 | 0. Spike (done 2026-10-05) | Small | Scene host and progress store seams; `index.html` boots level 1 with no server; build script makes a flat CrazyGames zip | A level plays on desktop and phone |
 | 1. MVP launch | Large | 50 levels in worlds 1-5 (below), each with its theme, three traps and a prize; coins and power-ups (in-maze and pre-bought); Classic + 3 characters, 4 upgrade tracks, stars, coins, cloud save; midgame + revive/double-coins rewarded; Basic then Full Launch | Basic Launch retention and session length look healthy |
 | 2. Retention (built 2026-10-06, ahead of Basic Launch data) | Medium | Daily maze and streak, player level, trails and skins, character trials, ball cam | Ball cam gets real play and lifts retention |
-| 3. Labyrinth | Large | Walk-through first-person mode on the same generator; joystick + mouse-look; explorer upgrades; comfort settings | |
+| 3. Labyrinth (built 2026-10-06, ahead of the ball-cam gate) | Large | Walk-through first-person mode on the same generator; joystick + mouse-look; explorer upgrades; comfort settings | |
 
 Phase 2 as built (2026-10-06), on Oz's call to go ahead before Basic Launch:
 - *Streak* is the 7-day calendar and *character trials* the TRY-a-marble ad
@@ -123,6 +123,22 @@ Phase 2 as built (2026-10-06), on Oz's call to go ahead before Basic Launch:
   unchanged), eased in on START and out at the clear; a HUD toggle, saved.
   Its gate ("gets real play") needs usage numbers this build cannot see
   -- CrazyGames' dashboard or an analytics call would be the way to judge it.
+
+Phase 3 as built (2026-10-06), on Oz's call and choices:
+- *Which mazes*: the 50 ladder levels, each walkable once rolled (a WALK IT
+  button after a clear, and a ROLL | WALK switch on the worlds sheet).
+- *The walker is the ball's body* (walkMode.js): the same radius, so every
+  verifier guarantee holds unchanged; gravity stays straight down and a
+  capped push (12 u/s^2, over twice the strongest trap's) drives it toward
+  walking pace (1.8 u/s). Traps are live. The eye sits below the wall tops.
+- *Medals and pay*: walk par = 1.1 x the level's gold time; the first walk
+  pays half the level's first-clear pay plus coins, a walk gold its gold
+  bonus; walk records are kept apart from rolling ones.
+- *Explorer upgrades* (Store): Compass (an arrow to the exit) and Explorer
+  Map (draws only floor already walked near). Neither speeds a walker.
+- *Comfort*: field of view, look speed, invert, head bob (off by default),
+  edge darkening while moving (on by default).
+- Open: no comfort or feel testing on a phone yet; a sky for the walk view.
 
 ## Worlds
 

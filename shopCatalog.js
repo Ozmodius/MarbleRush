@@ -95,7 +95,9 @@ export const XP = {
     mission: 40,
     missionsBonus: 50,
     dailyClaim: 20,
-    dailyMaze: 150
+    dailyMaze: 150,
+    walkFirst: 60,        // walking a level (Labyrinth mode) for the first time
+    walkReplay: 10
 };
 // Every level-up pays coins (40 + 10 x the new level); some also give a
 // power-up or unlock a reward skin or trail (SKINS / TRAILS with `level`).
@@ -108,6 +110,33 @@ export const LEVEL_REWARDS = {
     12: { look: ['trail', 'gold'] },
     15: { look: ['skin', 'ember'] },
     20: { coins: 1000 }
+};
+
+// --- the Labyrinth: walking a level (walkMode.js, docs/PLAN.md phase 3) -----
+// Any level cleared by rolling can be WALKED in first person, traps and all.
+// The walker is the ball's own body (the same radius the verifier proved
+// fits) driven at a walking pace instead of by tilt. `accel` is how hard it
+// can push toward that pace: well above every trap's push (each is held under
+// half of full tilt, about 4.5 u/s^2), so a walker can always walk out of
+// one. Walk medals use their own par: `parShare` x the level's gold time. The
+// first walk of a level pays `payShare` of its first-clear pay plus the coins
+// taken; the first walk gold pays the level's gold bonus.
+export const WALK = { speed: 1.8, accel: 12, parShare: 1.1, payShare: 0.5 };
+// Explorer upgrades: bought once, used only when walking. Control and
+// forgiveness (CLAUDE.md) -- they show the way, they never speed you up.
+export const EXPLORER = {
+    compass: { name: 'Compass', price: 400, blurb: 'Walk mode: an arrow to the exit, and how far it is.' },
+    map: { name: 'Explorer Map', price: 900, blurb: 'Walk mode: draws the maze as you walk it -- only what you have seen.' }
+};
+export const EXPLORER_IDS = Object.keys(EXPLORER);
+// Comfort settings for walking (the comfort card): defaults, and the range
+// each may take.
+export const COMFORT = {
+    fov: { def: 75, min: 60, max: 95 },
+    sens: { def: 1, min: 0.4, max: 2 },
+    invertY: { def: false },
+    bob: { def: false },        // head bob: off by default, it upsets some stomachs
+    vignette: { def: true }     // darkens the edges while moving or turning
 };
 
 // --- upgrades (the plan's "4 upgrade tracks") --------------------------------

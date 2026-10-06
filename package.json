@@ -5,7 +5,7 @@
   "description": "PlaneTilt: a tilt-controlled marble maze for CrazyGames.",
   "license": "UNLICENSED",
   "scripts": {
-    "test": "node test_maze_levels.js && node test_maze_hazards.js && node test_maze_tilt.js && node test_maze_walls.js && node test_maze_pickups.js && node test_progress_store.js && node test_daily.js && node test_player_level.js && node test_shop.js && node test_forest.js",
+    "test": "node test_maze_levels.js && node test_maze_hazards.js && node test_maze_tilt.js && node test_maze_walls.js && node test_maze_pickups.js && node test_progress_store.js && node test_daily.js && node test_player_level.js && node test_walk.js && node test_shop.js && node test_forest.js",
     "levels": "node scripts/generateMazeLevels.js",
     "test:browser": "node test_maze_boot.js",
     "build:crazygames": "node scripts/buildCrazyGames.js",
