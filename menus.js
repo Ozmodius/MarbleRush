@@ -1,8 +1,9 @@
 import { tierForMs, isUnlocked } from './progressStore.js';
-import { PRIZES, CHARGE_IDS } from './shopCatalog.js';
+import { PRIZES, CHARGE_IDS, AD_REWARDS } from './shopCatalog.js';
 import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 import { onFrame, getRenderer } from './sceneHost.js';
-import { showBanner } from './platform.js';
+import { showBanner, adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
+import { sfx } from './sfx.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
 // board mazeGame.js keeps as the backdrop, plus the home screen's top HUD.
@@ -46,11 +47,76 @@ function show(tab) {
     else if (tab === 'store') { clearShopMessages(); renderStore(); showBanner('storeBanner'); }
     else if (tab === 'worlds') renderWorlds();
     renderWallets();
+    renderBadges();
 }
 
+let shownWallet = null;
 function renderWallets() {
-    const w = fmt(ctx.store.get().wallet);
+    const n = ctx.store.get().wallet;
+    const w = fmt(n);
     for (const id of ['mazeWallet', 'storeWallet', 'profileWallet', 'homeWallet']) { const e = $(id); if (e) e.textContent = w; }
+    // The gold chip bumps when the balance goes up while it is on screen.
+    if (shownWallet !== null && n > shownWallet && current === 'home') bump('homeGoldChip');
+    shownWallet = n;
+}
+
+function bump(id) {
+    const e = $(id);
+    if (!e) return;
+    e.classList.remove('is-bump');
+    void e.offsetWidth; // restart the animation
+    e.classList.add('is-bump');
+}
+
+// The red ! on STORE: a free reward is waiting there right now.
+function renderBadges() {
+    const b = $('storeBadge');
+    if (b) b.hidden = !(adsAvailable() && ctx.store.adCoinsWaitMs() <= 0);
+}
+
+// The side rail's FREE button: the store's free-coins ad, one tap from home.
+// Shown only where an ad can pay; while it cools down it counts down.
+function renderFreeCoins() {
+    const btn = $('homeFreeCoins');
+    if (!btn) return;
+    if (!adsAvailable()) { btn.style.display = 'none'; return; }
+    btn.style.display = '';
+    if (btn.dataset.busy) return;
+    const wait = ctx.store.adCoinsWaitMs();
+    btn.disabled = wait > 0;
+    if (wait > 0) {
+        const s = Math.ceil(wait / 1000);
+        $('homeFreeLabel').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    } else {
+        $('homeFreeLabel').textContent = '+' + fmt(AD_REWARDS.coins);
+    }
+}
+
+let toastTimer = 0;
+function toast(text, good) {
+    const t = $('homeToast');
+    if (!t) return;
+    t.textContent = text;
+    t.classList.toggle('is-good', !!good);
+    t.classList.add('is-on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('is-on'), 1800);
+}
+
+async function freeCoinsFromAd() {
+    const btn = $('homeFreeCoins');
+    if (!btn || btn.disabled || btn.dataset.busy) return;
+    btn.dataset.busy = '1';
+    btn.disabled = true;
+    const ok = await showRewardedAd();
+    delete btn.dataset.busy;
+    if (ok && ctx.store.adCoins().ok) {
+        toast('+' + fmt(AD_REWARDS.coins), true);
+        try { sfx.coin(); } catch (_) { /* ignore */ }
+    } else if (!ok) toast(adFailureMessage(), false);
+    if (current === 'home') renderHome();
+    renderWallets();
+    renderBadges();
 }
 
 // The home screen's top HUD: the player's gold (coins), medals and power-ups,
@@ -76,7 +142,9 @@ function renderHome() {
     $('homeGoal').textContent = best
         ? `Best ${(best.bestMs / 1000).toFixed(1)}s  ·  gold under ${(lv.goldMs / 1000).toFixed(1)}s`
         : `Gold under ${(lv.goldMs / 1000).toFixed(1)}s  ·  ${(lv.coins || []).length} coins to find`;
-    $('homePlayBtn').textContent = allDone ? 'PLAY AGAIN' : 'PLAY';
+    $('homePlayLabel').textContent = allDone ? 'PLAY AGAIN' : 'PLAY';
+    $('homePlayLevel').textContent = 'LEVEL ' + lv.index;
+    renderFreeCoins();
     renderWallets();
 }
 
@@ -183,6 +251,16 @@ export function initMenus({ store, game }) {
     }
     const play = $('homePlayBtn');
     if (play) play.addEventListener('click', (e) => { e.preventDefault(); game.playLevel(); });
+    // The HUD chips go where their thing is: more gold and power-ups in the
+    // store, medals on the worlds map.
+    const go = (id, tab) => { const b = $(id); if (b) b.addEventListener('click', (e) => { e.preventDefault(); game.showMenus(tab); }); };
+    go('homeGoldChip', 'store');
+    go('homeChargeChip', 'store');
+    go('homeMedalChip', 'worlds');
+    const free = $('homeFreeCoins');
+    if (free) free.addEventListener('click', (e) => { e.preventDefault(); freeCoinsFromAd(); });
+    // The FREE countdown and the store badge tick while the menus are up.
+    setInterval(() => { if (current === 'home') renderFreeCoins(); if (current) renderBadges(); }, 1000);
     onFrame(placeLabels);
     // On the canvas while WORLDS is up: a drag sideways spins the solar
     // system (and coasts when let go); a tap picks the planet under it. A

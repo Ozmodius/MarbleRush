@@ -69,6 +69,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(['GOLD', 'MEDALS', 'POWER-UPS'].every(l => homeLabels.includes(l)), `the home HUD labels gold, medals and power-ups, shows ${homeLabels}`);
         for (const id of ['shield', 'slowmo', 'magnet']) check((await page.textContent('#homeCharge_' + id)).trim() === '0', `home shows no ${id} on a fresh save`);
         check((await page.textContent('#homeWallet')).trim() === '0', 'home shows the coin balance');
+        check(await page.isHidden('#homeFreeCoins') && await page.isHidden('#storeBadge'), 'off CrazyGames, home offers no free-coins ad and the store no badge');
+        check((await page.textContent('#homePlayLevel')).trim() === 'LEVEL 1', 'the PLAY button names the level it starts');
+        await page.tap('#homeGoldChip');
+        await page.waitForSelector('#storeView', { state: 'visible' });
+        check(true, 'the gold chip opens the store');
+        await page.tap('#tab_home');
+        await page.waitForSelector('#homeView', { state: 'visible' });
         // --- the worlds tab lists the ladder ------------------------------
         await page.tap('#tab_worlds');
         await page.waitForSelector('#mazeSelect', { state: 'visible' });
@@ -518,6 +525,9 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const adLog = () => ad.evaluate(() => window.__adLog.slice());
         await ad.goto(base);
         await ad.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+        check(await ad.isVisible('#homeFreeCoins') && !(await ad.isDisabled('#homeFreeCoins')) && (await ad.textContent('#homeFreeLabel')).trim() === '+60',
+            'on CrazyGames, home offers free coins for an ad');
+        check(await ad.isVisible('#storeBadge'), 'and the STORE tab carries a badge while the free coins wait');
 
         await ad.tap('#tab_store');
         await ad.waitForSelector('#storeView', { state: 'visible' });
@@ -530,6 +540,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const w1 = (await adbg('progress')).wallet;
         check(w1 === w0 + 60, `a finished free-coins ad pays 60 (wallet ${w0} -> ${w1})`);
         check(/IN \d+ MIN/.test(await freeBtn.textContent()) && await freeBtn.isDisabled(), 'then the free coins wait out their cooldown');
+        check(await ad.isHidden('#storeBadge'), 'the store badge goes once the free coins are taken');
         check(await ad.isHidden('#adShield'), 'the ad shield is down once the ad is over');
         // A FREE upgrade step: one per cooldown, then the buttons go and a
         // line says when the next one comes.
@@ -547,6 +558,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
 
         // Level 1: FREE SHIELD is offered on the ready screen; leave it for now.
         await ad.tap('#tab_home');
+        check(await ad.isDisabled('#homeFreeCoins') && /^\d+:\d\d$/.test((await ad.textContent('#homeFreeLabel')).trim()), 'home counts down to the next free coins');
         await ad.tap('#homePlayBtn');
         await ad.waitForSelector('#mazeStartBtn', { state: 'visible' });
         check(await ad.isVisible('#mazeAdShieldBtn'), 'the ready screen offers a free shield for an ad');

@@ -31,30 +31,40 @@
     <div class="home-stats">
       <div class="home-stat">
         <span class="home-statlabel">GOLD</span>
-        <span class="hud-pill hud-coins" title="Gold coins"><span class="coin-dot"></span><span id="homeWallet">0</span></span>
+        <button id="homeGoldChip" class="hud-chip hud-coins" type="button" title="Gold coins: get more in the store">
+          <span class="chip-icon coin-icon"></span><span id="homeWallet" class="chip-value">0</span><span class="chip-plus" aria-hidden="true">+</span>
+        </button>
       </div>
       <div class="home-stat">
         <span class="home-statlabel">MEDALS</span>
-        <span class="hud-pill hud-medals" title="Medals: gold, silver, bronze">
+        <button id="homeMedalChip" class="hud-chip hud-medals" type="button" title="Medals: gold, silver, bronze">
           <span class="medal medal-gold"></span><span id="homeMedal_gold">0</span>
           <span class="medal medal-silver"></span><span id="homeMedal_silver">0</span>
           <span class="medal medal-bronze"></span><span id="homeMedal_bronze">0</span>
-        </span>
+        </button>
       </div>
       <div class="home-stat">
         <span class="home-statlabel">POWER-UPS</span>
-        <span class="hud-pill hud-powerups">
+        <button id="homeChargeChip" class="hud-chip hud-powerups" type="button" title="Power-ups: get more in the store">
           <span class="home-pu" title="Shield"><span class="pu-dot pu-shield"></span><span id="homeCharge_shield">0</span></span>
           <span class="home-pu" title="Slow-mo"><span class="pu-dot pu-slowmo"></span><span id="homeCharge_slowmo">0</span></span>
           <span class="home-pu" title="Magnet"><span class="pu-dot pu-magnet"></span><span id="homeCharge_magnet">0</span></span>
-        </span>
+        </button>
       </div>
     </div>
     <h1 class="home-logo" aria-label="PlaneTilt"><span class="logo-plane" aria-hidden="true">Plane</span><span class="logo-tilt" aria-hidden="true">T<span class="logo-i"></span>lt</span></h1>
   </header>
+  <!-- Side rail: the free-coins rewarded ad, only where ads can pay -->
+  <div class="home-side">
+    <button id="homeFreeCoins" class="side-btn side-free" type="button" style="display:none">
+      <span class="side-icon"><span class="coin-icon"></span><span class="side-play" aria-hidden="true"></span></span>
+      <span id="homeFreeLabel" class="side-label">FREE</span>
+    </button>
+  </div>
+  <p id="homeToast" class="home-toast" role="status"></p>
   <div class="home-play">
     <p id="homeGoal" class="home-goal"></p>
-    <button id="homePlayBtn" class="maze-btn maze-btn-big home-playbtn" type="button">PLAY</button>
+    <button id="homePlayBtn" class="maze-btn maze-btn-big home-playbtn" type="button"><span id="homePlayLabel" class="play-label">PLAY</span><span id="homePlayLevel" class="play-sub"></span></button>
   </div>
 </section>
 
@@ -128,6 +138,7 @@
   <button id="tab_store" class="tab" type="button">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>
     <span>STORE</span>
+    <span id="storeBadge" class="tab-badge" aria-label="Free reward ready" hidden>!</span>
   </button>
 </nav>
 
