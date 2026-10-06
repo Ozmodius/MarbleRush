@@ -11,7 +11,7 @@
 // (docs/PLAN.md: nothing is competitive); the rules just keep the HONEST game
 // from double-paying.
 
-import { DAILY_CALENDAR, MISSIONS, MISSIONS_PER_DAY, MISSIONS_BONUS } from './shopCatalog.js';
+import { DAILY_CALENDAR, MISSIONS, MISSIONS_PER_DAY, MISSIONS_BONUS, DAILY_MAZE } from './shopCatalog.js';
 
 const copy = p => JSON.parse(JSON.stringify(p));
 
@@ -33,6 +33,39 @@ export function msUntilTomorrow(now) {
     const d = new Date(now);
     d.setHours(24, 0, 0, 0);
     return Math.max(0, d.getTime() - now);
+}
+
+// A count of local calendar days: consecutive days differ by exactly 1,
+// whatever daylight saving does to the hours between them.
+export function dayNumber(now) {
+    const d = new Date(now);
+    return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
+}
+
+// --- the daily maze -------------------------------------------------------------
+// Today's maze for this player: from the worlds they have reached (the world
+// of their next ladder level and every one before it), taking turns by day,
+// and within a world working through its pool. `pool` is dailyLevels.json's
+// levels, `ladder` mazeLevels.json's.
+export function dailyMazeFor(progress, pool, ladder, now) {
+    const cleared = progress.highestIndex || 0;
+    const locked = cleared < DAILY_MAZE.unlockAfter;
+    const next = (ladder || []).find(l => l.index === cleared + 1) || (ladder || [])[ladder.length - 1];
+    const reach = next ? next.world : 1;
+    const worlds = [...new Set((pool || []).map(l => l.world))].filter(w => w <= reach).sort((a, b) => a - b);
+    if (!worlds.length) return { lv: null, locked, date: dayKey(now) };
+    const n = dayNumber(now);
+    const w = worlds[n % worlds.length];
+    const inWorld = pool.filter(l => l.world === w);
+    const lv = inWorld[Math.floor(n / worlds.length) % inWorld.length];
+    const date = dayKey(now);
+    const dm = progress.dailyMaze && progress.dailyMaze.date === date && progress.dailyMaze.id === lv.id ? progress.dailyMaze : null;
+    return { lv, locked, date, best: dm ? dm.best : null, paid: !!(dm && dm.paid), gold: !!(dm && dm.gold) };
+}
+
+export function parseDailyMaze(raw) {
+    if (!raw || typeof raw !== 'object' || typeof raw.date !== 'string' || typeof raw.id !== 'string') return null;
+    return { date: raw.date, id: raw.id, best: Number.isFinite(raw.best) ? raw.best : null, paid: !!raw.paid, gold: !!raw.gold };
 }
 
 // --- the 7-day calendar ------------------------------------------------------

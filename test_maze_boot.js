@@ -75,6 +75,9 @@ const check = (c, m) => { if (!c) failures.push(m); };
             'a new player is met by the daily calendar, on day 1');
         await homeUp(page);
         check(await page.isVisible('#homeDailyBadge'), 'closed unclaimed, the DAILY button keeps a badge');
+        check(await page.isVisible('#homeDailyMaze') && (await page.textContent('#homeMazeLabel')).trim() === 'LOCKED', 'a new player sees the daily maze locked');
+        await page.tap('#homeDailyMaze');
+        check(/Clear 3 levels/.test(await page.textContent('#homeToast')) && await page.isVisible('#homeView'), 'tapping it says what unlocks it, and starts nothing');
         check(await page.isHidden('#bootMsg'), 'the boot message must clear once the game is up');
         check(await page.isVisible('#tabBar'), 'the tab bar shows on the home screen');
         check(await page.evaluate(() => window.__mazeDebug.menuPhase()), 'the home planet is built behind the home screen');
@@ -560,6 +563,57 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await sdbg('startLevelForTest', levels[0].id), 'can build level 1 with a skin and trail on');
         check(await sdbg('ballColor') === '#ffffff' && (await sdbg('trail')) !== null, `the ball wears the skin (its colour comes from the skin's picture) and the trail is laid: ${await sdbg('ballColor')}`);
         await shopCtx.close();
+
+        // --- the daily maze ---------------------------------------------------
+        // Locked on a fresh save (checked on the first page); here a player
+        // three levels in plays today's, once paid, then chases the time.
+        check(true, 'daily maze section');
+        const dCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+        await dCtx.addInitScript(() => {
+            if (sessionStorage.getItem('seeded')) return;
+            sessionStorage.setItem('seeded', '1');
+            const cleared = { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 }, w1_03: { bestMs: 99000, coins: 0 } };
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 0, xp: 400, highestIndex: 3, cleared, goldClaimed: [], prizes: [], charges: {} }));
+        });
+        const dp = await dCtx.newPage();
+        dp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
+        const ddbg = (fn, ...args) => dp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
+        await dp.goto(base);
+        await homeUp(dp);
+        const today = await ddbg('dailyMaze');
+        check(today && today.lv && !today.locked && /^d1_\d\d$/.test(today.lv.id), `three levels in, today's maze is a world 1 daily: ${today && today.lv && today.lv.id}`);
+        check(await dp.isVisible('#homeDailyMaze') && await dp.isVisible('#homeMazeBadge') && (await dp.textContent('#homeMazeLabel')).trim() === 'TODAY', 'home offers it, marked NEW');
+        await dp.tap('#homeDailyMaze');
+        await dp.waitForSelector('#mazeStartBtn', { state: 'visible' });
+        check((await dp.textContent('#mazeLevelName')).trim() === 'Daily Maze', 'the HUD names the daily maze');
+        await dp.tap('#mazeStartBtn');
+        await dp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+        const dlv = today.lv;
+        await ddbg('ageRun', Math.round(dlv.goldMs * 1.2));
+        check(await ddbg('warpToGoal'), 'the daily maze can be won');
+        let dprog = await ddbg('progress');
+        check(dprog.dailyMaze && dprog.dailyMaze.paid && dprog.wallet >= 150 && dprog.highestIndex === 3 && !dprog.cleared[dlv.id],
+            `a daily clear pays 150, off the ladder: ${JSON.stringify({ dm: dprog.dailyMaze, w: dprog.wallet, hi: dprog.highestIndex })}`);
+        const firstBest = dprog.dailyMaze.best;
+        check(await dp.isHidden('#mazeNextBtn') && await dp.isVisible('#mazeReplayBtn'), 'after a daily, no NEXT -- REPLAY to chase the time');
+        await dp.tap('#mazeLevelsBtn');
+        await dp.waitForSelector('#mazeSelect', { state: 'visible' });
+        await dp.tap('#tab_home');
+        await homeUp(dp);
+        check(await dp.isHidden('#homeMazeBadge') && /^✓ \d+\.\ds$/.test((await dp.textContent('#homeMazeLabel')).trim()), `home shows it done, with the time: ${await dp.textContent('#homeMazeLabel')}`);
+        const w1d = (await ddbg('progress')).wallet;
+        await dp.tap('#homeDailyMaze');
+        await dp.waitForSelector('#mazeStartBtn', { state: 'visible' });
+        await dp.tap('#mazeStartBtn');
+        await dp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+        await ddbg('ageRun', Math.round(dlv.goldMs * 1.4));
+        await ddbg('warpToGoal');
+        dprog = await ddbg('progress');
+        check(dprog.wallet === w1d && dprog.dailyMaze.best === firstBest, `a slower replay pays nothing and keeps the best (${w1d} -> ${dprog.wallet}, best ${firstBest} -> ${dprog.dailyMaze.best})`);
+        await ddbg('shiftDays', 1);
+        const tomorrow = await ddbg('dailyMaze');
+        check(tomorrow.lv.id !== dlv.id && !tomorrow.paid, `tomorrow brings a new maze, unpaid: ${tomorrow.lv.id}`);
+        await dCtx.close();
 
         // --- ads, against a stand-in CrazyGames SDK -------------------------
         // The real SDK script is swapped for nothing and window.CrazyGames is

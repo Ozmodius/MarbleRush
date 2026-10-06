@@ -39,7 +39,10 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   off (the exit absorbs), and that every hole, ice patch and gate is reachable
   and meaningful. If the generator and the test disagree, the test is right.
 - **The generator is seeded.** Regenerating must reproduce `mazeLevels.json`
-  byte for byte; a reshuffle invalidates every tuned `minMs`/`goldMs`.
+  byte for byte; a reshuffle invalidates every tuned `minMs`/`goldMs`. The
+  daily maze pool (`dailyLevels.json`, `node scripts/generateMazeLevels.js
+  --daily`) has its own seed range and must reproduce byte for byte too; the
+  verifier checks every daily maze exactly like a ladder level.
 - **Tilt rotates GRAVITY, never the bodies.** Static walls keep frozen
   quaternions; the board's visible lean is cosmetic and decoupled.
 - **Gates are kinematic bodies driven by velocity**, on the run's own clock,

@@ -22,6 +22,11 @@
 
 const path = require('path');
 const DATA = require('./mazeLevels.json');
+// The daily maze pool (scripts/generateMazeLevels.js --daily). Every per-level
+// check below runs on it exactly as on the ladder; only the ladder's own rules
+// (indices, world slots, prizes) are the ladder's alone.
+const DAILY = require('./dailyLevels.json');
+const EVERY = DATA.levels.concat(DAILY.levels);
 // The theme catalog is mazeThemes.js (an ES module, loaded in run()).
 let THEMES = {};
 // mazeHazards.js, for the helpers that are not handed it (loaded in run()).
@@ -548,7 +553,7 @@ async function run() {
     check(Array.isArray(DATA.levels) && DATA.levels.length > 0, 'mazeLevels.json must contain at least one level');
 
     const ids = new Set();
-    for (const lv of DATA.levels) {
+    for (const lv of EVERY) {
         const tag = `level ${lv.id}`;
 
         // --- schema ---------------------------------------------------------
@@ -740,8 +745,27 @@ async function run() {
     }
 
     // (per-level trap, coin and pickup checks run in checkExtras below)
-    for (const lv of DATA.levels) {
+    for (const lv of EVERY) {
         if (lv.size && lv.walls && lv.holes && lv.start && lv.goal) checkExtras(lv, H, P);
+    }
+
+    // --- THE DAILY POOL ------------------------------------------------------
+    // Twelve a world for every world on the ladder, ids d<world>_<n>, off the
+    // ladder (no index, no prize), and no trap a daily of that world could hold
+    // that its world does not teach -- a daily is practice, not a surprise.
+    check(DAILY.schemaVersion === 1, 'dailyLevels.json: unexpected schemaVersion');
+    const ladderWorlds = [...new Set(DATA.levels.map(l => l.world))];
+    for (const w of ladderWorlds) {
+        const pool = DAILY.levels.filter(l => l.world === w);
+        check(pool.length === 12, `daily pool: world ${w} has ${pool.length} mazes, wants 12`);
+        pool.forEach((lv, k) => check(lv.id === `d${w}_${String(k + 1).padStart(2, '0')}`, `${lv.id}: daily id should be d${w}_${String(k + 1).padStart(2, '0')}`));
+        const taught = DATA.levels.filter(l => l.world <= w);
+        for (const lv of pool) {
+            check(!lv.prize && !(lv.index > 0), `${lv.id}: a daily maze is off the ladder (no prize, no index)`);
+            for (const key of ['gates', 'ice', 'conveyors', 'fans', 'icicles', 'flares', 'geysers', 'bumpers', 'springs', 'arms', 'magnets', 'crushers', 'rails']) {
+                if ((lv[key] || []).length) check(taught.some(l => (l[key] || []).length), `${lv.id}: has ${key}, which nothing up to world ${w} teaches`);
+            }
+        }
     }
 
     // --- LADDER INTEGRITY ----------------------------------------------------
@@ -835,6 +859,7 @@ async function run() {
         const coinCount = DATA.levels.reduce((n, l) => n + ((l.coins || []).length), 0);
         const pickupCount = DATA.levels.reduce((n, l) => n + ((l.pickups || []).length), 0);
         console.log(`PASS: ${beltCount} conveyor(s) stay off holes, start, goal and gate sweeps; ${coinCount} coin(s) and ${pickupCount} pickup(s) are all reachable and clear of holes; traps arrive only on levels 1/4/10 of their world`);
+        console.log(`PASS: the ${DAILY.levels.length} daily mazes pass every per-level check, twelve a world, off the ladder, holding only traps their world teaches`);
         console.log(`PASS: all ${DATA.levels.length} maze level(s) are well-formed, in bounds, inside the shadow frustum, BFS-solvable at the real ball radius AND passable by a ball ${FIT_MARGIN_R * 100}% wider, leave no carved floor cut off, put every hole and all ${iceCount} ice patch(es) somewhere reachable, retract all ${gateCount} gate(s) clear of the floor when open, and form a gap-free ladder with non-increasing ball size`);
     }
 }

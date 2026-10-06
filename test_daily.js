@@ -20,6 +20,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
 
 (async () => {
     const S = await import('./progressStore.js');
+    const { createRequire } = await import('module');
+    const require = createRequire(__filename);
     const D = await import('./daily.js');
     const C = await import('./shopCatalog.js');
     // Noon local time on consecutive days, so no test sits on a midnight.
@@ -127,6 +129,53 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(S.nearMiss(L, 14000, 9000) === null, 'a level already gold has nothing to chase, even after a slow run');
     nm = S.nearMiss(L, 20000, 14000);
     check(nm && nm.tier === 'gold' && nm.gapMs === 10000, 'the target is above the player\'s BEST, measured from this run');
+
+    // 8. the daily maze
+    const pool = require('./dailyLevels.json').levels, ladder = require('./mazeLevels.json').levels;
+    let dm = { ...S.freshProgress(), highestIndex: 2 };
+    check(D.dailyMazeFor(dm, pool, ladder, day(0)).locked, `locked until ${C.DAILY_MAZE.unlockAfter} levels are cleared`);
+    dm.highestIndex = 3;
+    let today = D.dailyMazeFor(dm, pool, ladder, day(0));
+    check(!today.locked && today.lv && today.lv.world === 1, `unlocked, from world 1 only while the player is in world 1: ${today.lv && today.lv.id}`);
+    check(D.dailyMazeFor(dm, pool, ladder, day(0) + 5 * 3600e3).lv.id === today.lv.id, 'the same maze all day');
+    check(D.dailyMazeFor(dm, pool, ladder, day(1)).lv.id !== today.lv.id, 'a new maze tomorrow');
+    const far = { ...dm, highestIndex: 45 };
+    const seenW = new Set();
+    for (let n = 0; n < 10; n++) seenW.add(D.dailyMazeFor(far, pool, ladder, day(n)).lv.world);
+    check([1, 2, 3, 4, 5].every(w => seenW.has(w)), `a player in world 5 gets every world they reached in turn: ${[...seenW]}`);
+    const ids = new Set();
+    for (let n = 0; n < 60; n++) ids.add(D.dailyMazeFor(far, pool, ladder, day(n)).lv.id);
+    check(ids.size === 60, `60 days, 60 different mazes, got ${ids.size}`);
+    const lvD = today.lv;
+    let dc = S.applyDailyClear(dm, today, lvD.minMs - 1, 0, day(0));
+    check(!dc.result.accepted && dc.result.reason === 'too-fast', 'a daily clear under minMs does not count');
+    check(!S.applyDailyClear(dm, { ...today, locked: true }, lvD.goldMs, 0, day(0)).result.accepted, 'a locked daily maze pays nothing');
+    dc = S.applyDailyClear(dm, today, Math.round(lvD.goldMs * 1.2), 2, day(0));
+    check(dc.result.accepted && dc.result.firstClear && dc.result.earned === C.DAILY_MAZE.reward + 2 && dc.result.tier === 'silver', `the first daily clear pays reward + coins: ${JSON.stringify(dc.result)}`);
+    check(dc.progress.highestIndex === dm.highestIndex && Object.keys(dc.progress.cleared).length === 0, 'the daily maze is off the ladder');
+    let dm2 = dc.progress;
+    today = D.dailyMazeFor(dm2, pool, ladder, day(0));
+    check(today.paid && today.best === Math.round(lvD.goldMs * 1.2), 'today shows as done, with its best');
+    dc = S.applyDailyClear(dm2, today, lvD.goldMs - 10, 2, day(0));
+    check(dc.result.earned === C.DAILY_MAZE.goldBonus && dc.result.goldFirst && dc.result.bestMs === lvD.goldMs - 10, `a gold replay pays only the gold bonus: ${dc.result.earned}`);
+    today = D.dailyMazeFor(dc.progress, pool, ladder, day(0));
+    check(S.applyDailyClear(dc.progress, today, lvD.goldMs - 20, 2, day(0)).result.earned === 0, 'after that a replay pays nothing, only chases the time');
+    check(!D.dailyMazeFor(dc.progress, pool, ladder, day(1)).paid, 'tomorrow starts unpaid');
+    check(S.parseProgress(JSON.stringify(dc.progress)).dailyMaze.best === lvD.goldMs - 10, 'the day\'s daily maze round-trips');
+    const dmem = {};
+    const dstore = S.createProgressStore({ load: async k => dmem[k] || null, save: (k, v) => { dmem[k] = v; return true; } });
+    await dstore.load();
+    dstore.setLevels(ladder, {});
+    dstore.setDailyLevels(pool);
+    dstore.setClock(() => day(0));
+    check(dstore.dailyMaze().locked && !dstore.recordDailyClear(dstore.dailyMaze().lv.id, 99999, 0).accepted, 'the store refuses a locked daily');
+    for (const l of ladder.slice(0, 3)) dstore.recordClear(l.id, l.goldMs * 2, 0);
+    const dToday = dstore.dailyMaze();
+    check(!dToday.locked, 'three clears unlock it in the store');
+    check(!dstore.recordDailyClear('d5_12', 99999, 0).accepted || dToday.lv.id === 'd5_12', 'only today\'s maze counts');
+    const xp0 = dstore.get().xp;
+    const dres = dstore.recordDailyClear(dToday.lv.id, dToday.lv.goldMs * 2, 0);
+    check(dres.accepted && dres.xp === C.XP.dailyMaze && dstore.get().xp === xp0 + C.XP.dailyMaze && Array.isArray(dres.missionsDone), `a daily clear earns ${C.XP.dailyMaze} XP and counts for missions`);
 
     // 7. save round-trip
     const saved = S.parseProgress(JSON.stringify(c3.progress));

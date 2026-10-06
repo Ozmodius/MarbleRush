@@ -195,6 +195,12 @@ export const MISSIONS_PER_DAY = 3;
 // Paid with the claim that completes the day's set.
 export const MISSIONS_BONUS = 100;
 
+// The daily maze (daily.js, dailyLevels.json): one verified maze a day from
+// the worlds the player has reached, open once `unlockAfter` ladder levels
+// are cleared. The day's first clear pays `reward` plus the coins taken; the
+// day's first gold adds `goldBonus`. Replays chase the day's best time.
+export const DAILY_MAZE = { unlockAfter: 3, reward: 150, goldBonus: 100 };
+
 // The ball a player will roll: their marble plus their upgrades. One function
 // so the profile page's stat bars and buildWorld() can never disagree.
 export function ballSetup(marbleId, upgrades = {}) {

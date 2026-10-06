@@ -54,6 +54,7 @@ import { setGameplayActive, features, showMidgameAd, showRewardedAd, adsAvailabl
 // Relative for the same reason as main.js's copy.json fetch: the CrazyGames
 // bundle is not served from '/'.
 const LEVELS_URL = 'mazeLevels.json';
+const DAILY_URL = 'dailyLevels.json';   // the daily maze pool (daily.js)
 
 // Physics tuning. Gravity is the vector's LENGTH; mazeTilt.tiltToGravity
 // rotates it off vertical and preserves this magnitude at every tilt.
@@ -1145,7 +1146,11 @@ function win() {
     // the ladder, the time floor, and first-time-only pay. Coins bank only
     // here, on a clear -- a run that falls is worth nothing, which is what
     // makes a coin down a risky branch a choice.
-    const result = store ? store.recordClear(level.id, ms, pickupState ? pickupState.coins : 0) : null;
+    // The daily maze is off the ladder and pays by its own rules.
+    const coinsTaken = pickupState ? pickupState.coins : 0;
+    const result = !store ? null
+        : isDaily(level) ? store.recordDailyClear(level.id, ms, coinsTaken)
+        : store.recordClear(level.id, ms, coinsTaken);
     // Level gravity back to straight down. Tilt is only sampled while the phase
     // is 'running', so without this the world keeps the exact lean the player
     // happened to be holding at the moment they won, and the ball wanders back
@@ -1171,7 +1176,7 @@ function win() {
     showEl('mazeLevelsBtn', true);
     // NEXT MAZE only exists when there IS one. On the final level the panel
     // collapses to EXIT, rather than offering a button that would do nothing.
-    showEl('mazeNextBtn', !!nextLevelAfter(level));
+    showEl('mazeNextBtn', !isDaily(level) && !!nextLevelAfter(level));
 }
 
 // THE NEAR MISS: after a clear that left a medal on the table, say which and
@@ -1289,6 +1294,10 @@ export function useRunCharge(kind) {
 // the level list shows is read from it; nothing here keeps a second copy.
 let store = null;
 let allLevels = [];
+// The daily maze pool: playable one a day, off the ladder. Empty if it failed
+// to load -- the daily maze is then simply not offered.
+let dailyLevels = [];
+const isDaily = lv => !!lv && dailyLevels.includes(lv);
 let payouts = { goldBonusPct: 0, byWorld: {} };
 function progressNow() { return store ? store.get() : { cleared: {}, goldClaimed: [], highestIndex: 0, wallet: 0, prizes: [] }; }
 
@@ -1464,13 +1473,22 @@ export function setMenuHandler(fn) { menuHandler = fn; }
 export function showMenus(tab) { enterMenus(tab); }
 export function playLevel(id) { startLevel(id || (nextLevel() && nextLevel().id)); }
 
+// Today's daily maze (daily.js picks it). False when it is locked or there is
+// no pool.
+export function playDaily() {
+    const d = store && store.dailyMaze ? store.dailyMaze() : null;
+    if (!d || !d.lv || d.locked) return false;
+    startLevel(d.lv.id);
+    return !!level && level.id === d.lv.id;
+}
+
 function showLevelSelect() { enterMenus('worlds'); }
 
 // Build and enter one level. Everything from the previous level is disposed
 // first -- levels are rebuilt per run, unlike the game board which is built
 // once for the page's lifetime.
 function startLevel(levelId) {
-    const lv = allLevels.find(l => l.id === levelId);
+    const lv = allLevels.find(l => l.id === levelId) || dailyLevels.find(l => l.id === levelId);
     if (!lv || !scene) return;
     teardownLevel();
 
@@ -1549,7 +1567,7 @@ function teardownLevel() {
 }
 
 function nextLevelAfter(lv) {
-    if (!lv) return null;
+    if (!lv || isDaily(lv)) return null;
     return allLevels.find(l => l.index === lv.index + 1) || null;
 }
 
@@ -1648,6 +1666,10 @@ window.__mazeDebug = {
     // It grants nothing: the progress store refuses a clear of any level more
     // than one step past the furthest cleared, whichever level was built, so
     // the worst this does is let someone look at a level early.
+    playDaily: () => playDaily(),
+    dailyMaze: () => (store && store.dailyMaze ? store.dailyMaze() : null),
+    // Move the progress store's clock by days (the daily rules read it).
+    shiftDays: (n) => { if (store && store.setClock) { const off = n * 86400000; store.setClock(() => Date.now() + off); } return true; },
     startLevelForTest: (levelId) => {
         const lv = allLevels.find(l => l.id === levelId);
         if (!active || !lv) return false;
@@ -1758,6 +1780,11 @@ export async function enterMaze(progressStore) {
     if (!allLevels.length) return false;
     payouts = (data.payouts && typeof data.payouts === 'object') ? data.payouts : { goldBonusPct: 0, byWorld: {} };
     if (store && store.setLevels) store.setLevels(allLevels, payouts);
+    try {
+        const r = await fetch(DAILY_URL);
+        dailyLevels = r.ok ? ((await r.json()).levels || []) : [];
+    } catch (_) { dailyLevels = []; }
+    if (store && store.setDailyLevels) store.setDailyLevels(dailyLevels);
 
     active = true;
     phase = 'idle';
