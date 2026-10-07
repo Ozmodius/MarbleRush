@@ -168,8 +168,11 @@ async function frameTo(dbg, file, type = 'image/jpeg') {
 function makePilot(route, speed = 1.7) {
     // Pure pursuit: aim at a point LOOKAHEAD along the route past the ball's
     // place on it, so corners are taken as smooth curves, not snapped to.
-    const LOOKAHEAD = 0.9;
-    let seg = 0;
+    // Short enough that the aim point is never round a corner behind a wall
+    // (a longer one pinned the ball into corners). If the ball stalls anyway,
+    // aim right back onto the route for a moment.
+    const LOOKAHEAD = 0.5;
+    let seg = 0, slow = 0, recover = 0;
     const along = (p) => {
         let best = { d: Infinity, i: seg, t: 0 };
         for (let i = seg; i < Math.min(route.length - 1, seg + 4); i++) {
@@ -195,7 +198,11 @@ function makePilot(route, speed = 1.7) {
     };
     return async (dbg, pos, vel) => {
         const pr = along(pos);
-        const t = ahead(pr.i, pr.t, LOOKAHEAD);
+        const sp0 = Math.hypot(vel.x, vel.z);
+        slow = sp0 < 0.3 ? slow + 1 : 0;
+        if (slow > 8) { recover = 20; slow = 0; }
+        if (recover > 0) recover--;
+        const t = ahead(pr.i, pr.t, recover > 0 ? 0.12 : LOOKAHEAD);
         const goal = route[route.length - 1];
         const toGoal = Math.hypot(goal.x - pos.x, goal.z - pos.z);
         const dx = t.x - pos.x, dz = t.z - pos.z, d = Math.hypot(dx, dz) || 1;
@@ -220,7 +227,7 @@ async function runLevel(page, dbg, id, seconds, shoot, { blend = 0.12 } = {}) {
     const pilot = makePilot(route);
     let pos = await dbg('advanceFrames', 1, DT), last = pos, vel = { x: 0, z: 0 };
     const frames = Math.round(seconds * FPS);
-    let i = 0, wonAt = -1;
+    let i = 0, wonAt = -1, stalled = 0;
     for (; i < frames; i++) {
         const ph = await dbg('phase');
         if (ph === 'won' && wonAt < 0) wonAt = i;
@@ -236,11 +243,12 @@ async function runLevel(page, dbg, id, seconds, shoot, { blend = 0.12 } = {}) {
             pos = await dbg('advanceFrames', 1, DT);
         }
         vel = { x: (pos.x - last.x) / (DT / 1000), z: (pos.z - last.z) / (DT / 1000) };
+        if (ph === 'running' && Math.hypot(vel.x, vel.z) < 0.15) stalled++;
         last = pos;
         await shoot(i, { pos, vel, lv, phase: ph });
         if (wonAt >= 0 && i - wonAt > FPS * 1.2) { i++; break; }
     }
-    return { frames: i, lv, won: wonAt >= 0 };
+    return { frames: i, lv, won: wonAt >= 0, stalls: stalled };
 }
 
 // A follow camera square to the board (it never turns, so it never swings):
@@ -301,6 +309,8 @@ async function covers(browser, base) {
 
 // --- videos -------------------------------------------------------------------------
 async function video(browser, base, { name, width, height, cinematic }) {
+    // CAPTURE_TINY=1: render at a fifth of the size, to check motion quickly.
+    if (process.env.CAPTURE_TINY) { width = Math.round(width / 5); height = Math.round(height / 5); name += '-tiny'; }
     const dir = path.join(TMP, name);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
@@ -315,13 +325,13 @@ async function video(browser, base, { name, width, height, cinematic }) {
     ];
     for (const s of segs) {
         const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor(s) });
-        const chase = makeChaseCam(width > height ? { lv: LEVELS.find(l => l.id === s.level) } : { back: 1.4, up: 4.8, lv: LEVELS.find(l => l.id === s.level) });
+        const chase = makeChaseCam(width > height ? { lv: LEVELS.find(l => l.id === s.level) } : { back: 2.2, up: 6.6, lv: LEVELS.find(l => l.id === s.level) });
         if (!cinematic) await dbg('cameraOverride', null);
         const res = await runLevel(page, dbg, s.level, s.seconds * SCALE, async (i, st) => {
             if (cinematic) await dbg('cameraOverride', chase(st.pos));
             await put(dbg);
         });
-        console.log(`  ${s.level}: ${res.frames} frames${res.won ? ', won' : ''}`);
+        console.log(`  ${s.level}: ${res.frames} frames${res.won ? ', won' : ''}, stalls ${res.stalls || 0}`);
         await page.close();
     }
 
