@@ -163,23 +163,52 @@ async function frameTo(dbg, file, type = 'image/jpeg') {
 // Each frame: aim for the next waypoint at `speed`, tilt toward the velocity
 // error (the real tilt path, so the board leans), and blend the ball's velocity
 // a little toward the aim so the line holds through ice, fans and kicks.
-function makePilot(route, speed = 2.6) {
-    let k = 1;
+function makePilot(route, speed = 1.7) {
+    // Pure pursuit: aim at a point LOOKAHEAD along the route past the ball's
+    // place on it, so corners are taken as smooth curves, not snapped to.
+    const LOOKAHEAD = 0.9;
+    let seg = 0;
+    const along = (p) => {
+        let best = { d: Infinity, i: seg, t: 0 };
+        for (let i = seg; i < Math.min(route.length - 1, seg + 4); i++) {
+            const a = route[i], b = route[i + 1];
+            const ax = b.x - a.x, az = b.z - a.z, L2 = ax * ax + az * az || 1;
+            const t = Math.max(0, Math.min(1, ((p.x - a.x) * ax + (p.z - a.z) * az) / L2));
+            const d = Math.hypot(a.x + ax * t - p.x, a.z + az * t - p.z);
+            if (d < best.d) best = { d, i, t };
+        }
+        seg = best.i;
+        return best;
+    };
+    const ahead = (i, t, dist) => {
+        let a = route[i], b = route[i + 1];
+        let left = Math.hypot(b.x - a.x, b.z - a.z) * (1 - t);
+        let x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
+        while (dist > left && i < route.length - 2) {
+            dist -= left; i++; a = route[i]; b = route[i + 1];
+            x = a.x; z = a.z; left = Math.hypot(b.x - a.x, b.z - a.z);
+        }
+        const L = Math.hypot(b.x - x, b.z - z) || 1, k = Math.min(1, dist / L);
+        return { x: x + (b.x - x) * k, z: z + (b.z - z) * k };
+    };
     return async (dbg, pos, vel) => {
-        while (k < route.length - 1 && Math.hypot(route[k].x - pos.x, route[k].z - pos.z) < 0.35) k++;
-        const t = route[k];
+        const pr = along(pos);
+        const t = ahead(pr.i, pr.t, LOOKAHEAD);
+        const goal = route[route.length - 1];
+        const toGoal = Math.hypot(goal.x - pos.x, goal.z - pos.z);
         const dx = t.x - pos.x, dz = t.z - pos.z, d = Math.hypot(dx, dz) || 1;
-        const sp = k === route.length - 1 ? Math.min(speed, d * 2.5 + 0.6) : speed;
+        const sp = Math.min(speed, toGoal * 1.5 + 0.4);
         const vx = dx / d * sp, vz = dz / d * sp;
         const ex = vx - vel.x, ez = vz - vel.z;
-        const deg = v => Math.max(-27, Math.min(27, v * 9));
-        return { gamma: deg(ex), beta: deg(ez), aim: { x: vx, z: vz }, done: k >= route.length - 1 && d < 0.2 };
+        // Gentle tilt: a steady lean, not a twitch.
+        const deg = v => Math.max(-18, Math.min(18, v * 6));
+        return { gamma: deg(ex), beta: deg(ez), aim: { x: vx, z: vz }, done: toGoal < 0.2 };
     };
 }
 
 // Run a level for `seconds` (or until it is won), calling shoot(i, state) per
 // frame. Returns how many frames were written.
-async function runLevel(page, dbg, id, seconds, shoot, { blend = 0.18 } = {}) {
+async function runLevel(page, dbg, id, seconds, shoot, { blend = 0.12 } = {}) {
     const lv = LEVELS.find(l => l.id === id);
     const route = planRoute(lv);
     await dbg('startLevelForTest', id);
@@ -212,16 +241,14 @@ async function runLevel(page, dbg, id, seconds, shoot, { blend = 0.18 } = {}) {
     return { frames: i, lv, won: wonAt >= 0 };
 }
 
-// A chase camera: behind and above the ball, looking ahead along its way,
-// eased so it glides.
-function makeChaseCam({ back = 2.4, up = 2.6, ahead = 1.4 } = {}) {
-    let cam = null, dir = { x: 0, z: 1 };
-    return (pos, vel) => {
-        const sp = Math.hypot(vel.x, vel.z);
-        if (sp > 0.4) { const k = 0.06; dir = { x: dir.x + (vel.x / sp - dir.x) * k, z: dir.z + (vel.z / sp - dir.z) * k }; const n = Math.hypot(dir.x, dir.z) || 1; dir = { x: dir.x / n, z: dir.z / n }; }
-        const want = { px: pos.x - dir.x * back, py: pos.y + up, pz: pos.z - dir.z * back, lx: pos.x + dir.x * ahead, ly: pos.y, lz: pos.z + dir.z * ahead };
-        if (!cam) cam = want;
-        for (const key of Object.keys(want)) cam[key] += (want[key] - cam[key]) * 0.12;
+// A follow camera square to the board (it never turns, so it never swings):
+// south of the ball and above it, gliding after it with a long ease.
+function makeChaseCam({ back = 3.6, up = 5.2, ahead = 0.6 } = {}) {
+    let cam = null;
+    return (pos) => {
+        const want = { px: pos.x, py: up, pz: pos.z + back, lx: pos.x, ly: 0, lz: pos.z - ahead };
+        if (!cam) cam = { ...want };
+        for (const key of Object.keys(want)) cam[key] += (want[key] - cam[key]) * 0.06;
         return { ...cam };
     };
 }
@@ -275,48 +302,21 @@ async function video(browser, base, { name, width, height, cinematic }) {
     let n = 0;
     const put = async (dbg) => { await frameTo(dbg, path.join(dir, `f${String(n).padStart(5, '0')}.jpg`)); n++; };
 
-    // Every world's level 10: where its blend has fully arrived and all three
-    // of its traps are in play.
+    // Two worlds, long enough to follow: Toy Box and Foundry, level 10 (their
+    // looks fully arrived, every trap in play).
     const segs = [
-        { level: 'w4_10', seconds: 4.0, skin: 'galaxy', trail: 'rainbow' },
-        { level: 'w3_10', seconds: 3.5, skin: 'ember', trail: 'flame' },
-        { level: 'w2_10', seconds: 3.5, skin: 'stripe', trail: 'comet' },
-        { level: 'w5_10', seconds: 3.5, skin: 'eight', trail: 'gold' },
-        { level: 'w1_10', seconds: 3.0, skin: 'earth', trail: 'mint' }
+        { level: 'w4_10', seconds: 9.0, skin: 'galaxy', trail: 'rainbow' },
+        { level: 'w5_10', seconds: 9.0, skin: 'eight', trail: 'gold' }
     ];
     for (const s of segs) {
         const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor(s) });
-        const chase = makeChaseCam(width > height ? {} : { back: 1.6, up: 3.4, ahead: 1.0 });
+        const chase = makeChaseCam(width > height ? {} : { back: 2.6, up: 6.4, ahead: 0.4 });
         if (!cinematic) await dbg('cameraOverride', null);
         const res = await runLevel(page, dbg, s.level, s.seconds, async (i, st) => {
-            if (cinematic) await dbg('cameraOverride', chase(st.pos, st.vel));
+            if (cinematic) await dbg('cameraOverride', chase(st.pos));
             await put(dbg);
         });
         console.log(`  ${s.level}: ${res.frames} frames${res.won ? ', won' : ''}`);
-        await page.close();
-    }
-
-    // First person: walk the forest-blended workshop toward the exit.
-    {
-        const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor() });
-        const lv = LEVELS.find(l => l.id === 'w1_10');
-        const route = planRoute(lv);
-        await dbg('walkLevel', lv.id);
-        await page.evaluate(() => document.getElementById('mazeStartBtn').click());
-        for (let k = 0; k < 40 && (await dbg('phase')) !== 'running'; k++) await page.clock.runFor(50);
-        let k = 1;
-        for (let i = 0; i < FPS * 3; i++) {
-            const w = await dbg('walk');
-            const p = { x: w.eye.x, z: w.eye.z };
-            while (k < route.length - 1 && Math.hypot(route[k].x - p.x, route[k].z - p.z) < 0.4) k++;
-            const t = route[k];
-            const want = Math.atan2(-(t.x - p.x), -(t.z - p.z));
-            let d = want - w.yaw; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
-            await dbg('walkTurn', d * 0.12);
-            await dbg('walkMove', Math.abs(d) < 0.9 ? { fwd: 1 } : null);
-            await dbg('advanceFrames', 1, DT);
-            await put(dbg);
-        }
         await page.close();
     }
 
