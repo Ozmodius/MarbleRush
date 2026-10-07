@@ -211,13 +211,13 @@ function makePilot(route, speed = 1.7) {
         const ex = vx - vel.x, ez = vz - vel.z;
         // Gentle tilt: a steady lean, not a twitch.
         const deg = v => Math.max(-18, Math.min(18, v * 6));
-        return { gamma: deg(ex), beta: deg(ez), aim: { x: vx, z: vz }, done: toGoal < 0.2 };
+        return { gamma: deg(ex), beta: deg(ez), aim: { x: vx, z: vz }, done: toGoal < 0.2, recovering: recover > 0 };
     };
 }
 
 // Run a level for `seconds` (or until it is won), calling shoot(i, state) per
 // frame. Returns how many frames were written.
-async function runLevel(page, dbg, id, seconds, shoot, { blend = 0.12 } = {}) {
+async function runLevel(page, dbg, id, seconds, shoot, { blend = 0.25 } = {}) {
     const lv = LEVELS.find(l => l.id === id);
     const route = planRoute(lv);
     await dbg('startLevelForTest', id);
@@ -238,7 +238,9 @@ async function runLevel(page, dbg, id, seconds, shoot, { blend = 0.12 } = {}) {
                 const d = window.__mazeDebug;
                 // blend toward the aim (no-op once the run has ended)
                 return d.setBallVelocityBlend ? d.setBallVelocityBlend(a.x, a.z, b) : null;
-            }, [cmd.aim, blend]);
+            // Hold the line firmly against arms, magnets and kicks, and push
+            // through harder while recovering from a stall.
+            }, [cmd.aim, cmd.recovering ? 0.6 : blend]);
         } else {
             pos = await dbg('advanceFrames', 1, DT);
         }
@@ -315,7 +317,9 @@ async function video(browser, base, { name, width, height, cinematic }) {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
     let n = 0;
-    const put = async (dbg) => { await frameTo(dbg, path.join(dir, `f${String(n).padStart(5, '0')}.jpg`)); n++; };
+    // CAPTURE_DRY=1: run the simulation at full size but write no frames --
+    // a quick check that the autopilot gets through (the log counts stalls).
+    const put = async (dbg) => { if (!process.env.CAPTURE_DRY) await frameTo(dbg, path.join(dir, `f${String(n).padStart(5, '0')}.jpg`)); n++; };
 
     // Two worlds, long enough to follow: Toy Box and Foundry, level 10 (their
     // looks fully arrived, every trap in play).
@@ -353,6 +357,7 @@ async function video(browser, base, { name, width, height, cinematic }) {
         for (let i = 0; i < FPS * 2.2; i++) { fs.copyFileSync(card, path.join(dir, `f${String(n).padStart(5, '0')}.jpg`)); n++; }
     }
 
+    if (process.env.CAPTURE_DRY) { console.log('dry run: no video written'); return; }
     const out = path.join(OUT, `${name}.mp4`);
     execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', path.join(dir, 'f%05d.jpg'),
         '-vf', `scale=${width}:${height}:flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '24', '-maxrate', '6M', '-bufsize', '12M',
