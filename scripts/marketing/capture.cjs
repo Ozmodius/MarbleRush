@@ -129,6 +129,9 @@ async function openGame(browser, base, { width, height, save }) {
     for (let k = 0; k < 600 && !(await page.isVisible('#homeView')); k++) await page.clock.runFor(50);
     await page.clock.runFor(200);
     const dbg = (fn, ...a) => page.evaluate(([f, x]) => window.__mazeDebug[f](...x), [fn, a]);
+    // The autopilot plans round walls, holes and posts but cannot time a
+    // flare, icicle, crusher or rail, so captures are not ended by one.
+    await dbg('captureNoKnockOut', true);
     return { page, dbg };
 }
 
@@ -257,9 +260,9 @@ async function covers(browser, base) {
     void lv;
     const only = process.argv[3];
     const jobs = [
-        { name: 'cover-landscape-1920x1080', width: 1920, height: 1080, level: 'w4_08', skin: 'galaxy', trail: 'rainbow', at: 3.4, cam: raking(2.6, 4.2, 1.6), logo: 'left' },
-        { name: 'cover-portrait-800x1200', width: 800, height: 1200, level: 'w3_02', skin: 'ember', trail: 'flame', at: 3.0, cam: raking(1.6, 5.0, 0.5), logo: 'top' },
-        { name: 'cover-square-800x800', width: 800, height: 800, level: 'w4_08', skin: 'galaxy', trail: 'rainbow', at: 3.4, cam: raking(2.2, 4.4, 1.0), logo: 'top' }
+        { name: 'cover-landscape-1920x1080', width: 1920, height: 1080, level: 'w4_10', skin: 'galaxy', trail: 'rainbow', at: 3.4, cam: raking(2.6, 4.2, 1.6), logo: 'left' },
+        { name: 'cover-portrait-800x1200', width: 800, height: 1200, level: 'w3_10', skin: 'ember', trail: 'flame', at: 3.0, cam: raking(1.6, 5.0, 0.5), logo: 'top' },
+        { name: 'cover-square-800x800', width: 800, height: 800, level: 'w1_10', skin: 'stripe', trail: 'comet', at: 3.4, cam: raking(2.2, 4.4, 1.0), logo: 'top' }
     ];
     for (const j of jobs) if (!only || j.name.includes(only)) await cover(browser, base, j);
 }
@@ -272,10 +275,14 @@ async function video(browser, base, { name, width, height, cinematic }) {
     let n = 0;
     const put = async (dbg) => { await frameTo(dbg, path.join(dir, `f${String(n).padStart(5, '0')}.jpg`)); n++; };
 
+    // Every world's level 10: where its blend has fully arrived and all three
+    // of its traps are in play.
     const segs = [
-        { level: 'w4_02', seconds: 6.0, skin: 'galaxy', trail: 'rainbow' },
-        { level: 'w3_02', seconds: 5.5, skin: 'ember', trail: 'flame' },
-        { level: 'w2_02', seconds: 4.5, skin: 'stripe', trail: 'comet' }
+        { level: 'w4_10', seconds: 4.0, skin: 'galaxy', trail: 'rainbow' },
+        { level: 'w3_10', seconds: 3.5, skin: 'ember', trail: 'flame' },
+        { level: 'w2_10', seconds: 3.5, skin: 'stripe', trail: 'comet' },
+        { level: 'w5_10', seconds: 3.5, skin: 'eight', trail: 'gold' },
+        { level: 'w1_10', seconds: 3.0, skin: 'earth', trail: 'mint' }
     ];
     for (const s of segs) {
         const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor(s) });
@@ -292,13 +299,13 @@ async function video(browser, base, { name, width, height, cinematic }) {
     // First person: walk the forest-blended workshop toward the exit.
     {
         const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor() });
-        const lv = LEVELS.find(l => l.id === 'w1_03');
+        const lv = LEVELS.find(l => l.id === 'w1_10');
         const route = planRoute(lv);
         await dbg('walkLevel', lv.id);
         await page.evaluate(() => document.getElementById('mazeStartBtn').click());
         for (let k = 0; k < 40 && (await dbg('phase')) !== 'running'; k++) await page.clock.runFor(50);
         let k = 1;
-        for (let i = 0; i < FPS * 4; i++) {
+        for (let i = 0; i < FPS * 3; i++) {
             const w = await dbg('walk');
             const p = { x: w.eye.x, z: w.eye.z };
             while (k < route.length - 1 && Math.hypot(route[k].x - p.x, route[k].z - p.z) < 0.4) k++;

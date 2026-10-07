@@ -1173,6 +1173,7 @@ function checkOutcomes() {
 // instead of the run: the ball is put back, stopped, on the last safe spot it
 // rolled over (mazePickups.js). Otherwise it falls.
 function knockOut(message) {
+    if (captureNoKnockOut) return;   // marketing captures only (scripts/marketing/)
     const back = absorbFall(pickupState);
     if (back) {
         // A bought shield is spent from the purchase, so a restart does not
@@ -1744,6 +1745,9 @@ function nextLevelAfter(lv) {
 // Marketing captures only (scripts/marketing/): a camera placed by hand, for
 // cover art and trailer shots the game's own cameras never take. Null in play.
 let cameraOverride = null;
+// Marketing captures only: the autopilot cannot time traps, so a capture run
+// is not ended by one. Never set in play.
+let captureNoKnockOut = false;
 
 const exclusive = {
     isActive: () => active,
@@ -1908,6 +1912,7 @@ window.__mazeDebug = {
     // The 3D view as a PNG data URL, rendered now: for screenshots taken under
     // a test clock, when no browser frame may come.
     // { px, py, pz, lx, ly, lz } puts the camera there, null gives it back.
+    captureNoKnockOut: (on) => { captureNoKnockOut = !!on; return captureNoKnockOut; },
     cameraOverride: (c) => {
         cameraOverride = c ? { pos: new THREE.Vector3(c.px, c.py, c.pz), lookAt: new THREE.Vector3(c.lx, c.ly, c.lz) } : null;
         requestRender();

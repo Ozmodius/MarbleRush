@@ -7,10 +7,10 @@ change so the listing never drifts from what players get.
 | File | Use |
 | --- | --- |
 | `../dist/planetilt-crazygames.zip` | The game upload. Built by `npm run build:crazygames`: flat (no folders), `index.html` at the root, CrazyGames SDK v3. Not committed (dist/ is build output). |
-| `cover-landscape-1920x1080.png` | Landscape cover (16:9) |
-| `cover-portrait-800x1200.png` | Portrait cover (2:3) |
-| `cover-square-800x800.png` | Square cover (1:1) |
-| `video-landscape-1920x1080.mp4` | Landscape gameplay video: three worlds with a chase camera, a first-person walk, then the logo |
+| `cover-landscape-1920x1080.png` | Landscape cover (16:9): Toy Box, level 10 |
+| `cover-portrait-800x1200.png` | Portrait cover (2:3): Magma Works, level 10 |
+| `cover-square-800x800.png` | Square cover (1:1): the Workshop grown to forest, level 10 |
+| `video-landscape-1920x1080.mp4` | Landscape gameplay video: level 10 of all five worlds with a chase camera, a first-person walk, then the logo |
 | `video-portrait-1080x1920.mp4` | Portrait gameplay video: the same runs from the game's own overhead camera |
 
 Sizes follow CrazyGames' usual asks (covers 1920×1080, 800×1200, 800×800;
@@ -29,10 +29,13 @@ node scripts/marketing/capture.cjs route w4_08       # check a level's autopilot
 npm run build:crazygames                             # the zip
 ```
 
-The game runs on a frozen clock and is stepped one 30 fps frame at a time, so
+Every shot uses a world's level 10, where its look has fully arrived and all
+three of its traps are in play. The game runs on a frozen clock and is stepped one 30 fps frame at a time, so
 the videos are smooth however slowly the machine renders. An autopilot follows
 a planned route by tilting (the board leans as it would in a player's hands);
-the cinematic shots use a debug-only camera override (`__mazeDebug.cameraOverride`).
+the cinematic shots use a debug-only camera override (`__mazeDebug.cameraOverride`),
+and `__mazeDebug.captureNoKnockOut` stops a trap the autopilot cannot time
+from ending a capture run. Both are debug-surface only, never set in play.
 
 ## Suggested listing text
 
