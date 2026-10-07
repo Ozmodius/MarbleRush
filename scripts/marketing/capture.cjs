@@ -366,7 +366,7 @@ async function video(browser, base, { name, width, height, cinematic }) {
     try {
         if (what === 'covers') await covers(browser, base);
         if (what === 'video' || what === 'video-landscape') await video(browser, base, { name: 'video-landscape-1920x1080', width: 1920, height: 1080, cinematic: true });
-        if (what === 'video' || what === 'video-portrait') await video(browser, base, { name: 'video-portrait-1080x1920', width: 1080, height: 1920, cinematic: false });
+        if (what === 'video' || what === 'video-portrait') await video(browser, base, { name: 'video-portrait-1080x1920', width: 1080, height: 1920, cinematic: true });
     } finally {
         await browser.close();
         server.close();
