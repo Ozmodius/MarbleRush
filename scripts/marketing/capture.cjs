@@ -331,15 +331,16 @@ async function video(browser, base, { name, width, height, cinematic }) {
         const p2 = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
         await p2.goto(`${base}scripts/marketing/cover.html?bg=/__tmp/${path.basename(bg)}&logo=center&tag=1&w=${width}&h=${height}`);
         await p2.waitForTimeout(400);
-        const card = path.join(dir, 'endcard.png');
-        await p2.screenshot({ path: card });
+        // JPEG, like every other frame: the encoder reads the sequence as JPEG.
+        const card = path.join(dir, 'endcard.jpg');
+        await p2.screenshot({ path: card, type: 'jpeg', quality: 93 });
         await p2.close();
         for (let i = 0; i < FPS * 2.2; i++) { fs.copyFileSync(card, path.join(dir, `f${String(n).padStart(5, '0')}.jpg`)); n++; }
     }
 
     const out = path.join(OUT, `${name}.mp4`);
     execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', path.join(dir, 'f%05d.jpg'),
-        '-vf', `scale=${width}:${height}:flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '20',
+        '-vf', `scale=${width}:${height}:flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '24', '-maxrate', '6M', '-bufsize', '12M',
         '-movflags', '+faststart', '-an', out]);
     console.log('wrote', `marketing/${name}.mp4`, `(${(n / FPS).toFixed(1)}s, ${(fs.statSync(out).size / 1e6).toFixed(1)} MB)`);
 }
