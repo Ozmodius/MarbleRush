@@ -4,6 +4,8 @@
 //   2. Walking out-pulls every trap: the walker's acceleration beats the
 //      strongest push a trap is allowed (half of full tilt), so it can always
 //      walk against one -- the soundness argument the traps were built on.
+//      Every marble and upgrade keeps that, on ice too, and none walks
+//      faster: they change how hard it drives and stops, never top speed.
 //   3. The walker is the ball: no walk setting touches the ball's radius.
 //   4. Walks are paid once (half the first-clear pay + coins, then the gold
 //      bonus), only for levels already rolled, never under minMs; medals use
@@ -11,7 +13,8 @@
 //   5. Explorer kit is bought once; comfort settings stay in range; all of it
 //      round-trips.
 //
-// Negative control: drop WALK.accel below the half-tilt push and 2 fails.
+// Negative control: drop WALK.accel below the half-tilt push and 2 fails;
+// drop HANDLING.minDrive to 8 and the weakest-drive check fails.
 
 const failures = [];
 const check = (c, m) => { if (!c) failures.push(m); };
@@ -50,6 +53,50 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
     check(v.z < -C.WALK.speed * 0.5, `walking into the strongest push still moves forward (vz ${v.z.toFixed(2)})`);
     const imp = W.walkImpulse({ x: 0, z: 0 }, { x: 100, z: 0 }, 0.1);
     check(near(Math.hypot(imp.x, imp.z), C.WALK.accel * 0.1, 1e-9), 'one step never changes velocity by more than accel x dt');
+    // 2b. The marble's handling (walkHandling): every marble and every upgrade
+    // still out-pulls the strongest trap -- on ice too -- and none walks
+    // faster. Classic drives at the tuned WALK.accel.
+    const H = W.walkHandling, MAXPUSH = tiltAccel / 2;
+    check(H(C.ballSetup('classic', {})).drive === C.WALK.accel && H(null).drive === C.WALK.accel,
+        'Classic drives exactly as Explore was tuned');
+    // Brakes: Classic coasts about half a second from walking pace; the Air
+    // Brake and Steel cut that a lot -- top tiers stop in under a tenth.
+    const stopS = h => C.WALK.speed / h.brake;
+    check(Math.abs(stopS(H(C.ballSetup('classic'))) - 0.5) < 0.01, `Classic coasts ${stopS(H(C.ballSetup('classic'))).toFixed(2)}s when let go`);
+    check(stopS(H(C.ballSetup('classic', { brakes: 1 }))) < 0.2, `Air Brake 1 stops in ${stopS(H(C.ballSetup('classic', { brakes: 1 }))).toFixed(2)}s`);
+    check(stopS(H(C.ballSetup('classic', { brakes: 3 }))) < 0.08 && stopS(H(C.ballSetup('steel', { brakes: 3 }))) <= C.WALK.speed / W.HANDLING.maxBrake + 1e-9,
+        'Air Brake 3 stops nearly dead, Steel with it at the cap');
+    const tiers = [0, 1, 2, 3].map(b => H(C.ballSetup('classic', { brakes: b })).brake);
+    check(tiers.every((x, i) => i === 0 || x > tiers[i - 1]), `every Air Brake tier stops harder: ${tiers.map(x => x.toFixed(1)).join(' < ')}`);
+    let weakest = Infinity;
+    for (const id of C.MARBLE_IDS) for (let g = 0; g <= 3; g++) for (let b = 0; b <= 3; b++) {
+        const h = H(C.ballSetup(id, { grip: g, brakes: b }));
+        for (const ice of [false, true]) weakest = Math.min(weakest, W.handlingAccel(h, { x: 1, z: 0 }, ice));
+        check(h.drive <= W.HANDLING.maxDrive && h.brake <= W.HANDLING.maxBrake, `${id} g${g} b${b}: handling stays in range`);
+    }
+    check(weakest > 2 * MAXPUSH, `the weakest drive anywhere (${weakest.toFixed(1)}) still beats twice the strongest trap push (${(2 * MAXPUSH).toFixed(2)})`);
+    // Top speed is the same for every marble: drive only says how fast it gets there.
+    for (const id of C.MARBLE_IDS) {
+        const h = H(C.ballSetup(id, { grip: 3, brakes: 3 }));
+        let u = { x: 0, z: 0 };
+        for (let i = 0; i < 600; i++) { const want = W.wantedVelocity({ fwd: 1, strafe: 0 }, 0); const st = W.walkImpulse(u, want, 1 / 120, W.handlingAccel(h, want, false)); u = { x: u.x + st.x, z: u.z + st.z }; }
+        check(Math.hypot(u.x, u.z) <= C.WALK.speed + 1e-9, `${id} with every upgrade tops out at walking pace (${Math.hypot(u.x, u.z).toFixed(3)})`);
+    }
+    const drive = (id, up = {}) => H(C.ballSetup(id, up)).drive, brake = (id, up = {}) => H(C.ballSetup(id, up)).brake;
+    check(drive('rubber') > drive('classic') && drive('classic', { grip: 2 }) > drive('classic') && drive('classic', { grip: 3 }) > drive('classic', { grip: 1 }),
+        'Rubber and the Grip upgrade drive harder (tighter turns)');
+    check(brake('steel') > brake('classic') && brake('classic', { brakes: 1 }) > brake('classic') && brake('steel', { brakes: 3 }) > brake('steel'),
+        'Steel and the Air Brake stop sooner');
+    check(H(C.ballSetup('glass')).response > 1 && H(C.ballSetup('steel')).response < 1, 'Glass answers a shorter stick drag, Steel a longer one');
+    const hc = H(C.ballSetup('classic'));
+    check(W.handlingAccel(hc, { x: 0, z: 0 }, true) < W.handlingAccel(hc, { x: 0, z: 0 }, false) / 3, 'on ice, letting go slides on, further than Classic coasts');
+    check(W.handlingAccel(H(C.ballSetup('steel', { brakes: 3 })), { x: 0, z: 0 }, true) === W.HANDLING.iceBrake, 'and no brake bites on ice');
+    check(W.handlingAccel(H(C.ballSetup('rubber', { grip: 3 })), { x: 1, z: 0 }, true) === W.HANDLING.minDrive, 'on ice no marble grips better than any other');
+    // The stick: a Glass marble reaches full speed with a shorter drag.
+    const inp = W.createWalkInput({ active: () => false });
+    const half = inp.stickMove(40, 0).strafe;
+    inp.setResponse(1.35);
+    check(inp.stickMove(40, 0).strafe > half && inp.stickMove(500, 0).strafe === 1, 'response shortens the drag for full speed, never past full');
     check(W.clampPitch(5) === W.PITCH_MAX && W.clampPitch(-5) === -W.PITCH_MAX, 'pitch is clamped');
     const lp = W.lookPoint({ x: 1, y: 0.4, z: 2 }, 0, 0);
     check(near(lp.x, 1) && near(lp.y, 0.4) && near(lp.z, 1), 'looking level at yaw 0 looks one unit up the board');

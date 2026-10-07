@@ -143,6 +143,20 @@ Phase 2 as built (2026-10-06), on Oz's call to go ahead before Basic Launch:
   -- CrazyGames' dashboard or an analytics call would be the way to judge it.
 
 Phase 3 as built (2026-10-06), on Oz's call and choices:
+- *Named EXPLORE for players* (2026-10-07; it was WALK): EXPLORE IT after a
+  clear, a ROLL | EXPLORE switch, "Explore ·" in the HUD. Code, the save
+  field (`walks`) and leaderboard keys (`walk:`) keep the old name, so no
+  save or board is reset.
+- *The marble handles the same in Explore* (2026-10-07): grip and the Grip
+  upgrade set how hard it drives (quicker off the mark, tighter turns),
+  damping and the Air Brake how hard it stops when let go (Classic coasts
+  about half a second; Air Brake 3 or Steel stop nearly dead), response how
+  short a stick drag reaches full speed. Top speed is the same for every
+  marble, and the weakest drive anywhere -- ice included -- still beats
+  twice the strongest trap push (`walkHandling`, test_walk.js). On ice every
+  marble drives at that floor and slides on when let go; Rubber Coat makes
+  ice grip like floor. Power Time, Coin Reach, power-ups and world prizes
+  already applied (they run through the same pickups and hazards).
 - *Which mazes*: the 50 ladder levels, each walkable once rolled (a WALK IT
   button after a clear, and a ROLL | WALK switch on the worlds sheet).
 - *The walker is the ball's body* (walkMode.js): the same radius, so every

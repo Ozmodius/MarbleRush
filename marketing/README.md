@@ -10,7 +10,7 @@ change so the listing never drifts from what players get.
 | `cover-landscape-1920x1080.png` | Landscape cover (16:9): Toy Box, level 10 |
 | `cover-portrait-800x1200.png` | Portrait cover (2:3): Magma Works, level 10 |
 | `cover-square-800x800.png` | Square cover (1:1): the Workshop grown to forest, level 10 |
-| `video-landscape-1920x1080.mp4` | Landscape gameplay video: level 10 of all five worlds with a chase camera, a first-person walk, then the logo |
+| `video-landscape-1920x1080.mp4` | Landscape gameplay video: level 10 of all five worlds with a chase camera, an Explore run inside the maze, then the logo |
 | `video-portrait-1080x1920.mp4` | Portrait gameplay video: the same runs from the game's own overhead camera |
 
 Sizes follow CrazyGames' usual asks (covers 1920×1080, 800×1200, 800×800;
@@ -42,15 +42,15 @@ from ending a capture run. Both are debug-surface only, never set in play.
 **Title:** PlaneTilt
 
 **Short description:** Tilt the board, roll the marble, escape the maze. 50
-hand-checked levels across five worlds — then walk them in first person.
+hand-checked levels across five worlds — then explore them from the inside.
 
 **Description:** Tilt your phone (or use the arrow keys) to roll a marble
 through 50 mazes across five worlds: a workshop that grows into a forest, a
 glacier, a lava foundry, a toy box and a steel works. Every world brings new
 traps — sliding gates, ice, wind, lava flares, bumpers, crushers — and a prize
 that helps in the next. Chase gold times, collect coins, unlock marbles,
-skins and trails, take on the daily maze, and once a level is beaten, walk it
-yourself in first person.
+skins and trails, take on the daily maze, and once a level is beaten, explore it
+from inside the maze.
 
-**Controls:** Tilt the device; or arrow keys / WASD / drag. Walk mode: left
+**Controls:** Tilt the device; or arrow keys / WASD / drag. Explore mode: left
 side to move, right side to look (or WASD + mouse).

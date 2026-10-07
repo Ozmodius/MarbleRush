@@ -52,7 +52,7 @@ async function claim(e) {
 async function openBoard(info) {
     const panel = $('boardPanel'), list = $('boardList');
     $('boardTitle').textContent = info.daily ? 'DAILY MAZE' : 'LEADERBOARD';
-    $('boardNote').textContent = (info.levelName || '') + (info.walk ? ' — WALKED' : '');
+    $('boardNote').textContent = (info.levelName || '') + (info.walk ? ' — EXPLORED' : '');
     list.textContent = '';
     $('boardYou').textContent = 'Loading…';
     panel.hidden = false;
