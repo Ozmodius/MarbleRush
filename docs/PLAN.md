@@ -149,7 +149,8 @@ Phase 3 as built (2026-10-06), on Oz's call and choices:
   save or board is reset.
 - *The marble handles the same in Explore* (2026-10-07): grip and the Grip
   upgrade set how hard it drives (quicker off the mark, tighter turns),
-  damping and the Air Brake how hard it stops when let go, response how
+  damping and the Air Brake how hard it stops when let go (Classic coasts
+  about half a second; Air Brake 3 or Steel stop nearly dead), response how
   short a stick drag reaches full speed. Top speed is the same for every
   marble, and the weakest drive anywhere -- ice included -- still beats
   twice the strongest trap push (`walkHandling`, test_walk.js). On ice every

@@ -57,8 +57,17 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
     // still out-pulls the strongest trap -- on ice too -- and none walks
     // faster. Classic drives at the tuned WALK.accel.
     const H = W.walkHandling, MAXPUSH = tiltAccel / 2;
-    check(H(C.ballSetup('classic', {})).drive === C.WALK.accel && H(C.ballSetup('classic', {})).brake === C.WALK.accel && H(null).drive === C.WALK.accel,
-        'Classic walks exactly as Explore was tuned');
+    check(H(C.ballSetup('classic', {})).drive === C.WALK.accel && H(null).drive === C.WALK.accel,
+        'Classic drives exactly as Explore was tuned');
+    // Brakes: Classic coasts about half a second from walking pace; the Air
+    // Brake and Steel cut that a lot -- top tiers stop in under a tenth.
+    const stopS = h => C.WALK.speed / h.brake;
+    check(Math.abs(stopS(H(C.ballSetup('classic'))) - 0.5) < 0.01, `Classic coasts ${stopS(H(C.ballSetup('classic'))).toFixed(2)}s when let go`);
+    check(stopS(H(C.ballSetup('classic', { brakes: 1 }))) < 0.2, `Air Brake 1 stops in ${stopS(H(C.ballSetup('classic', { brakes: 1 }))).toFixed(2)}s`);
+    check(stopS(H(C.ballSetup('classic', { brakes: 3 }))) < 0.08 && stopS(H(C.ballSetup('steel', { brakes: 3 }))) <= C.WALK.speed / W.HANDLING.maxBrake + 1e-9,
+        'Air Brake 3 stops nearly dead, Steel with it at the cap');
+    const tiers = [0, 1, 2, 3].map(b => H(C.ballSetup('classic', { brakes: b })).brake);
+    check(tiers.every((x, i) => i === 0 || x > tiers[i - 1]), `every Air Brake tier stops harder: ${tiers.map(x => x.toFixed(1)).join(' < ')}`);
     let weakest = Infinity;
     for (const id of C.MARBLE_IDS) for (let g = 0; g <= 3; g++) for (let b = 0; b <= 3; b++) {
         const h = H(C.ballSetup(id, { grip: g, brakes: b }));
@@ -80,7 +89,8 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
         'Steel and the Air Brake stop sooner');
     check(H(C.ballSetup('glass')).response > 1 && H(C.ballSetup('steel')).response < 1, 'Glass answers a shorter stick drag, Steel a longer one');
     const hc = H(C.ballSetup('classic'));
-    check(W.handlingAccel(hc, { x: 0, z: 0 }, true) < W.handlingAccel(hc, { x: 0, z: 0 }, false) / 4, 'on ice, letting go slides on');
+    check(W.handlingAccel(hc, { x: 0, z: 0 }, true) < W.handlingAccel(hc, { x: 0, z: 0 }, false) / 3, 'on ice, letting go slides on, further than Classic coasts');
+    check(W.handlingAccel(H(C.ballSetup('steel', { brakes: 3 })), { x: 0, z: 0 }, true) === W.HANDLING.iceBrake, 'and no brake bites on ice');
     check(W.handlingAccel(H(C.ballSetup('rubber', { grip: 3 })), { x: 1, z: 0 }, true) === W.HANDLING.minDrive, 'on ice no marble grips better than any other');
     // The stick: a Glass marble reaches full speed with a shorter drag.
     const inp = W.createWalkInput({ active: () => false });

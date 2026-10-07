@@ -659,8 +659,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await wp.waitForSelector('#mazeStartBtn', { state: 'visible' });
         let wk = await wdbg('walk');
         check(wk.on && wk.ballVisible && wk.fov === 75 && wk.compass && !wk.map, `walking: third person by default (marble shown), FOV 75, compass shown, map not owned: ${JSON.stringify(wk)}`);
-        check(wk.marble === 'classic' && wk.handling.drive === 12 && wk.handling.brake === 12 && Math.abs(wk.stick - 40 / 55) < 1e-9,
-            `Explore drives with the marble's own handling (Classic: the tuned 12, stick full at 55px): ${JSON.stringify({ m: wk.marble, h: wk.handling, s: wk.stick })}`);
+        check(wk.marble === 'classic' && wk.handling.drive === 12 && wk.handling.brake === 3.6 && Math.abs(wk.stick - 40 / 55) < 1e-9,
+            `Explore drives with the marble's own handling (Classic: drive 12, coasting brake 3.6, stick full at 55px): ${JSON.stringify({ m: wk.marble, h: wk.handling, s: wk.stick })}`);
         check(wk.eye.y > 0.55 && (await wp.textContent('#mazeViewBtn')).trim() === '3P', `the third-person camera rides above the wall tops (${wk.eye.y.toFixed(2)})`);
         check(await wp.isVisible('#walkStick') && await wp.isVisible('#walkPad'), 'on a touch screen the joystick and look pad are on screen');
         // 1P: through the marble's eyes, below the wall tops; saved.
