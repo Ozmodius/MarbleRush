@@ -13,7 +13,7 @@
 // input controller (touch joystick + drag-look, WASD/arrows + mouse-look).
 // mazeGame.js owns the run and asks it each frame what to do.
 
-import { WALK } from './shopCatalog.js';
+import { WALK, MARBLES } from './shopCatalog.js';
 
 export const EYE_ABOVE_CENTRE = 0.12;   // eye height over the body's centre (walls are 0.55 tall)
 export const PITCH_MAX = 0.9;           // radians: look most of the way down or up
@@ -48,6 +48,35 @@ export function walkImpulse(v, want, dt, accel = WALK.accel) {
     const max = accel * dt;
     if (d <= max || d === 0) return { x: dx, z: dz };
     return { x: dx / d * max, z: dz / d * max };
+}
+
+// HANDLING: the marble and its upgrades, carried into Explore. Each stat does
+// here what its blurb promises when rolling (shopCatalog.js), and none of it
+// touches top speed (WALK.speed, the same for every marble) or the radius:
+//   drive     how hard it pushes toward the speed asked for (grip + Grip
+//             upgrade): quicker off the mark, tighter turns. Classic is the
+//             tuned WALK.accel; never below minDrive, which beats twice the
+//             strongest trap push (test_walk.js), on ice too.
+//   brake     how hard it stops with nothing held (damping + Air Brake).
+//   response  stick sensitivity: full speed with a shorter drag (Glass).
+// On ice (no Rubber Coat) every marble drives at minDrive and barely brakes:
+// let go and it slides on, the way ice reads when rolling.
+export const HANDLING = { minDrive: 10, maxDrive: 18, maxBrake: 30, brakePerDamping: 100, iceBrake: 2 };
+export function walkHandling(spec) {
+    const base = MARBLES.classic.stats;
+    const grip = spec && Number.isFinite(spec.grip) ? spec.grip : base.grip;
+    const damping = spec && Number.isFinite(spec.damping) ? spec.damping : base.damping;
+    const response = spec && Number.isFinite(spec.response) ? spec.response : base.response;
+    const drive = Math.max(HANDLING.minDrive, Math.min(HANDLING.maxDrive, WALK.accel * grip / base.grip));
+    const brake = Math.max(HANDLING.minDrive, Math.min(HANDLING.maxBrake, WALK.accel + (damping - base.damping) * HANDLING.brakePerDamping));
+    return { drive, brake, iceDrive: HANDLING.minDrive, iceBrake: HANDLING.iceBrake, response };
+}
+// The acceleration for this step: driving while the player asks to move,
+// braking when they let go.
+export function handlingAccel(h, want, onIce) {
+    const moving = !!(want && (want.x || want.z));
+    if (onIce) return moving ? h.iceDrive : h.iceBrake;
+    return moving ? h.drive : h.brake;
 }
 
 // Which way to face at the start: the longest clear run along the eight
@@ -104,6 +133,8 @@ export function createWalkInput({ active, onFirstInput, stickEl, padEl }) {
     let stick = null;          // { id, x0, y0, x, y }
     let look = null;           // { id, x, y }
     let lookDX = 0, lookDY = 0;
+    // Stick drag for full speed: shorter for a more responsive marble.
+    let fullPx = STICK_FULL_PX;
     const KEYS = {
         KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back',
         KeyA: 'left', KeyD: 'right', ArrowLeft: 'turnL', ArrowRight: 'turnR', KeyQ: 'turnL', KeyE: 'turnR'
@@ -122,8 +153,8 @@ export function createWalkInput({ active, onFirstInput, stickEl, padEl }) {
         }
         stickEl.style.left = stick.x0 + 'px';
         stickEl.style.top = stick.y0 + 'px';
-        const dx = Math.max(-1, Math.min(1, (stick.x - stick.x0) / STICK_FULL_PX)) * STICK_FULL_PX;
-        const dy = Math.max(-1, Math.min(1, (stick.y - stick.y0) / STICK_FULL_PX)) * STICK_FULL_PX;
+        const dx = Math.max(-1, Math.min(1, (stick.x - stick.x0) / fullPx)) * STICK_FULL_PX;
+        const dy = Math.max(-1, Math.min(1, (stick.y - stick.y0) / fullPx)) * STICK_FULL_PX;
         stickEl.style.setProperty('--dx', dx + 'px');
         stickEl.style.setProperty('--dy', dy + 'px');
     };
@@ -169,14 +200,20 @@ export function createWalkInput({ active, onFirstInput, stickEl, padEl }) {
             let fwd = (keys.has('fwd') ? 1 : 0) - (keys.has('back') ? 1 : 0);
             let strafe = (keys.has('right') ? 1 : 0) - (keys.has('left') ? 1 : 0);
             if (stick) {
-                strafe += Math.max(-1, Math.min(1, (stick.x - stick.x0) / STICK_FULL_PX));
-                fwd -= Math.max(-1, Math.min(1, (stick.y - stick.y0) / STICK_FULL_PX));
+                strafe += Math.max(-1, Math.min(1, (stick.x - stick.x0) / fullPx));
+                fwd -= Math.max(-1, Math.min(1, (stick.y - stick.y0) / fullPx));
             }
             const turnKeys = (keys.has('turnL') ? 1 : 0) - (keys.has('turnR') ? 1 : 0);
             const dYaw = -lookDX * LOOK_RAD_PER_PX * sens + turnKeys * KEY_TURN_RAD_S * sens * (dtMs / 1000);
             const dPitch = (invertY ? 1 : -1) * lookDY * LOOK_RAD_PER_PX * sens;
             lookDX = 0; lookDY = 0;
             return { move: { fwd, strafe }, dYaw, dPitch, turning: turnKeys !== 0 || !!look };
+        },
+        // The marble's response (walkHandling): full speed at a shorter drag.
+        setResponse(r) { fullPx = STICK_FULL_PX / Math.max(0.5, Math.min(2, Number(r) || 1)); },
+        // What a drag of (dx, dy) px from the press asks for (tests).
+        stickMove(dx, dy) {
+            return { fwd: -Math.max(-1, Math.min(1, dy / fullPx)), strafe: Math.max(-1, Math.min(1, dx / fullPx)) };
         },
         // Test hooks: hold a move, or turn by an amount, as a player would.
         setTestMove(m) { keys.clear(); if (m && m.fwd > 0) keys.add('fwd'); if (m && m.fwd < 0) keys.add('back'); if (m && m.strafe > 0) keys.add('right'); if (m && m.strafe < 0) keys.add('left'); },

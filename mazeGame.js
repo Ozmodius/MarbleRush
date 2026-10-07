@@ -26,7 +26,7 @@ import { buildSolarSystem } from './solarSystem3d.js';
 import { isUnlocked, nearMiss, walkGoldMs } from './progressStore.js';
 import { createWalkHud } from './walkHud.js';
 import { openComfort, closeComfort } from './comfortUi.js';
-import { createWalkInput, wantedVelocity, walkImpulse, clampPitch, lookPoint, openingYaw, thirdPersonPose, EYE_ABOVE_CENTRE } from './walkMode.js';
+import { createWalkInput, wantedVelocity, walkImpulse, walkHandling, handlingAccel, clampPitch, lookPoint, openingYaw, thirdPersonPose, EYE_ABOVE_CENTRE } from './walkMode.js';
 import { MISSIONS } from './shopCatalog.js';
 import { applySkin } from './skins3d.js';
 import { createTrail } from './trail3d.js';
@@ -171,6 +171,8 @@ let walkYaw = 0, walkPitch = 0, walkStartYaw = 0;
 let walkWant = { x: 0, z: 0 };
 let walkSpeedNow = 0, walkTurning = false, walkBob = 0;
 let walkInput = null;
+let walkFeel = walkHandling(null);   // the marble's handling in Explore (walkMode.js)
+let ballOnIce = false;               // on ice this step, after any Rubber Coat
 let walkHud = null;               // compass and map (walkHud.js), when owned
 let walkHintShown = false;
 let savedFov = null;
@@ -242,9 +244,12 @@ function stepWalkControls(elapsedMs, lookOnly) {
 // One physics step of walking: lean toward the asked-for velocity (traps add
 // their own pushes on top), and spin the body as if rolling so floor friction
 // does not drag at it.
+// How hard is the marble's own (walkHandling): its grip and Grip upgrade
+// drive it, its damping and Air Brake stop it, ice takes both away.
 function applyWalk(dt) {
     const v = ballBody.velocity;
-    const imp = walkImpulse({ x: v.x, z: v.z }, walkWant, dt);
+    const accel = handlingAccel(walkFeel, walkWant, ballOnIce);
+    const imp = walkImpulse({ x: v.x, z: v.z }, walkWant, dt, accel);
     if (imp.x || imp.z) ballBody.wakeUp();
     v.x += imp.x; v.z += imp.z;
     const r = level.ballRadius;
@@ -1018,6 +1023,7 @@ function updateFloorSurface() {
     if (!floorBody || !solidMaterial) return;
     let onIce = !!(iceRects.length && isOnIce(iceRects, ballBody.position.x, ballBody.position.z));
     if (onIce && usePrizeFor('ice')) onIce = false;   // Rubber Coat: ice grips like floor
+    ballOnIce = onIce;
     const want = onIce ? iceMaterial : solidMaterial;
     if (floorBody.material !== want) floorBody.material = want;
 }
@@ -1688,6 +1694,9 @@ function startLevel(levelId, opts = {}) {
     if (trialMarble && trialMarble.levelId === null) trialMarble.levelId = lv.id;
     if (trialMarble && trialMarble.levelId !== lv.id) trialMarble = null;
     ballSpec = ballSetup(trialMarble ? trialMarble.id : prog.marble, prog.upgrades);
+    walkFeel = walkHandling(ballSpec);
+    if (walkInput) walkInput.setResponse(walkFeel.response);
+    ballOnIce = false;
     prizeOn = {};
     ballCamOn = !!prog.ballCam;
     camZoom = 0;
@@ -1895,6 +1904,8 @@ window.__mazeDebug = {
     walk: () => ({
         compass: !!(el('walkCompass') && !el('walkCompass').hidden), map: !!(el('walkMap') && !el('walkMap').hidden),
         on: walkMode, yaw: walkYaw, pitch: walkPitch, speed: walkSpeedNow,
+        handling: { ...walkFeel }, onIce: ballOnIce, marble: ballSpec.id,
+        stick: walkInput ? walkInput.stickMove(40, 0).strafe : null,
         fov: getCamera() ? getCamera().fov : null, ballVisible: !!(ballMesh && ballMesh.visible),
         eye: walkMode && ballBody ? (() => { const p = computeWalkPose(); return { x: p.pos.x, y: p.pos.y, z: p.pos.z, lx: p.lookAt.x, ly: p.lookAt.y, lz: p.lookAt.z }; })() : null
     }),
