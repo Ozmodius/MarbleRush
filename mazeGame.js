@@ -26,7 +26,7 @@ import { buildSolarSystem } from './solarSystem3d.js';
 import { isUnlocked, nearMiss, walkGoldMs } from './progressStore.js';
 import { createWalkHud } from './walkHud.js';
 import { openComfort, closeComfort } from './comfortUi.js';
-import { createWalkInput, wantedVelocity, walkImpulse, clampPitch, lookPoint, openingYaw, EYE_ABOVE_CENTRE } from './walkMode.js';
+import { createWalkInput, wantedVelocity, walkImpulse, clampPitch, lookPoint, openingYaw, thirdPersonPose, EYE_ABOVE_CENTRE } from './walkMode.js';
 import { MISSIONS } from './shopCatalog.js';
 import { applySkin } from './skins3d.js';
 import { createTrail } from './trail3d.js';
@@ -178,7 +178,20 @@ const WALK_HINT = 'LEFT: MOVE  ·  RIGHT: LOOK  ·  OR WASD';
 const _walkEye = new THREE.Vector3();
 const _walkLook = new THREE.Vector3();
 
-function comfortNow() { return progressNow().comfort || { fov: 75, sens: 1, invertY: false, bob: false, vignette: true }; }
+function comfortNow() { return progressNow().comfort || { fov: 75, sens: 1, invertY: false, bob: false, vignette: true, thirdPerson: true }; }
+function walkThird() { return comfortNow().thirdPerson !== false; }
+
+// Walking third person, the marble is on screen (with its trail); first
+// person, the camera is inside it, so it is hidden.
+function syncWalkView() {
+    const show = !walkMode || walkThird();
+    if (ballMesh) ballMesh.visible = show;
+    if (trail) trail.object.visible = show;
+    const b = el('mazeViewBtn');
+    if (b) { b.textContent = walkThird() ? '3P' : '1P'; b.setAttribute('aria-label', walkThird() ? 'View: third person (tap for first person)' : 'View: first person (tap for third person)'); }
+}
+const _thirdEye = new THREE.Vector3();
+let thirdEyeSet = false;
 
 // The camera's field of view is the scene host's; walking widens it to the
 // comfort setting, and anything else puts the original back.
@@ -194,6 +207,17 @@ function setWalkFov(on) {
 
 function computeWalkPose() {
     const p = ballBody.position;
+    if (walkThird()) {
+        // Behind and above, eased so the camera glides rather than jitters.
+        const tp = thirdPersonPose(p, walkYaw, walkPitch);
+        if (!thirdEyeSet) { _thirdEye.set(tp.eye.x, tp.eye.y, tp.eye.z); thirdEyeSet = true; }
+        _thirdEye.x += (tp.eye.x - _thirdEye.x) * 0.3;
+        _thirdEye.y += (tp.eye.y - _thirdEye.y) * 0.3;
+        _thirdEye.z += (tp.eye.z - _thirdEye.z) * 0.3;
+        _walkEye.copy(_thirdEye);
+        _walkLook.set(tp.look.x, tp.look.y, tp.look.z);
+        return { pos: _walkEye, lookAt: _walkLook };
+    }
     const bob = comfortNow().bob ? Math.sin(walkBob) * 0.012 * Math.min(1, walkSpeedNow / WALK.speed) : 0;
     _walkEye.set(p.x, p.y + EYE_ABOVE_CENTRE + bob, p.z);
     const lp = lookPoint(_walkEye, walkYaw, walkPitch);
@@ -667,9 +691,9 @@ function buildLevelMeshes(lv, theme) {
     ballMesh = new THREE.Mesh(ballGeo, ballMat);
     ballMesh.castShadow = true;
     group.add(ballMesh);
-    // Walking, the ball is the walker: no marble on screen, no trail.
-    ballMesh.visible = !walkMode;
-    trail = walkMode ? null : createTrail(worn.trail, lv.ballRadius);
+    // Walking, the ball is the walker: on screen in third person, hidden in
+    // first (syncWalkView).
+    trail = createTrail(worn.trail, lv.ballRadius);
     if (trail) group.add(trail.object);
 
     track(group);
@@ -1673,6 +1697,9 @@ function startLevel(levelId, opts = {}) {
     showEl('mazeCamBtn', !walkMode);
     showEl('mazeRecenterBtn', !walkMode);
     showEl('mazeComfortBtn', walkMode);
+    showEl('mazeViewBtn', walkMode);
+    thirdEyeSet = false;
+    syncWalkView();
     if (walkMode) {
         const kit = prog.explorer || [];
         walkHud = createWalkHud({ level: lv, compass: kit.includes('compass'), map: kit.includes('map') });
@@ -2149,12 +2176,20 @@ export function initMazeControls() {
     bindTap('mazeUse_slowmo', () => { useRunCharge('slowmo'); });
     bindTap('mazeUse_magnet', () => { useRunCharge('magnet'); });
     bindTap('mazeCamBtn', () => { setBallCam(!ballCamOn); });
-    bindTap('mazeComfortBtn', () => { if (store) openComfort(store, () => { if (walkMode) setWalkFov(true); }); });
+    bindTap('mazeComfortBtn', () => { if (store) openComfort(store, () => { if (walkMode) { setWalkFov(true); thirdEyeSet = false; syncWalkView(); } }); });
+    // 1P / 3P: the walk view, saved with the comfort settings.
+    bindTap('mazeViewBtn', () => {
+        if (!store || !walkMode) return;
+        store.setComfort({ thirdPerson: !walkThird() });
+        thirdEyeSet = false;
+        syncWalkView();
+    });
     bindTap('mazeWalkBtn', () => { const id = level && level.id; if (id) afterBreak(() => walkLevel(id)); });
     walkInput = createWalkInput({
         active: () => active && walkMode && (phase === 'running' || phase === 'ready'),
         onFirstInput: () => { if (walkHintShown && phase === 'running') { walkHintShown = false; setStatus(''); } },
-        stickEl: el('walkStick')
+        stickEl: el('walkStick'),
+        padEl: el('walkPad')
     });
     bindTap('mazeRecenterBtn', () => {
         recenterPending = true;

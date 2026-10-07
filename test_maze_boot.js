@@ -657,8 +657,14 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await wp.locator('.level-node').first().tap();
         await wp.waitForSelector('#mazeStartBtn', { state: 'visible' });
         let wk = await wdbg('walk');
-        check(wk.on && !wk.ballVisible && wk.fov === 75 && wk.compass && !wk.map, `walking: first person, no marble, FOV 75, compass shown, map not owned: ${JSON.stringify(wk)}`);
-        check(wk.eye.y < 0.55 && wk.eye.y > 0.2, `the eye is below the wall tops (${wk.eye.y.toFixed(2)})`);
+        check(wk.on && wk.ballVisible && wk.fov === 75 && wk.compass && !wk.map, `walking: third person by default (marble shown), FOV 75, compass shown, map not owned: ${JSON.stringify(wk)}`);
+        check(wk.eye.y > 0.55 && (await wp.textContent('#mazeViewBtn')).trim() === '3P', `the third-person camera rides above the wall tops (${wk.eye.y.toFixed(2)})`);
+        check(await wp.isVisible('#walkStick') && await wp.isVisible('#walkPad'), 'on a touch screen the joystick and look pad are on screen');
+        // 1P: through the marble's eyes, below the wall tops; saved.
+        await wp.tap('#mazeViewBtn');
+        wk = await wdbg('walk');
+        check(!wk.ballVisible && wk.eye.y < 0.55 && wk.eye.y > 0.2 && (await wdbg('progress')).comfort.thirdPerson === false && (await wp.textContent('#mazeViewBtn')).trim() === '1P',
+            `first person hides the marble and puts the eye below the wall tops, and is saved (${wk.eye.y.toFixed(2)})`);
         check(/^Walk · /.test((await wp.textContent('#mazeLevelName')).trim()) && await wp.isHidden('#mazeCamBtn') && await wp.isVisible('#mazeComfortBtn'), 'the HUD says Walk and offers comfort, not ball cam');
         // Comfort: a wider view, saved and applied at once.
         await wp.tap('#mazeComfortBtn');

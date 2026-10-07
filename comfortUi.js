@@ -19,6 +19,7 @@ function render(store) {
     $('comfortSensVal').textContent = c.sens.toFixed(1) + '×';
     $('comfortInvert').checked = c.invertY;
     $('comfortBob').checked = c.bob;
+    $('comfortThird').checked = c.thirdPerson;
     $('comfortVignette').checked = c.vignette;
 }
 
@@ -33,6 +34,7 @@ export function openComfort(store, onChange) {
         sens.addEventListener('input', () => set({ sens: Number(sens.value) }));
         $('comfortInvert').addEventListener('change', (e) => set({ invertY: e.target.checked }));
         $('comfortBob').addEventListener('change', (e) => set({ bob: e.target.checked }));
+        $('comfortThird').addEventListener('change', (e) => set({ thirdPerson: e.target.checked }));
         $('comfortVignette').addEventListener('change', (e) => set({ vignette: e.target.checked }));
         $('comfortCloseBtn').addEventListener('click', (e) => { e.preventDefault(); $('comfortPanel').hidden = true; });
         $('comfortPanel').addEventListener('click', (e) => { if (e.target.id === 'comfortPanel') $('comfortPanel').hidden = true; });

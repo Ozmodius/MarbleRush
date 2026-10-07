@@ -136,7 +136,8 @@ export const COMFORT = {
     sens: { def: 1, min: 0.4, max: 2 },
     invertY: { def: false },
     bob: { def: false },        // head bob: off by default, it upsets some stomachs
-    vignette: { def: true }     // darkens the edges while moving or turning
+    vignette: { def: true },    // darkens the edges while moving or turning
+    thirdPerson: { def: true }  // the camera behind and above the marble (off: through its eyes)
 };
 
 // --- upgrades (the plan's "4 upgrade tracks") --------------------------------

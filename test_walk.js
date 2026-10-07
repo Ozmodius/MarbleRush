@@ -64,6 +64,17 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
         check(!inWall && Math.abs(x) < lv.size.w / 2 && Math.abs(z) < lv.size.d / 2, `${lv.id}: the walk starts facing open floor`);
     }
 
+    // Third person: behind the walker and above the wall tops, looking at it.
+    for (const yaw of [0, 1, 2.5, -2]) {
+        const tp = W.thirdPersonPose({ x: 1, y: 0.3, z: 2 }, yaw, 0);
+        const F = W.forwardOf(yaw);
+        const back = (1 - tp.eye.x) * F.x + (2 - tp.eye.z) * F.z;
+        check(back > 1 && tp.eye.y > 0.55 + 0.3, `third person sits behind (${back.toFixed(2)}) and above the walls (${tp.eye.y.toFixed(2)}) at yaw ${yaw}`);
+        check((tp.look.x - 1) * F.x + (tp.look.z - 2) * F.z > 0, 'and looks on past the walker');
+    }
+    const low = W.thirdPersonPose({ x: 0, y: 0.3, z: 0 }, 0, 0.9), high = W.thirdPersonPose({ x: 0, y: 0.3, z: 0 }, 0, -0.9);
+    check(high.eye.y > low.eye.y && low.eye.y > 0.55, 'looking down raises the camera, looking up lowers it -- never below the walls');
+
     // 3. the walker is the ball
     check(!('radius' in C.WALK) && !('ball' in C.WALK), 'walking never changes the ball radius');
     check(W.EYE_ABOVE_CENTRE + 0.32 < 0.55, 'the eye sits below the wall tops on the biggest ball (0.32): no seeing over walls');
@@ -98,6 +109,7 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
     const cf = S.setComfort(e, { fov: 500, sens: -3, invertY: 'yes', bob: true, junk: 1 }).progress.comfort;
     check(cf.fov === C.COMFORT.fov.max && cf.sens === C.COMFORT.sens.min && cf.invertY === false && cf.bob === true && !('junk' in cf), `comfort settings are kept in range: ${JSON.stringify(cf)}`);
     const back = S.parseProgress(JSON.stringify({ ...b1.progress, walks: { w1_01: { bestMs: 9000, coins: 2, gold: true }, bad: { bestMs: 'x' } }, explorer: ['compass', 'compass', 'jetpack'], comfort: { fov: 80 } }));
+    check(back.comfort.thirdPerson === true && S.cleanComfort({ thirdPerson: false }).thirdPerson === false, 'third person is the default view, and first person is kept');
     check(back.walks.w1_01.bestMs === 9000 && !back.walks.bad && back.explorer.join() === 'compass' && back.comfort.fov === 80 && back.comfort.vignette === true,
         `walks, kit and comfort round-trip, junk dropped: ${JSON.stringify([back.walks, back.explorer, back.comfort])}`);
 
