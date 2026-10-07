@@ -1,13 +1,16 @@
-import { initPlatform, loadingStart, loadingStop, loadSave, writeSave, onAdBusy } from './platform.js';
+import { initPlatform, loadingStart, loadingStop, loadSave, writeSave, onAdBusy, apiBase, getPlatformUserToken, onPlatformAuthChange, isPlatformLoginAvailable, showPlatformLogin } from './platform.js';
 import { initSceneHost } from './sceneHost.js';
 import { createProgressStore } from './progressStore.js';
 import * as game from './mazeGame.js';
 import { initShopUi } from './shopUi.js';
-import { initMenus, marbleChanged } from './menus.js';
+import { initMenus, marbleChanged, progressChanged } from './menus.js';
+import { createCloudSync } from './cloudSync.js';
+import { initCloudUi } from './leaderboardUi.js';
 
 // BOOT. Platform first (CrazyGames wants loadingStart as early as possible and
 // the save may live in its SDK), then the renderer, then the save, then the
-// game. No server anywhere in this chain (docs/PLAN.md).
+// game. The cloud save starts last and in the background: the game never
+// waits on the network (cloudSync.js).
 
 function bootMessage(text) {
     const el = document.getElementById('bootMsg');
@@ -40,6 +43,12 @@ async function boot() {
     const ok = await game.enterMaze(store);
     loadingStop();
     bootMessage(ok ? '' : 'COULD NOT LOAD THE LEVELS. RELOAD TO TRY AGAIN.');
+
+    const sync = createCloudSync({ store, api: apiBase(), getCrazyToken: getPlatformUserToken, onRemoteChange: progressChanged });
+    game.setClearListener(initCloudUi({ sync, login: { available: isPlatformLoginAvailable, show: showPlatformLogin } }));
+    onPlatformAuthChange(() => sync.reconnect());
+    sync.start();
+    if (typeof window !== 'undefined') window.__cloudSync = sync;   // tests look at it
 }
 
 boot().catch((e) => {

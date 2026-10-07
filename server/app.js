@@ -1,0 +1,290 @@
+// THE PLANETILT API: cloud saves and leaderboards. Plain node:http, no
+// framework; every route is a few lines over the store (db.js).
+//
+//   GET  /health                      -> { ok, store }
+//   POST /v1/session  {token?, crazyToken?}
+//        -> { token, player: { id, name, kind } }
+//        A known token is the same player again; none makes a guest. A
+//        CrazyGames token signs into that account, and the guest the device
+//        was before is folded into it (saves merged, best times kept).
+//   GET  /v1/save                     -> { save | null }
+//   PUT  /v1/save     {save}          -> { save }   the MERGE of both sides
+//        Never an overwrite: the server runs the game's own mergeProgress
+//        (progressStore.js), so a stale device cannot undo a newer one.
+//   POST /v1/scores   {board, ms}     -> { best, rank, total }
+//   POST /v1/scores/batch {scores: [{board, ms}]} -> { accepted }
+//   GET  /v1/leaderboard?board=&limit= -> { board, top: [{rank,name,ms,you}], you }
+//   POST /v1/link                     -> { code, expiresAt }
+//   POST /v1/link/claim {code}        -> { token, player, save }
+//        Another device's player, by its 6-letter code: this device becomes
+//        that player, and what it had is merged in.
+//
+// Boards: roll:<levelId>, walk:<levelId>, daily:<YYYY-MM-DD>:<dailyId>. A
+// time below the level's minMs (the generator's physical floor) is refused.
+
+import { mergeProgress } from '../progressStore.js';
+import { hashToken, newToken, newId, newLinkCode, cleanLinkCode, guestName, cleanName } from './auth.js';
+
+const MAX_BODY = 256 * 1024;
+const MAX_MS = 60 * 60 * 1000;
+const LINK_MS = 10 * 60 * 1000;
+// Walking is about five times slower than rolling (WALK.speed 1.8 against the
+// generator's 9 u/s); a walk under 3x the roll floor is not a walk.
+const WALK_FLOOR = 3;
+
+class HttpError extends Error {
+    constructor(status, code) { super(code); this.status = status; this.code = code; }
+}
+
+// Origins: '*' (default; tokens ride in a header, never a cookie, so any page
+// may call), or a comma list where a '*' in a host matches any subdomain
+// part, e.g. "https://ozmodius.github.io,https://*.crazygames.com".
+export function originMatcher(spec) {
+    const list = String(spec || '*').split(',').map(s => s.trim()).filter(Boolean);
+    if (!list.length || list.includes('*')) return () => '*';
+    const res = list.map(p => new RegExp('^' + p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]+') + '$'));
+    return origin => (origin && res.some(r => r.test(origin)) ? origin : null);
+}
+
+// A simple per-IP limit: `max` requests per rolling minute.
+function rateLimiter(max) {
+    const hits = new Map();
+    let sweep = 0;
+    return (ip, now) => {
+        if (now - sweep > 60e3) { for (const [k, v] of hits) if (now - v.t > 60e3) hits.delete(k); sweep = now; }
+        let h = hits.get(ip);
+        if (!h || now - h.t > 60e3) { h = { t: now, n: 0 }; hits.set(ip, h); }
+        return ++h.n <= max;
+    };
+}
+
+// UTC date keys for yesterday..tomorrow: the client dates the daily maze in
+// its own time zone, which is never more than a day off UTC.
+function nearDays(now) {
+    const out = new Set();
+    for (const d of [-1, 0, 1]) out.add(new Date(now + d * 86400e3).toISOString().slice(0, 10));
+    return out;
+}
+
+export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = null, origins = '*', rateMax = 240, now = () => Date.now() }) {
+    const ladder = new Map(levels.map(l => [l.id, l]));
+    const dailies = new Map(dailyLevels.map(l => [l.id, l]));
+    const allowOrigin = originMatcher(origins);
+    const allow = rateLimiter(rateMax);
+
+    // One save write at a time per player: read, merge, write must not
+    // interleave or a merge could be lost. (One process; Render runs one.)
+    const locks = new Map();
+    const withLock = async (id, fn) => {
+        const prev = locks.get(id) || Promise.resolve();
+        let release;
+        const mine = new Promise(r => { release = r; });
+        const chain = prev.then(() => mine);
+        locks.set(id, chain);
+        await prev;
+        try { return await fn(); } finally {
+            release();
+            if (locks.get(id) === chain) locks.delete(id);
+        }
+    };
+
+    // Merge `incoming` into the player's stored save; returns the result.
+    const mergeInto = (playerId, incoming) => withLock(playerId, async () => {
+        const cur = await store.getSave(playerId);
+        const merged = mergeProgress(cur ? cur.data : null, incoming);
+        await store.putSave(playerId, merged, merged.savedAt || 0);
+        return merged;
+    });
+
+    const issue = async (player) => {
+        const token = newToken();
+        await store.addToken(player.id, hashToken(token));
+        return { token, player: { id: player.id, name: player.name, kind: player.kind } };
+    };
+
+    const authed = async (req, required = true) => {
+        const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization || '');
+        const p = m ? await store.playerByToken(hashToken(m[1])) : null;
+        if (!p && required) throw new HttpError(401, 'unauthorized');
+        return p;
+    };
+
+    // Joining: `from`'s save merged into `target`'s as the OLDER side, so
+    // everything earned on both is kept but the coins and charges are the
+    // target's -- a fresh phone joining an account must not replace its
+    // wallet with the phone's 0. (A target with no save yet takes it all.)
+    const mergeJoining = (targetId, data) => mergeInto(targetId, { ...data, savedAt: 0 });
+
+    // A guest's things move to `target`: its save merged in as above, its
+    // best times moved (so the same runs are not on a board twice). The guest
+    // player itself stays, empty of scores (its old tokens still name it).
+    const fold = async (from, target) => {
+        if (!from || from.id === target.id) return;
+        const s = await store.getSave(from.id);
+        if (s) await mergeJoining(target.id, s.data);
+        for (const { board, ms } of await store.scoresOf(from.id)) await store.upsertScore(target.id, board, ms);
+        await store.deleteScores(from.id);
+    };
+
+    const checkScore = (board, ms) => {
+        if (!Number.isInteger(ms) || ms <= 0 || ms > MAX_MS) throw new HttpError(400, 'bad-ms');
+        const m = /^(roll|walk):([\w-]{1,40})$/.exec(board) || /^(daily):(\d{4}-\d{2}-\d{2}):([\w-]{1,40})$/.exec(board);
+        if (!m) throw new HttpError(400, 'bad-board');
+        if (m[1] === 'daily') {
+            const lv = dailies.get(m[3]);
+            if (!lv) throw new HttpError(400, 'unknown-level');
+            if (!nearDays(now()).has(m[2])) throw new HttpError(400, 'stale-daily');
+            if (ms < lv.minMs) throw new HttpError(400, 'too-fast');
+            return;
+        }
+        const lv = ladder.get(m[2]);
+        if (!lv) throw new HttpError(400, 'unknown-level');
+        if (ms < lv.minMs * (m[1] === 'walk' ? WALK_FLOOR : 1)) throw new HttpError(400, 'too-fast');
+    };
+
+    const routes = {
+        'GET /health': async () => ({ ok: true, store: store.kind }),
+
+        'POST /v1/session': async (req, body) => {
+            const m = typeof body.token === 'string' ? await store.playerByToken(hashToken(body.token)) : null;
+            if (body.crazyToken) {
+                if (!verifyCrazy) throw new HttpError(501, 'crazygames-off');
+                let who;
+                try { who = await verifyCrazy(body.crazyToken); } catch (_) { throw new HttpError(401, 'bad-crazy-token'); }
+                let p = await store.playerByExternal('crazygames', who.userId);
+                const name = cleanName(who.username, 'Player');
+                if (!p) p = await store.createPlayer({ id: newId(), kind: 'crazygames', externalId: who.userId, name });
+                else if (who.username && p.name !== name) { await store.renamePlayer(p.id, name); p.name = name; }
+                // The device's guest (never another account) folds in.
+                if (m && m.kind === 'guest') await fold(m, p);
+                if (m && m.id === p.id) return { token: body.token, player: { id: p.id, name: p.name, kind: p.kind } };
+                return issue(p);
+            }
+            if (m) return { token: body.token, player: { id: m.id, name: m.name, kind: m.kind } };
+            const p = await store.createPlayer({ id: newId(), kind: 'guest', name: guestName() });
+            return issue(p);
+        },
+
+        'GET /v1/save': async (req) => {
+            const p = await authed(req);
+            const s = await store.getSave(p.id);
+            return { save: s ? s.data : null };
+        },
+
+        'PUT /v1/save': async (req, body) => {
+            const p = await authed(req);
+            if (!body.save || typeof body.save !== 'object' || Array.isArray(body.save)) throw new HttpError(400, 'bad-save');
+            return { save: await mergeInto(p.id, body.save) };
+        },
+
+        'POST /v1/scores': async (req, body) => {
+            const p = await authed(req);
+            const board = String(body.board || ''), ms = Number(body.ms);
+            checkScore(board, ms);
+            const best = await store.upsertScore(p.id, board, ms);
+            const r = await store.rank(board, best);
+            return { best, rank: r.rank, total: r.total };
+        },
+
+        // Best times already in a save (cloudSync uploads them once per
+        // player): each checked like a single score, the bad ones skipped.
+        'POST /v1/scores/batch': async (req, body) => {
+            const p = await authed(req);
+            const list = Array.isArray(body.scores) ? body.scores.slice(0, 300) : [];
+            let accepted = 0;
+            for (const s of list) {
+                const board = String((s && s.board) || ''), ms = Number(s && s.ms);
+                try { checkScore(board, ms); } catch (_) { continue; }
+                await store.upsertScore(p.id, board, ms);
+                accepted++;
+            }
+            return { accepted };
+        },
+
+        'GET /v1/leaderboard': async (req, body, url) => {
+            const p = await authed(req, false);
+            const board = String(url.searchParams.get('board') || '');
+            if (!/^(roll|walk):[\w-]{1,40}$|^daily:\d{4}-\d{2}-\d{2}:[\w-]{1,40}$/.test(board)) throw new HttpError(400, 'bad-board');
+            const limit = Math.max(1, Math.min(50, Math.floor(Number(url.searchParams.get('limit')) || 10)));
+            const rows = await store.top(board, limit);
+            // Ties share a rank (1 + how many are strictly faster).
+            const top = [];
+            rows.forEach((r, i) => {
+                const rank = i > 0 && rows[i - 1].ms === r.ms ? top[i - 1].rank : i + 1;
+                top.push({ rank, name: r.name, ms: r.ms, you: !!(p && r.playerId === p.id) });
+            });
+            let you = null;
+            if (p) {
+                const ms = await store.scoreOf(p.id, board);
+                if (ms !== null) you = { ms, ...(await store.rank(board, ms)) };
+            }
+            const total = you ? you.total : (await store.rank(board, 2147483647)).total;
+            return { board, top, you, total };
+        },
+
+        'POST /v1/link': async (req) => {
+            const p = await authed(req);
+            const code = newLinkCode(), expiresAt = now() + LINK_MS;
+            await store.createLink(code, p.id, expiresAt);
+            return { code, expiresAt };
+        },
+
+        'POST /v1/link/claim': async (req, body) => {
+            const me = await authed(req);
+            const targetId = await store.claimLink(cleanLinkCode(body.code), now());
+            if (!targetId) throw new HttpError(404, 'bad-code');
+            const target = await store.playerById(targetId);
+            if (!target) throw new HttpError(404, 'bad-code');
+            // Only a guest is folded away; an account keeps what is its own.
+            if (me.kind === 'guest') await fold(me, target);
+            else { const s = await store.getSave(me.id); if (s && me.id !== target.id) await mergeJoining(target.id, s.data); }
+            const out = await issue(target);
+            const s = await store.getSave(target.id);
+            return { ...out, save: s ? s.data : null };
+        }
+    };
+
+    const readBody = (req) => new Promise((resolve, reject) => {
+        let size = 0; const chunks = [];
+        req.on('data', c => {
+            size += c.length;
+            if (size > MAX_BODY) { reject(new HttpError(413, 'too-large')); req.destroy(); return; }
+            chunks.push(c);
+        });
+        req.on('end', () => {
+            if (!chunks.length) return resolve({});
+            try {
+                const v = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                resolve(v && typeof v === 'object' ? v : {});
+            } catch (_) { reject(new HttpError(400, 'bad-json')); }
+        });
+        req.on('error', reject);
+    });
+
+    return async function handle(req, res) {
+        const origin = allowOrigin(req.headers.origin);
+        const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
+        if (origin) {
+            headers['Access-Control-Allow-Origin'] = origin;
+            headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type';
+            headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, OPTIONS';
+            headers['Access-Control-Max-Age'] = '86400';
+            if (origin !== '*') headers.Vary = 'Origin';
+        }
+        const send = (status, obj) => { res.writeHead(status, headers); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
+        if (req.method === 'OPTIONS') return send(204);
+        try {
+            const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?';
+            if (!allow(ip, now())) throw new HttpError(429, 'slow-down');
+            const url = new URL(req.url, 'http://x');
+            const route = routes[`${req.method} ${url.pathname.replace(/\/+$/, '') || '/'}`];
+            if (!route) throw new HttpError(404, 'not-found');
+            const body = req.method === 'GET' ? {} : await readBody(req);
+            send(200, await route(req, body, url));
+        } catch (e) {
+            if (e instanceof HttpError) return send(e.status, { error: e.code });
+            console.error('[api]', e);
+            send(500, { error: 'server' });
+        }
+    };
+}

@@ -68,7 +68,9 @@ export function freshProgress() {
         ballCam: false,
         // The Labyrinth (walkMode.js): best walk per level, explorer kit
         // owned, and the comfort settings.
-        walks: {}, explorer: [], comfort: defaultComfort()
+        walks: {}, explorer: [], comfort: defaultComfort(),
+        // When this save was last written (ms): cloud sync's tie-breaker.
+        savedAt: 0
     };
 }
 
@@ -110,10 +112,11 @@ export function parseProgress(text) {
     }
     // A save from before player levels has no xp at all: null marks it, and
     // the store works it out from what was already cleared (backfillXp).
-    p.xp = raw.xp === undefined ? null : Math.max(0, Math.floor(Number(raw.xp) || 0));
+    p.xp = raw.xp === undefined || raw.xp === null ? null : Math.max(0, Math.floor(Number(raw.xp) || 0));
     p.daily = daily.parseDaily(raw.daily);
     p.dailyMaze = daily.parseDailyMaze(raw.dailyMaze);
     p.ballCam = raw.ballCam === true;
+    p.savedAt = Math.max(0, Number(raw.savedAt) || 0);
     if (raw.walks && typeof raw.walks === 'object') {
         for (const [id, w] of Object.entries(raw.walks)) {
             if (w && Number.isFinite(w.bestMs)) p.walks[id] = { bestMs: w.bestMs, coins: Math.max(0, w.coins | 0), gold: !!w.gold };
@@ -301,6 +304,57 @@ export function setComfort(progress, patch) {
     return { progress: p, ok: true };
 }
 
+// --- CLOUD SYNC: merging two saves of one player ------------------------------
+// The same player's progress from two places (this device and the server, or
+// two devices) becomes one, and NEVER by simply overwriting: what only grows --
+// levels cleared, best times, things owned, XP, walks -- combines to the best
+// of both; what is SPENT -- the coin wallet, power-ups, prize uses -- comes from
+// the newer save (by savedAt), since adding two wallets would mint coins.
+// Settings come from the newer save too. The server merges with this same
+// function (server/), so both ends agree. Returns a clean, parsed progress.
+export function mergeProgress(a, b) {
+    const A = parseProgress(JSON.stringify(a || {})), B = parseProgress(JSON.stringify(b || {}));
+    const aFresh = !(a && a.v), bFresh = !(b && b.v);
+    if (aFresh) return B;
+    if (bFresh) return A;
+    const newer = (A.savedAt || 0) >= (B.savedAt || 0) ? A : B, older = newer === A ? B : A;
+    const p = JSON.parse(JSON.stringify(newer));
+    const union = (x, y) => [...x, ...y.filter(v => !x.includes(v))];
+    p.highestIndex = Math.max(A.highestIndex, B.highestIndex);
+    for (const [id, c] of Object.entries(older.cleared)) {
+        const n = p.cleared[id];
+        p.cleared[id] = n ? { bestMs: Math.min(n.bestMs, c.bestMs), coins: Math.max(n.coins, c.coins), at: Math.max(n.at || 0, c.at || 0) } : c;
+    }
+    for (const [id, w] of Object.entries(older.walks)) {
+        const n = p.walks[id];
+        p.walks[id] = n ? { bestMs: Math.min(n.bestMs, w.bestMs), coins: Math.max(n.coins, w.coins), gold: n.gold || w.gold } : w;
+    }
+    for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer']) p[key] = union(p[key], older[key]);
+    for (const [id, n] of Object.entries(older.upgrades)) p.upgrades[id] = Math.max(p.upgrades[id] || 0, n);
+    // A prize only the older save has earned brings its uses with it.
+    for (const id of older.prizes) if (!newer.prizes.includes(id) && older.prizeUses[id]) p.prizeUses[id] = older.prizeUses[id];
+    p.xp = A.xp === null && B.xp === null ? null : Math.max(A.xp || 0, B.xp || 0);
+    p.adCoinsAt = Math.max(A.adCoinsAt, B.adCoinsAt);
+    p.adUpgradeAt = Math.max(A.adUpgradeAt, B.adUpgradeAt);
+    // Daily things: the later day wins; the same day combines.
+    if ((older.daily.last || '') > (p.daily.last || '')) p.daily = older.daily;
+    else if (older.daily.last === p.daily.last && older.daily.doubled > p.daily.doubled) p.daily.doubled = older.daily.doubled;
+    if (older.missions && (!p.missions || older.missions.date > p.missions.date)) p.missions = older.missions;
+    else if (older.missions && p.missions && older.missions.date === p.missions.date && older.missions.ids.join() === p.missions.ids.join()) {
+        for (const [id, n] of Object.entries(older.missions.counts)) p.missions.counts[id] = Math.max(p.missions.counts[id] || 0, n);
+        p.missions.claimed = union(p.missions.claimed, older.missions.claimed);
+        p.missions.bonus = p.missions.bonus || older.missions.bonus;
+    }
+    const od = older.dailyMaze, nd = p.dailyMaze;
+    if (od && (!nd || od.date > nd.date)) p.dailyMaze = od;
+    else if (od && nd && od.date === nd.date && od.id === nd.id) {
+        p.dailyMaze = { ...nd, best: Math.min(nd.best ?? Infinity, od.best ?? Infinity), paid: nd.paid || od.paid, gold: nd.gold || od.gold };
+        if (!Number.isFinite(p.dailyMaze.best)) p.dailyMaze.best = null;
+    }
+    p.savedAt = Math.max(A.savedAt || 0, B.savedAt || 0);
+    return parseProgress(JSON.stringify(p));
+}
+
 // XP for clears made before player levels existed: what each would have
 // earned (first clear, plus gold where gold was claimed). Paid through addXp,
 // so the levels it crosses pay their rewards too.
@@ -473,8 +527,12 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         levelUps.push(...out.gained);
         return out.gained;
     };
+    // Listeners told after every save (cloud sync pushes from here).
+    const saved = new Set();
     const persist = () => {
+        progress = { ...progress, savedAt: Date.now() };
         try { adapter.save(SAVE_KEY, JSON.stringify(progress)); } catch (e) { console.warn('[progress] save failed:', e && e.message); }
+        for (const fn of saved) { try { fn(progress); } catch (_) { /* a listener's problem is its own */ } }
     };
     const rollMissions = () => {
         const out = daily.missionsToday(progress, clock());
@@ -492,6 +550,23 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             return progress;
         },
         get: () => progress,
+        // Cloud sync (cloudSync.js): be told of every save, and take in a save
+        // from elsewhere -- merged, never overwritten (mergeProgress).
+        onSave(fn) { saved.add(fn); return () => saved.delete(fn); },
+        adopt(remote) {
+            const before = JSON.stringify(progress);
+            const merged = mergeProgress(progress, remote);
+            const xpUnknown = merged.xp === null;
+            progress = merged;
+            if (xpUnknown && levels.length) {
+                const out = backfillXp(progress, levels);
+                progress = out.progress;
+                levelUps.push(...out.gained);
+            }
+            const changed = JSON.stringify(progress) !== before;
+            if (changed) persist();
+            return changed;
+        },
         setLevels(nextLevels, nextPayouts) {
             levels = nextLevels || []; payouts = nextPayouts || {};
             if (progress.xp === null && levels.length) {

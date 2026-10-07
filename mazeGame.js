@@ -1297,6 +1297,11 @@ async function freeShieldFromAd() {
     setStatus('SHIELD READY  —  IT ARMS WHEN YOU START');
 }
 
+// Told of each win: { board, ms, levelName, walk, daily }, or null when the
+// clear did not count.
+let clearListener = null;
+export function setClearListener(fn) { clearListener = fn || null; }
+
 function win() {
     phase = 'won';
     renderPowerups();
@@ -1319,6 +1324,16 @@ function win() {
     world.gravity.set(0, -GRAVITY, 0);
     mazeGroup.rotation.set(0, 0, 0);
     try { uiSfx.open(); } catch (e) { /* ignore */ }
+    // The leaderboards (cloudSync.js, via main.js) hear of every win: the
+    // clear when it counted, null when it did not.
+    if (clearListener) {
+        const counted = !!(result && result.accepted);
+        const board = !counted ? null : walkMode ? `walk:${level.id}`
+            : isDaily(level) ? `daily:${store.dailyMaze().date}:${level.id}`
+            : `roll:${level.id}`;
+        const info = counted ? { board, ms, levelName: level.name, walk: walkMode, daily: isDaily(level) } : null;
+        try { clearListener(info); } catch (e) { console.warn('[maze] clear listener:', e && e.message); }
+    }
     showClearResult(result, ms);
     showNearMiss(result);
     lastClear = result && result.accepted && result.earned > 0 ? result : null;

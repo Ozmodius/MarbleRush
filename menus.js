@@ -364,3 +364,16 @@ export function marbleChanged() {
     ctx.game.refreshShowcase();
     renderWallets();
 }
+
+// After progress arrived from another device (cloudSync.js): redraw whatever
+// is up, without the arrival side effects show() has (the calendar popping).
+export function progressChanged() {
+    if (!ctx || !current) return;
+    if (current === 'home') renderHome();
+    else if (current === 'gear') renderProfile();
+    else if (current === 'store') renderStore();
+    else if (current === 'worlds') renderWorlds();
+    renderWallets();
+    renderBadges();
+    ctx.game.refreshShowcase();
+}

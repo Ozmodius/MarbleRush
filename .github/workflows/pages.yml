@@ -4,7 +4,8 @@
 # dev page (index.html's importmap) cannot load there. This builds the flat web
 # bundle instead -- three and cannon-es inside game.js, no CrazyGames SDK --
 # and deploys dist/web/. The Node test suite gates it: a level the verifier
-# rejects never reaches the site.
+# rejects never reaches the site, and neither does a server that fails its
+# tests (server/).
 #
 # One-time setup: repo Settings -> Pages -> Build and deployment -> Source:
 # "GitHub Actions".
@@ -34,8 +35,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm ci --prefix server
       - run: npm test
+      # The cloud save / leaderboard server, when the repo variable
+      # PLANETILT_API_URL is set (Settings -> Secrets and variables ->
+      # Actions -> Variables); unset, the site builds without one.
       - run: npm run build:web
+        env:
+          PLANETILT_API_URL: ${{ vars.PLANETILT_API_URL }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -496,6 +496,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         sp = await sdbg('progress');
         check(sp.marble === 'rubber' && sp.marbles.includes('rubber') && sp.wallet === 1720 - 900, `buying Rubber selects it: ${sp.marble}, wallet ${sp.wallet}`);
         check((await shop.textContent('#profileMarbleName')).trim() === 'Rubber', 'the profile shows Rubber as the next marble');
+        check(await shop.isHidden('#cloudSection'), 'with no server configured, Gear has no cloud save card');
         await shop.tap('#tab_home');
 
         // The next game uses it all.
@@ -708,6 +709,84 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check((await wdbg('walk')).on === false && (await wdbg('walk')).fov !== 90, 'leaving the walk puts the camera back');
         await wCtx.close();
 
+        // --- cloud save and leaderboards, against the real API ---------------
+        // server/app.js on an in-memory store; the page is pointed at it the
+        // way a developer would (localStorage 'planetilt.api'). Device 1 has
+        // played; it clears level 1 and is ranked, then makes a code; device 2,
+        // fresh, joins with it and gets device 1's progress and coins.
+        const { createApp } = await import('./server/app.js');
+        const { createMemoryStore } = await import('./server/db.js');
+        const apiServer = http.createServer(createApp({ store: createMemoryStore(), levels, dailyLevels: JSON.parse(fs.readFileSync(path.join(__dirname, 'dailyLevels.json'), 'utf8')).levels }));
+        await new Promise(r => apiServer.listen(0, '127.0.0.1', r));
+        const apiUrl = `http://127.0.0.1:${apiServer.address().port}`;
+        try {
+            const cloudDevice = async (seed) => {
+                const c = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+                await c.addInitScript(([api, save]) => {
+                    localStorage.setItem('planetilt.api', api);
+                    if (save && !sessionStorage.getItem('seeded')) {
+                        sessionStorage.setItem('seeded', '1');
+                        localStorage.setItem('marbleRush.progress.v1', JSON.stringify(save));
+                    }
+                }, [apiUrl, seed]);
+                const pg = await c.newPage();
+                pg.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
+                await pg.goto(base);
+                await homeUp(pg);
+                await pg.waitForFunction(() => window.__cloudSync && window.__cloudSync.status() === 'synced', null, { timeout: 15000 });
+                return { c, pg, dbg: (fn, ...args) => pg.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]) };
+            };
+            const today = new Date();
+            const dayKeyNow = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            const d1 = await cloudDevice({ v: 1, wallet: 777, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: dayKeyNow } });
+            await d1.pg.tap('#tab_gear');
+            await d1.pg.waitForSelector('#cloudSection', { state: 'visible' });
+            check((await d1.pg.textContent('#cloudStatus')).trim() === 'SAVED TO THE CLOUD' && /^Playing as Guest-/.test(await d1.pg.textContent('#cloudName')),
+                'with a server, Gear shows the cloud save synced, playing as a guest');
+            // Clear level 1: ranked on the CLEARED panel, and on the board.
+            await d1.pg.tap('#tab_worlds');
+            await d1.pg.waitForSelector('#mazeSelect', { state: 'visible' });
+            await d1.pg.locator('.level-node').first().tap();
+            await d1.pg.waitForSelector('#mazeStartBtn', { state: 'visible' });
+            await d1.pg.tap('#mazeStartBtn');
+            await d1.pg.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            const l1 = levels.find(l => l.id === 'w1_01');
+            await d1.dbg('ageRun', l1.goldMs + 2000);
+            check(await d1.dbg('warpToGoal'), 'device 1 clears level 1');
+            await d1.pg.waitForSelector('#mazeRankBtn', { state: 'visible' });
+            await d1.pg.waitForFunction(() => /^#1 OF 1$/.test(document.getElementById('mazeRankText').textContent), null, { timeout: 10000 }).catch(() => {});
+            check((await d1.pg.textContent('#mazeRankText')).trim() === '#1 OF 1', `the clear is ranked on the CLEARED panel (${await d1.pg.textContent('#mazeRankText')})`);
+            await d1.pg.tap('#mazeRankBtn');
+            await d1.pg.waitForSelector('#boardList li.is-you', { timeout: 10000 }).catch(() => {});
+            check(await d1.pg.locator('#boardList li').count() === 1 && await d1.pg.locator('#boardList li.is-you').count() === 1 && /#1 of 1/.test(await d1.pg.textContent('#boardYou')),
+                'the leaderboard lists the time as yours');
+            await d1.pg.tap('#boardCloseBtn');
+            check(await d1.pg.isHidden('#boardPanel'), 'the leaderboard closes');
+            await d1.pg.tap('#mazeLevelsBtn');
+            await d1.pg.waitForFunction(() => window.__cloudSync.status() === 'synced');
+            const d1prog = await d1.dbg('progress');
+            // A code, and device 2 joins with it.
+            await d1.pg.tap('#tab_gear');
+            await d1.pg.tap('#cloudLinkBtn');
+            await d1.pg.waitForSelector('#cloudCode', { state: 'visible' });
+            const code = (await d1.pg.textContent('#cloudCode')).slice(0, 6);
+            check(/^[A-Z2-9]{6}$/.test(code), `GET A CODE shows a six-letter code (${code})`);
+            const d2 = await cloudDevice(null);
+            check((await d2.dbg('progress')).wallet !== d1prog.wallet, 'device 2 starts as its own player');
+            await d2.pg.tap('#tab_gear');
+            await d2.pg.fill('#cloudCodeInput', code.toLowerCase());
+            await d2.pg.tap('#cloudClaimForm button');
+            await d2.pg.waitForFunction(() => /^Joined/.test(document.getElementById('cloudMsg').textContent), null, { timeout: 10000 }).catch(() => {});
+            const d2prog = await d2.dbg('progress');
+            check(/^Joined/.test(await d2.pg.textContent('#cloudMsg')), `joining says so (${await d2.pg.textContent('#cloudMsg')})`);
+            check(d2prog.cleared.w1_01 && d2prog.cleared.w1_02 && d2prog.highestIndex === d1prog.highestIndex && d2prog.wallet === d1prog.wallet,
+                `device 2 has device 1's clears and coins: ${JSON.stringify({ w: d2prog.wallet, w1: d1prog.wallet, h: d2prog.highestIndex })}`);
+            check((await d2.pg.textContent('#cloudName')) === (await d1.pg.textContent('#cloudName')), 'both devices play as the same player');
+            check((await d2.pg.textContent('#profileWallet')).replace(/,/g, '').trim() === String(d1prog.wallet), 'the Gear page redraws with the joined coins');
+            await d1.c.close();
+            await d2.c.close();
+        } finally { apiServer.close(); }
+
         // --- ads, against a stand-in CrazyGames SDK -------------------------
         // The real SDK script is swapped for nothing and window.CrazyGames is
         // a fake whose ads finish at once, so every rewarded flow can be
@@ -883,6 +962,6 @@ const check = (c, m) => { if (!c) failures.push(m); };
         console.error('FAIL: maze boot\n - ' + failures.join('\n - '));
         process.exitCode = 1;
     } else {
-        console.log('PASS: maze boot -- the page boots to home with level 1 offered, the tab bar switches screens, a run steers the right way on keys, collects coins, falls and restarts, conveyors carry the ball, a clear is banked by the progress store, the store and profile buy and select, bought power-ups and the marble reach the run, and it all survives a reload');
+        console.log('PASS: maze boot -- the page boots to home with level 1 offered, the tab bar switches screens, a run steers the right way on keys, collects coins, falls and restarts, conveyors carry the ball, a clear is banked by the progress store, the store and profile buy and select, bought power-ups and the marble reach the run, it all survives a reload, and with a server the save syncs, clears are ranked and a code joins two devices');
     }
 })().catch(e => { console.error(e); process.exitCode = 1; });

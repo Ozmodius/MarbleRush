@@ -144,6 +144,23 @@
     <div id="profileTrails" class="look-grid"></div>
     <p class="shop-section">CARRYING</p>
     <div id="profileInventory" class="profile-inventory"></div>
+    <!-- CLOUD SAVE (cloudSync.js, leaderboardUi.js): hidden with no server -->
+    <div id="cloudSection" hidden>
+      <p class="shop-section">CLOUD SAVE</p>
+      <div class="cloud-card">
+        <p class="cloud-status"><span id="cloudDot" class="cloud-dot"></span><span id="cloudStatus">CONNECTING…</span></p>
+        <p id="cloudName" class="cloud-name"></p>
+        <button id="cloudLoginBtn" class="maze-btn" type="button" hidden>SIGN IN TO CRAZYGAMES</button>
+        <p class="cloud-help">Play on another device as this player: make a code here, enter it there.</p>
+        <button id="cloudLinkBtn" class="maze-btn" type="button">GET A CODE</button>
+        <p id="cloudCode" class="cloud-code" hidden></p>
+        <form id="cloudClaimForm" class="cloud-claim" autocomplete="off">
+          <input id="cloudCodeInput" type="text" inputmode="text" maxlength="6" placeholder="ENTER CODE" aria-label="Code from your other device" spellcheck="false">
+          <button class="maze-btn" type="submit">JOIN</button>
+        </form>
+        <p id="cloudMsg" class="cloud-msg" role="status"></p>
+      </div>
+    </div>
   </div>
   <div id="profileBanner" class="ad-banner" aria-hidden="true"></div>
 </section>
@@ -212,10 +229,22 @@
     <button id="mazeNextBtn" class="maze-btn maze-btn-big" type="button">NEXT</button>
     <button id="mazeReplayBtn" class="maze-btn" type="button" style="display:none">REPLAY</button>
     <button id="mazeWalkBtn" class="maze-btn maze-walkbtn" type="button" style="display:none"><span class="walk-icon" aria-hidden="true">👣</span>WALK IT</button>
+    <button id="mazeRankBtn" class="maze-btn maze-rankbtn" type="button" hidden><span aria-hidden="true">🏆</span><span id="mazeRankText">LEADERBOARD</span></button>
     <button id="mazeLevelsBtn" class="maze-btn" type="button">LEVELS</button>
     <button id="mazeWinExitBtn" class="maze-btn" type="button" style="display:none">EXIT</button>
   </div>
 </section>
+
+<!-- LEADERBOARD: best times on one level (leaderboardUi.js) -->
+<div id="boardPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="boardTitle" hidden>
+  <div class="modal-card">
+    <button id="boardCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+    <h2 id="boardTitle" class="modal-title">LEADERBOARD</h2>
+    <p id="boardNote" class="modal-note"></p>
+    <ol id="boardList" class="board-list"></ol>
+    <p id="boardYou" class="board-you"></p>
+  </div>
+</div>
 
 <!-- DAILY REWARD: the 7-day calendar (daily.js, dailyUi.js) -->
 <div id="dailyPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="dailyTitle" hidden>
