@@ -447,6 +447,19 @@ export async function showPlatformLogin() {
 }
 
 // ---------------------------------------------------------------------------
+// The PlaneTilt API (server/, cloudSync.js)
+// ---------------------------------------------------------------------------
+// Where the cloud save and leaderboard server is, or null for none (the game
+// then plays exactly as it does without one). The build writes
+// window.__PLANETILT_API__ from PLANETILT_API_URL; a 'planetilt.api' entry in
+// localStorage overrides it, for trying a local server from the dev page.
+export function apiBase() {
+    let url = g.__PLANETILT_API__ || null;
+    try { url = (g.localStorage && g.localStorage.getItem('planetilt.api')) || url; } catch (_) { /* storage blocked */ }
+    return url ? String(url).replace(/\/+$/, '') : null;
+}
+
+// ---------------------------------------------------------------------------
 // Save data (PlaneTilt's progress store, progressStore.js)
 // ---------------------------------------------------------------------------
 // One string per key. On CrazyGames this is the SDK's data module, which keeps

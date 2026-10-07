@@ -72,6 +72,20 @@ export function openingYaw(lv) {
     return bestLen > 0 ? best : toGoal;
 }
 
+// THIRD PERSON: the camera behind the walker and above the wall tops, looking
+// down at it and on along its way. Looking up or down raises or lowers the
+// camera round the marble (an orbit), rather than tilting the view.
+export const THIRD = { dist: 2.5, elevation: 0.72, ahead: 1.0, minElev: 0.35, maxElev: 1.3 };
+export function thirdPersonPose(p, yaw, pitch) {
+    const elev = Math.max(THIRD.minElev, Math.min(THIRD.maxElev, THIRD.elevation - pitch * 0.9));
+    const F = forwardOf(yaw);
+    const back = Math.cos(elev) * THIRD.dist, up = Math.sin(elev) * THIRD.dist;
+    return {
+        eye: { x: p.x - F.x * back, y: p.y + up, z: p.z - F.z * back },
+        look: { x: p.x + F.x * THIRD.ahead, y: p.y, z: p.z + F.z * THIRD.ahead }
+    };
+}
+
 export function clampPitch(p) { return Math.max(-PITCH_MAX, Math.min(PITCH_MAX, p)); }
 
 // The point the camera looks at, from the eye, for a yaw and pitch.
@@ -85,7 +99,7 @@ export function lookPoint(eye, yaw, pitch) {
 // screen are a floating joystick (move), anywhere else drags the view (look);
 // both can be held at once with two fingers. Keys: W/S or Up/Down walk, A/D
 // strafe, Left/Right or Q/E turn. Buttons keep their taps.
-export function createWalkInput({ active, onFirstInput, stickEl }) {
+export function createWalkInput({ active, onFirstInput, stickEl, padEl }) {
     const keys = new Set();
     let stick = null;          // { id, x0, y0, x, y }
     let look = null;           // { id, x, y }
@@ -94,10 +108,18 @@ export function createWalkInput({ active, onFirstInput, stickEl }) {
         KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back',
         KeyA: 'left', KeyD: 'right', ArrowLeft: 'turnL', ArrowRight: 'turnR', KeyQ: 'turnL', KeyE: 'turnR'
     };
+    // The joystick is always on screen on touch devices (CSS puts it at its
+    // home spot); a press on the left jumps it under the thumb, and letting go
+    // sends it home. The look pad lights while a look drag is held.
     const showStick = () => {
+        if (padEl) padEl.classList.toggle('is-active', !!look);
         if (!stickEl) return;
-        stickEl.hidden = !stick;
-        if (!stick) return;
+        stickEl.classList.toggle('is-active', !!stick);
+        if (!stick) {
+            stickEl.style.left = ''; stickEl.style.top = '';
+            stickEl.style.setProperty('--dx', '0px'); stickEl.style.setProperty('--dy', '0px');
+            return;
+        }
         stickEl.style.left = stick.x0 + 'px';
         stickEl.style.top = stick.y0 + 'px';
         const dx = Math.max(-1, Math.min(1, (stick.x - stick.x0) / STICK_FULL_PX)) * STICK_FULL_PX;
@@ -122,7 +144,7 @@ export function createWalkInput({ active, onFirstInput, stickEl }) {
             if (e.clientX < window.innerWidth * 0.45 && !stick) {
                 stick = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY };
                 showStick();
-            } else if (!look) look = { id: e.pointerId, x: e.clientX, y: e.clientY };
+            } else if (!look) { look = { id: e.pointerId, x: e.clientX, y: e.clientY }; showStick(); }
             onFirstInput && onFirstInput();
         });
         window.addEventListener('pointermove', (e) => {
@@ -134,7 +156,7 @@ export function createWalkInput({ active, onFirstInput, stickEl }) {
         });
         const end = (e) => {
             if (stick && e.pointerId === stick.id) { stick = null; showStick(); }
-            if (look && e.pointerId === look.id) look = null;
+            if (look && e.pointerId === look.id) { look = null; showStick(); }
         };
         window.addEventListener('pointerup', end);
         window.addEventListener('pointercancel', end);

@@ -7,7 +7,8 @@
 //
 //   index.html        the dev page, with the importmap removed, the module
 //                     script swapped for game.js, and the platform flag plus
-//                     the CrazyGames SDK injected at BUILD:PLATFORM
+//                     the CrazyGames SDK injected at BUILD:PLATFORM (and
+//                     the API URL, when PLANETILT_API_URL is set)
 //   game.js           main.js and everything it imports (three, cannon-es
 //                     included), bundled and minified by esbuild
 //   style.css         as-is
@@ -35,9 +36,16 @@ const WEB = process.argv.includes('--web');
 const OUT = path.join(ROOT, 'dist', WEB ? 'web' : 'crazygames');
 const ZIP = WEB ? null : path.join(ROOT, 'dist', 'planetilt-crazygames.zip');
 
-const PLATFORM_TAGS = WEB ? '' : [
-    '<script>window.__PLATFORM__ = \'crazygames\';</script>',
-    '<script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>'
+// The cloud save / leaderboard server (server/), when PLANETILT_API_URL is
+// set at build time; without it the game builds exactly as before, no server.
+const API = (process.env.PLANETILT_API_URL || '').trim().replace(/\/+$/, '');
+if (API && !/^https?:\/\/[^\s"'<>]+$/.test(API)) throw new Error('PLANETILT_API_URL is not a URL: ' + API);
+const API_TAG = API ? `<script>window.__PLANETILT_API__ = ${JSON.stringify(API)};</script>` : '';
+
+const PLATFORM_TAGS = [
+    ...(WEB ? [] : ['<script>window.__PLATFORM__ = \'crazygames\';</script>']),
+    ...(API_TAG ? [API_TAG] : []),
+    ...(WEB ? [] : ['<script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>'])
 ].join('\n');
 
 function page() {
@@ -87,6 +95,7 @@ async function build() {
         console.log('Built ' + path.relative(ROOT, OUT) + '/ (web, no SDK):');
     }
     for (const e of entries) console.log('  ' + e.name.padEnd(18) + kb(e.name));
+    console.log(API ? 'Cloud save + leaderboards: ' + API : 'No PLANETILT_API_URL: built without the cloud server.');
 }
 
 build().catch(e => { console.error(e); process.exit(1); });

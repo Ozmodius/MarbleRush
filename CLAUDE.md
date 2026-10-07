@@ -59,17 +59,26 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
 - **Upgrades and characters buy control and forgiveness, never top speed or a
   smaller ball.** Ball radius belongs to the world. A character or upgrade that
   changed either would void the verifier's guarantees and every gold time.
-- **No server.** Progress is client-side (CrazyGames cloud save, localStorage
-  for guests). Do not add a backend without the user's call; a leaderboard or a
-  real-money purchase is what would change that.
+- **The server is optional and local-first** (`server/`, added 2026-10-07 on
+  the user's call, for cross-device saves and leaderboards). The device save
+  (CrazyGames cloud save, localStorage for guests) is still the one the game
+  plays from; `cloudSync.js` copies it up in the background and MERGES, never
+  overwrites (`mergeProgress` in `progressStore.js`, which the server imports
+  too -- change it in one place). Nothing in a run may wait on the network,
+  and with no `PLANETILT_API_URL` the game must play exactly as before. A new
+  save field needs a merge rule in `mergeProgress` and a case in
+  `test_sync.js`. Do not add server features beyond saves and boards (no
+  accounts of our own, no real-money purchases) without the user's call.
+  `npm test` runs `server/` tests too (`npm ci --prefix server` first);
+  `TEST_DATABASE_URL` runs them against a real Postgres.
 - **No ad during a run, ever.** Midgame ads only at natural breaks; rewarded
   ads only on a tap the player chose. `platform.js`'s `showMidgameAd` /
   `showRewardedAd` already resolve false on the web and on any SDK failure.
 - **The CrazyGames bundle is flat** (no folders): CrazyGames' drag-and-drop
   upload can drop subfolders. Ball Smack's `scripts/buildCrazyGames.js` is the
   model when the build script is written.
-- **One codebase, two platforms** if a web build is added: only `platform.js`
-  may know which platform it is on.
+- **One codebase, two platforms**: only `platform.js` may know which platform
+  it is on (it also holds the API URL, `apiBase()`).
 
 ## Visual changes
 

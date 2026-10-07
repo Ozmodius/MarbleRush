@@ -26,7 +26,7 @@ import { buildSolarSystem } from './solarSystem3d.js';
 import { isUnlocked, nearMiss, walkGoldMs } from './progressStore.js';
 import { createWalkHud } from './walkHud.js';
 import { openComfort, closeComfort } from './comfortUi.js';
-import { createWalkInput, wantedVelocity, walkImpulse, clampPitch, lookPoint, openingYaw, EYE_ABOVE_CENTRE } from './walkMode.js';
+import { createWalkInput, wantedVelocity, walkImpulse, clampPitch, lookPoint, openingYaw, thirdPersonPose, EYE_ABOVE_CENTRE } from './walkMode.js';
 import { MISSIONS } from './shopCatalog.js';
 import { applySkin } from './skins3d.js';
 import { createTrail } from './trail3d.js';
@@ -178,7 +178,20 @@ const WALK_HINT = 'LEFT: MOVE  ·  RIGHT: LOOK  ·  OR WASD';
 const _walkEye = new THREE.Vector3();
 const _walkLook = new THREE.Vector3();
 
-function comfortNow() { return progressNow().comfort || { fov: 75, sens: 1, invertY: false, bob: false, vignette: true }; }
+function comfortNow() { return progressNow().comfort || { fov: 75, sens: 1, invertY: false, bob: false, vignette: true, thirdPerson: true }; }
+function walkThird() { return comfortNow().thirdPerson !== false; }
+
+// Walking third person, the marble is on screen (with its trail); first
+// person, the camera is inside it, so it is hidden.
+function syncWalkView() {
+    const show = !walkMode || walkThird();
+    if (ballMesh) ballMesh.visible = show;
+    if (trail) trail.object.visible = show;
+    const b = el('mazeViewBtn');
+    if (b) { b.textContent = walkThird() ? '3P' : '1P'; b.setAttribute('aria-label', walkThird() ? 'View: third person (tap for first person)' : 'View: first person (tap for third person)'); }
+}
+const _thirdEye = new THREE.Vector3();
+let thirdEyeSet = false;
 
 // The camera's field of view is the scene host's; walking widens it to the
 // comfort setting, and anything else puts the original back.
@@ -194,6 +207,17 @@ function setWalkFov(on) {
 
 function computeWalkPose() {
     const p = ballBody.position;
+    if (walkThird()) {
+        // Behind and above, eased so the camera glides rather than jitters.
+        const tp = thirdPersonPose(p, walkYaw, walkPitch);
+        if (!thirdEyeSet) { _thirdEye.set(tp.eye.x, tp.eye.y, tp.eye.z); thirdEyeSet = true; }
+        _thirdEye.x += (tp.eye.x - _thirdEye.x) * 0.3;
+        _thirdEye.y += (tp.eye.y - _thirdEye.y) * 0.3;
+        _thirdEye.z += (tp.eye.z - _thirdEye.z) * 0.3;
+        _walkEye.copy(_thirdEye);
+        _walkLook.set(tp.look.x, tp.look.y, tp.look.z);
+        return { pos: _walkEye, lookAt: _walkLook };
+    }
     const bob = comfortNow().bob ? Math.sin(walkBob) * 0.012 * Math.min(1, walkSpeedNow / WALK.speed) : 0;
     _walkEye.set(p.x, p.y + EYE_ABOVE_CENTRE + bob, p.z);
     const lp = lookPoint(_walkEye, walkYaw, walkPitch);
@@ -667,9 +691,9 @@ function buildLevelMeshes(lv, theme) {
     ballMesh = new THREE.Mesh(ballGeo, ballMat);
     ballMesh.castShadow = true;
     group.add(ballMesh);
-    // Walking, the ball is the walker: no marble on screen, no trail.
-    ballMesh.visible = !walkMode;
-    trail = walkMode ? null : createTrail(worn.trail, lv.ballRadius);
+    // Walking, the ball is the walker: on screen in third person, hidden in
+    // first (syncWalkView).
+    trail = createTrail(worn.trail, lv.ballRadius);
     if (trail) group.add(trail.object);
 
     track(group);
@@ -1173,6 +1197,7 @@ function checkOutcomes() {
 // instead of the run: the ball is put back, stopped, on the last safe spot it
 // rolled over (mazePickups.js). Otherwise it falls.
 function knockOut(message) {
+    if (captureNoKnockOut) return;   // marketing captures only (scripts/marketing/)
     const back = absorbFall(pickupState);
     if (back) {
         // A bought shield is spent from the purchase, so a restart does not
@@ -1272,6 +1297,11 @@ async function freeShieldFromAd() {
     setStatus('SHIELD READY  —  IT ARMS WHEN YOU START');
 }
 
+// Told of each win: { board, ms, levelName, walk, daily }, or null when the
+// clear did not count.
+let clearListener = null;
+export function setClearListener(fn) { clearListener = fn || null; }
+
 function win() {
     phase = 'won';
     renderPowerups();
@@ -1294,6 +1324,16 @@ function win() {
     world.gravity.set(0, -GRAVITY, 0);
     mazeGroup.rotation.set(0, 0, 0);
     try { uiSfx.open(); } catch (e) { /* ignore */ }
+    // The leaderboards (cloudSync.js, via main.js) hear of every win: the
+    // clear when it counted, null when it did not.
+    if (clearListener) {
+        const counted = !!(result && result.accepted);
+        const board = !counted ? null : walkMode ? `walk:${level.id}`
+            : isDaily(level) ? `daily:${store.dailyMaze().date}:${level.id}`
+            : `roll:${level.id}`;
+        const info = counted ? { board, ms, levelName: level.name, walk: walkMode, daily: isDaily(level) } : null;
+        try { clearListener(info); } catch (e) { console.warn('[maze] clear listener:', e && e.message); }
+    }
     showClearResult(result, ms);
     showNearMiss(result);
     lastClear = result && result.accepted && result.earned > 0 ? result : null;
@@ -1672,6 +1712,9 @@ function startLevel(levelId, opts = {}) {
     showEl('mazeCamBtn', !walkMode);
     showEl('mazeRecenterBtn', !walkMode);
     showEl('mazeComfortBtn', walkMode);
+    showEl('mazeViewBtn', walkMode);
+    thirdEyeSet = false;
+    syncWalkView();
     if (walkMode) {
         const kit = prog.explorer || [];
         walkHud = createWalkHud({ level: lv, compass: kit.includes('compass'), map: kit.includes('map') });
@@ -1741,9 +1784,16 @@ function nextLevelAfter(lv) {
     return allLevels.find(l => l.index === lv.index + 1) || null;
 }
 
+// Marketing captures only (scripts/marketing/): a camera placed by hand, for
+// cover art and trailer shots the game's own cameras never take. Null in play.
+let cameraOverride = null;
+// Marketing captures only: the autopilot cannot time traps, so a capture run
+// is not ended by one. Never set in play.
+let captureNoKnockOut = false;
+
 const exclusive = {
     isActive: () => active,
-    getPose: () => (!active ? null : phase === 'menu' ? computeMenuPose() : (level ? computeCameraPose() : null))
+    getPose: () => (!active ? null : cameraOverride ? cameraOverride : phase === 'menu' ? computeMenuPose() : (level ? computeCameraPose() : null))
 };
 
 export function isMazeActive() { return active; }
@@ -1892,11 +1942,34 @@ window.__mazeDebug = {
     } : null),
     // Roll the ball: set its velocity (units/s) without moving it.
     setBallVelocity: (vx, vz) => { if (!ballBody) return false; ballBody.velocity.set(vx, 0, vz); return true; },
+    // Marketing captures: nudge the ball's floor velocity a share k toward (vx, vz).
+    setBallVelocityBlend: (vx, vz, k) => {
+        if (!ballBody || phase !== 'running') return false;
+        const v = ballBody.velocity;
+        v.x += (vx - v.x) * k; v.z += (vz - v.z) * k;
+        return true;
+    },
     trial: () => ({ trial: marbleTrial(), ball: ballSpec.id }),
     trail: () => (trail ? trail.info() : null),
     // The 3D view as a PNG data URL, rendered now: for screenshots taken under
     // a test clock, when no browser frame may come.
-    snapshot: () => { const r = getRenderer(); if (!r || !scene) return null; r.render(scene, getCamera()); return r.domElement.toDataURL('image/png'); },
+    // { px, py, pz, lx, ly, lz } puts the camera there, null gives it back.
+    captureNoKnockOut: (on) => { captureNoKnockOut = !!on; return captureNoKnockOut; },
+    cameraOverride: (c) => {
+        cameraOverride = c ? { pos: new THREE.Vector3(c.px, c.py, c.pz), lookAt: new THREE.Vector3(c.lx, c.ly, c.lz) } : null;
+        requestRender();
+        return !!cameraOverride;
+    },
+    // Renders with the current pose (the override if set); `type` 'image/jpeg'
+    // makes the many frames of a video capture cheaper.
+    snapshot: (type = 'image/png', quality = 0.92) => {
+        const r = getRenderer(), cam = getCamera();
+        if (!r || !scene) return null;
+        const pose = exclusive.getPose();
+        if (pose) { cam.position.copy(pose.pos); cam.lookAt(pose.lookAt); }
+        r.render(scene, cam);
+        return r.domElement.toDataURL(type, quality);
+    },
     // The CONTINUE countdown runs on the wall clock; a test holds it rather
     // than racing a throttled sandbox to the button.
     holdFallOffer: (on) => { offerHeld = !!on; return phase; },
@@ -2118,12 +2191,20 @@ export function initMazeControls() {
     bindTap('mazeUse_slowmo', () => { useRunCharge('slowmo'); });
     bindTap('mazeUse_magnet', () => { useRunCharge('magnet'); });
     bindTap('mazeCamBtn', () => { setBallCam(!ballCamOn); });
-    bindTap('mazeComfortBtn', () => { if (store) openComfort(store, () => { if (walkMode) setWalkFov(true); }); });
+    bindTap('mazeComfortBtn', () => { if (store) openComfort(store, () => { if (walkMode) { setWalkFov(true); thirdEyeSet = false; syncWalkView(); } }); });
+    // 1P / 3P: the walk view, saved with the comfort settings.
+    bindTap('mazeViewBtn', () => {
+        if (!store || !walkMode) return;
+        store.setComfort({ thirdPerson: !walkThird() });
+        thirdEyeSet = false;
+        syncWalkView();
+    });
     bindTap('mazeWalkBtn', () => { const id = level && level.id; if (id) afterBreak(() => walkLevel(id)); });
     walkInput = createWalkInput({
         active: () => active && walkMode && (phase === 'running' || phase === 'ready'),
         onFirstInput: () => { if (walkHintShown && phase === 'running') { walkHintShown = false; setStatus(''); } },
-        stickEl: el('walkStick')
+        stickEl: el('walkStick'),
+        padEl: el('walkPad')
     });
     bindTap('mazeRecenterBtn', () => {
         recenterPending = true;

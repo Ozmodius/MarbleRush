@@ -144,6 +144,23 @@
     <div id="profileTrails" class="look-grid"></div>
     <p class="shop-section">CARRYING</p>
     <div id="profileInventory" class="profile-inventory"></div>
+    <!-- CLOUD SAVE (cloudSync.js, leaderboardUi.js): hidden with no server -->
+    <div id="cloudSection" hidden>
+      <p class="shop-section">CLOUD SAVE</p>
+      <div class="cloud-card">
+        <p class="cloud-status"><span id="cloudDot" class="cloud-dot"></span><span id="cloudStatus">CONNECTING…</span></p>
+        <p id="cloudName" class="cloud-name"></p>
+        <button id="cloudLoginBtn" class="maze-btn" type="button" hidden>SIGN IN TO CRAZYGAMES</button>
+        <p class="cloud-help">Play on another device as this player: make a code here, enter it there.</p>
+        <button id="cloudLinkBtn" class="maze-btn" type="button">GET A CODE</button>
+        <p id="cloudCode" class="cloud-code" hidden></p>
+        <form id="cloudClaimForm" class="cloud-claim" autocomplete="off">
+          <input id="cloudCodeInput" type="text" inputmode="text" maxlength="6" placeholder="ENTER CODE" aria-label="Code from your other device" spellcheck="false">
+          <button class="maze-btn" type="submit">JOIN</button>
+        </form>
+        <p id="cloudMsg" class="cloud-msg" role="status"></p>
+      </div>
+    </div>
   </div>
   <div id="profileBanner" class="ad-banner" aria-hidden="true"></div>
 </section>
@@ -177,12 +194,15 @@
     <span class="maze-coins"><span class="coin-dot"></span><span id="mazeCoins"></span></span>
     <button id="mazeCamBtn" class="maze-btn maze-btn-small maze-cambtn" type="button" aria-label="Ball cam" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.4-2h7.8l1.4 2h2.2A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.6"/></svg></button>
     <button id="mazeRecenterBtn" class="maze-btn maze-btn-small" type="button" aria-label="Recenter tilt">⊙</button>
+    <button id="mazeViewBtn" class="maze-btn maze-btn-small maze-viewbtn" type="button" aria-label="View" style="display:none">3P</button>
     <button id="mazeComfortBtn" class="maze-btn maze-btn-small maze-cambtn" type="button" aria-label="Walk comfort settings" style="display:none"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
   </div>
   <div id="mazeStatus" class="maze-status"></div>
   <!-- Walking (the Labyrinth): edge vignette, floating joystick -->
   <div id="walkVignette" class="walk-vignette" aria-hidden="true"></div>
-  <div id="walkStick" class="walk-stick" aria-hidden="true" hidden><span class="walk-knob"></span></div>
+  <!-- Touch controls (phones and tablets): a joystick to move, a pad to look -->
+  <div id="walkStick" class="walk-stick walk-touch" aria-hidden="true"><span class="walk-knob"></span></div>
+  <div id="walkPad" class="walk-pad walk-touch" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h16M12 4v16"/><path d="m7 9-3 3 3 3M17 9l3 3-3 3M9 7l3-3 3 3M9 17l3 3 3-3"/></svg><span>LOOK</span></div>
   <!-- Explorer kit (walkHud.js): shown only when owned -->
   <div id="walkCompass" class="walk-compass" hidden><span class="compass-arrow" aria-hidden="true"></span><span class="compass-dist">0 m</span><span class="compass-label">EXIT</span></div>
   <canvas id="walkMap" class="walk-map" hidden aria-label="Explorer map"></canvas>
@@ -209,10 +229,22 @@
     <button id="mazeNextBtn" class="maze-btn maze-btn-big" type="button">NEXT</button>
     <button id="mazeReplayBtn" class="maze-btn" type="button" style="display:none">REPLAY</button>
     <button id="mazeWalkBtn" class="maze-btn maze-walkbtn" type="button" style="display:none"><span class="walk-icon" aria-hidden="true">👣</span>WALK IT</button>
+    <button id="mazeRankBtn" class="maze-btn maze-rankbtn" type="button" hidden><span aria-hidden="true">🏆</span><span id="mazeRankText">LEADERBOARD</span></button>
     <button id="mazeLevelsBtn" class="maze-btn" type="button">LEVELS</button>
     <button id="mazeWinExitBtn" class="maze-btn" type="button" style="display:none">EXIT</button>
   </div>
 </section>
+
+<!-- LEADERBOARD: best times on one level (leaderboardUi.js) -->
+<div id="boardPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="boardTitle" hidden>
+  <div class="modal-card">
+    <button id="boardCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+    <h2 id="boardTitle" class="modal-title">LEADERBOARD</h2>
+    <p id="boardNote" class="modal-note"></p>
+    <ol id="boardList" class="board-list"></ol>
+    <p id="boardYou" class="board-you"></p>
+  </div>
+</div>
 
 <!-- DAILY REWARD: the 7-day calendar (daily.js, dailyUi.js) -->
 <div id="dailyPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="dailyTitle" hidden>
@@ -263,6 +295,7 @@
       <label class="comfort-row"><span>Field of view</span><input id="comfortFov" type="range" step="1"><span id="comfortFovVal" class="comfort-val"></span></label>
       <label class="comfort-row"><span>Look speed</span><input id="comfortSens" type="range" step="0.1"><span id="comfortSensVal" class="comfort-val"></span></label>
       <label class="comfort-row comfort-toggle"><span>Invert look up/down</span><input id="comfortInvert" type="checkbox"></label>
+      <label class="comfort-row comfort-toggle"><span>Third person (camera behind the marble)</span><input id="comfortThird" type="checkbox"></label>
       <label class="comfort-row comfort-toggle"><span>Head bob</span><input id="comfortBob" type="checkbox"></label>
       <label class="comfort-row comfort-toggle"><span>Darken edges while moving</span><input id="comfortVignette" type="checkbox"></label>
     </div>

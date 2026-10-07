@@ -1,0 +1,19 @@
+{
+  "name": "planetilt-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PlaneTilt cloud saves and leaderboards. See server/README.md.",
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test.js && node test_cloud.js"
+  },
+  "dependencies": {
+    "jose": "^5.10.0",
+    "pg": "^8.23.1"
+  }
+}

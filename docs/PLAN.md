@@ -16,11 +16,29 @@ This file records the decisions so they travel with the code.
   target inside 3dBallSmack; Oz chose a separate repo instead. The maze code was
   copied from 3dBallSmack @ `eaa3b6d`, so fixes to the shared physics, hazards or
   generator must now be ported by hand in whichever direction they land.
-- **No server.** Progress (coins, stars, best times, characters, upgrades, daily
-  streak) is one versioned JSON blob in CrazyGames' cloud save for signed-in
-  players and localStorage for guests, same shape, so a guest who signs in
-  keeps their progress. Acceptable because nothing is competitive and no real
-  money changes hands; revisit the day a leaderboard or a purchase arrives.
+- **No server** (2026-10-05) -- **until leaderboards and cross-device saves
+  (2026-10-07, Oz's call).** Progress (coins, stars, best times, characters,
+  upgrades, daily streak) is one versioned JSON blob in CrazyGames' cloud save
+  for signed-in players and localStorage for guests, same shape, so a guest
+  who signs in keeps their progress. That stays the save the game plays from.
+  Since 2026-10-07 a small API (`server/`, Node + Postgres on Render) adds:
+  - *Cloud save across platforms and devices*, local first: the device save
+    is copied up in the background and the two are MERGED both ways
+    (`mergeProgress`): earned things combine to the best of both, coins and
+    charges come from the newer save, except that a device JOINING a player
+    (a link code, a CrazyGames sign-in) takes that player's coins. Never an
+    overwrite, so a stale device cannot undo a newer one.
+  - *Leaderboards*: best time per level for rolling, walking and each day's
+    daily maze; a rank on the CLEARED panel and a top-10 modal. Times under
+    the level's `minMs` floor (3x for walks) are refused.
+  - *Players*: guests (a random device token, "Guest-XXXX"), CrazyGames
+    accounts (their signed user token, verified with CrazyGames' public key;
+    a guest's save and times fold into the account on sign-in), and 6-letter
+    link codes to play as the same player on another device.
+  With no API URL in the build the game is exactly what it was. Times are
+  checked only against the physical floor; if cheating shows up, the next
+  step is to have the server replay-check clears, not to trust the client
+  more.
 - **Upgrades buy control and forgiveness, never speed or size.** Ball radius
   belongs to the world (the shrinking marble is what buys tighter mazes), and
   the verifier and gold times assume it. Characters vary mass, grip and response.
