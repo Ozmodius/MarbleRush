@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PlaneTilt cover</title>
+<!-- Store art compositor (capture.cjs): a game render as the background and
+     the home screen's PlaneTilt wordmark over it. ?bg= the render, ?logo=
+     left | top | center, ?tag=1 adds the line under it, ?w= ?h= the size. -->
+<link rel="stylesheet" href="/style.css">
+<style>
+  html, body { margin: 0; overflow: hidden; background: #000; }
+  .stage { position: relative; background-size: cover; background-position: center; }
+  .shade { position: absolute; inset: 0; }
+  .wrap { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 0.2em; }
+  .wrap .home-logo { animation: none !important; margin: 0; }
+  .tag { font: 800 1em/1.2 system-ui, sans-serif; letter-spacing: 0.18em; color: #fff4dc; text-shadow: 0 2px 10px rgba(0,0,0,.8); }
+  .is-left .wrap { left: 6%; top: 50%; translate: 0 -50%; align-items: flex-start; }
+  .is-left .shade { background: linear-gradient(90deg, rgba(10,7,5,.72), rgba(10,7,5,.25) 45%, rgba(10,7,5,0) 70%); }
+  .is-top .wrap { left: 0; right: 0; top: 6%; }
+  .is-top .shade { background: linear-gradient(rgba(10,7,5,.7), rgba(10,7,5,.15) 38%, rgba(10,7,5,0) 60%); }
+  .is-center .wrap { left: 0; right: 0; top: 50%; translate: 0 -55%; }
+  .is-center .shade { background: radial-gradient(ellipse at center, rgba(10,7,5,.55), rgba(10,7,5,.2) 60%, rgba(10,7,5,.5)); }
+</style>
+</head>
+<body>
+<div id="stage" class="stage">
+  <div class="shade"></div>
+  <div class="wrap">
+    <h1 class="home-logo" aria-label="PlaneTilt"><span class="logo-plane">Plane</span><span class="logo-tilt">T<span class="logo-i"></span>lt</span></h1>
+    <p id="tag" class="tag" hidden>TILT · ROLL · ESCAPE THE MAZE</p>
+  </div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const w = +q.get('w'), h = +q.get('h');
+  const s = document.getElementById('stage');
+  s.style.width = w + 'px'; s.style.height = h + 'px';
+  s.style.backgroundImage = `url(${q.get('bg')})`;
+  s.classList.add('is-' + (q.get('logo') || 'top'));
+  // The wordmark scales with the short side of the image.
+  const size = Math.min(w, h) * (q.get('logo') === 'left' ? 0.17 : 0.15);
+  document.querySelector('.home-logo').style.fontSize = size + 'px';
+  const tag = document.getElementById('tag');
+  if (q.get('tag')) { tag.hidden = false; tag.style.fontSize = Math.round(size * 0.22) + 'px'; }
+</script>
+</body>
+</html>

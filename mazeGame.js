@@ -1741,9 +1741,13 @@ function nextLevelAfter(lv) {
     return allLevels.find(l => l.index === lv.index + 1) || null;
 }
 
+// Marketing captures only (scripts/marketing/): a camera placed by hand, for
+// cover art and trailer shots the game's own cameras never take. Null in play.
+let cameraOverride = null;
+
 const exclusive = {
     isActive: () => active,
-    getPose: () => (!active ? null : phase === 'menu' ? computeMenuPose() : (level ? computeCameraPose() : null))
+    getPose: () => (!active ? null : cameraOverride ? cameraOverride : phase === 'menu' ? computeMenuPose() : (level ? computeCameraPose() : null))
 };
 
 export function isMazeActive() { return active; }
@@ -1892,11 +1896,33 @@ window.__mazeDebug = {
     } : null),
     // Roll the ball: set its velocity (units/s) without moving it.
     setBallVelocity: (vx, vz) => { if (!ballBody) return false; ballBody.velocity.set(vx, 0, vz); return true; },
+    // Marketing captures: nudge the ball's floor velocity a share k toward (vx, vz).
+    setBallVelocityBlend: (vx, vz, k) => {
+        if (!ballBody || phase !== 'running') return false;
+        const v = ballBody.velocity;
+        v.x += (vx - v.x) * k; v.z += (vz - v.z) * k;
+        return true;
+    },
     trial: () => ({ trial: marbleTrial(), ball: ballSpec.id }),
     trail: () => (trail ? trail.info() : null),
     // The 3D view as a PNG data URL, rendered now: for screenshots taken under
     // a test clock, when no browser frame may come.
-    snapshot: () => { const r = getRenderer(); if (!r || !scene) return null; r.render(scene, getCamera()); return r.domElement.toDataURL('image/png'); },
+    // { px, py, pz, lx, ly, lz } puts the camera there, null gives it back.
+    cameraOverride: (c) => {
+        cameraOverride = c ? { pos: new THREE.Vector3(c.px, c.py, c.pz), lookAt: new THREE.Vector3(c.lx, c.ly, c.lz) } : null;
+        requestRender();
+        return !!cameraOverride;
+    },
+    // Renders with the current pose (the override if set); `type` 'image/jpeg'
+    // makes the many frames of a video capture cheaper.
+    snapshot: (type = 'image/png', quality = 0.92) => {
+        const r = getRenderer(), cam = getCamera();
+        if (!r || !scene) return null;
+        const pose = exclusive.getPose();
+        if (pose) { cam.position.copy(pose.pos); cam.lookAt(pose.lookAt); }
+        r.render(scene, cam);
+        return r.domElement.toDataURL(type, quality);
+    },
     // The CONTINUE countdown runs on the wall clock; a test holds it rather
     // than racing a throttled sandbox to the button.
     holdFallOffer: (on) => { offerHeld = !!on; return phase; },
