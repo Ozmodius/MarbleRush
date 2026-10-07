@@ -220,13 +220,13 @@ function renderSheet(w) {
     const grid = $('mazeSelectList');
     grid.innerHTML = '';
     const done = w.levels.filter(l => (walk ? p.walks[l.id] : p.cleared[l.id])).length;
-    $('worldSheetDone').textContent = w.levels.length ? `${done} / ${w.levels.length} ${walk ? 'walked' : 'cleared'}` : '';
+    $('worldSheetDone').textContent = w.levels.length ? `${done} / ${w.levels.length} ${walk ? 'explored' : 'cleared'}` : '';
 
     const nextIdx = (p.highestIndex || 0) + 1;
     const next = w.levels.find(l => l.index === nextIdx);
     if (w.state === 'coming') $('worldSheetNote').textContent = 'Coming in an update. Its levels are still being built.';
     else if (w.state === 'locked') $('worldSheetNote').textContent = `Clear World ${w.n - 1} to land here.`;
-    else if (walk) $('worldSheetNote').textContent = 'Walk any level you have rolled, in first person. Find the exit; the traps are real.';
+    else if (walk) $('worldSheetNote').textContent = 'Explore any level you have rolled, from inside the maze. Find the exit; the traps are real.';
     else if (next) $('worldSheetNote').textContent = `Next: ${next.name}  ·  gold under ${(next.goldMs / 1000).toFixed(1)}s`;
     else $('worldSheetNote').textContent = 'Every level cleared. Replay any for a better medal.';
 
@@ -241,8 +241,8 @@ function renderSheet(w) {
         if (tier) b.dataset.tier = tier;
         b.disabled = !open;
         b.textContent = String(w.levels.indexOf(lv) + 1);
-        b.setAttribute('aria-label', `${walk ? 'Walk ' : ''}${lv.name}${c ? (walk ? ', walked' : ', cleared') + (tier ? ', ' + tier : '') : ''}${open ? '' : walk ? ', roll it first' : ', locked'}`);
-        b.title = walk ? `${lv.name} — walk gold under ${(walkGoldMs(lv) / 1000).toFixed(1)}s` : lv.name;
+        b.setAttribute('aria-label', `${walk ? 'Explore ' : ''}${lv.name}${c ? (walk ? ', explored' : ', cleared') + (tier ? ', ' + tier : '') : ''}${open ? '' : walk ? ', roll it first' : ', locked'}`);
+        b.title = walk ? `${lv.name} — explore gold under ${(walkGoldMs(lv) / 1000).toFixed(1)}s` : lv.name;
         b.addEventListener('click', (e) => {
             e.preventDefault();
             if (!open) return;

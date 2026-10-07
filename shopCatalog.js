@@ -125,8 +125,8 @@ export const WALK = { speed: 1.8, accel: 12, parShare: 1.1, payShare: 0.5 };
 // Explorer upgrades: bought once, used only when walking. Control and
 // forgiveness (CLAUDE.md) -- they show the way, they never speed you up.
 export const EXPLORER = {
-    compass: { name: 'Compass', price: 400, blurb: 'Walk mode: an arrow to the exit, and how far it is.' },
-    map: { name: 'Explorer Map', price: 900, blurb: 'Walk mode: draws the maze as you walk it -- only what you have seen.' }
+    compass: { name: 'Compass', price: 400, blurb: 'Explore mode: an arrow to the exit, and how far it is.' },
+    map: { name: 'Explorer Map', price: 900, blurb: 'Explore mode: draws the maze as you go -- only what you have seen.' }
 };
 export const EXPLORER_IDS = Object.keys(EXPLORER);
 // Comfort settings for walking (the comfort card): defaults, and the range

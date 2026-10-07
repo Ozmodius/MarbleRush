@@ -143,6 +143,10 @@ Phase 2 as built (2026-10-06), on Oz's call to go ahead before Basic Launch:
   -- CrazyGames' dashboard or an analytics call would be the way to judge it.
 
 Phase 3 as built (2026-10-06), on Oz's call and choices:
+- *Named EXPLORE for players* (2026-10-07; it was WALK): EXPLORE IT after a
+  clear, a ROLL | EXPLORE switch, "Explore ·" in the HUD. Code, the save
+  field (`walks`) and leaderboard keys (`walk:`) keep the old name, so no
+  save or board is reset.
 - *Which mazes*: the 50 ladder levels, each walkable once rolled (a WALK IT
   button after a clear, and a ROLL | WALK switch on the worlds sheet).
 - *The walker is the ball's body* (walkMode.js): the same radius, so every

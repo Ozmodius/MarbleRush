@@ -193,7 +193,7 @@ export function renderStore() {
     }
 
     // EXPLORER: kit for walking a level (the Labyrinth). Bought once.
-    list.append(h('p', 'shop-section', 'EXPLORER  ·  WALK MODE'));
+    list.append(h('p', 'shop-section', 'EXPLORER  ·  EXPLORE MODE'));
     for (const id of EXPLORER_IDS) {
         const e = EXPLORER[id];
         const owned = p.explorer.includes(id);

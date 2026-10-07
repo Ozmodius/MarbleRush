@@ -1729,7 +1729,7 @@ function startLevel(levelId, opts = {}) {
     showEl('mazeLevelsBtn', false);
     showEl('mazeStartBtn', true);
     const nameEl = el('mazeLevelName');
-    if (nameEl) nameEl.textContent = (walkMode ? 'Walk · ' : '') + lv.name;
+    if (nameEl) nameEl.textContent = (walkMode ? 'Explore · ' : '') + lv.name;
 
     phase = 'ready';
     lastStepTime = 0;

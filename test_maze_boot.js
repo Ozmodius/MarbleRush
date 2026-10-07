@@ -194,7 +194,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // 120 + 1 coin, and its 120 XP reaches player level 2, which pays 60.
         check(prog.wallet === 120 + 1 + 60 && prog.xp === 120, `a first clear with one coin pays 121 and its level-up 60: wallet ${prog.wallet}, xp ${prog.xp}`);
         check(/CLEARED/.test(await page.textContent('#mazeStatus')), 'the status line reports the clear');
-        check(await page.isVisible('#mazeWalkBtn'), 'a rolled clear offers WALK IT');
+        check(await page.isVisible('#mazeWalkBtn'), 'a rolled clear offers EXPLORE IT');
         // That clear was silver, 5s off gold: the near-miss line says so.
         check(await page.isVisible('#mazeNearMiss') && /^\d+\.\ds FASTER FOR GOLD$/.test((await page.textContent('#mazeNearText')).trim())
             && (await page.textContent('#mazeReplayBtn')).trim() === 'REPLAY',
@@ -666,7 +666,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         wk = await wdbg('walk');
         check(!wk.ballVisible && wk.eye.y < 0.55 && wk.eye.y > 0.2 && (await wdbg('progress')).comfort.thirdPerson === false && (await wp.textContent('#mazeViewBtn')).trim() === '1P',
             `first person hides the marble and puts the eye below the wall tops, and is saved (${wk.eye.y.toFixed(2)})`);
-        check(/^Walk · /.test((await wp.textContent('#mazeLevelName')).trim()) && await wp.isHidden('#mazeCamBtn') && await wp.isVisible('#mazeComfortBtn'), 'the HUD says Walk and offers comfort, not ball cam');
+        check(/^Explore · /.test((await wp.textContent('#mazeLevelName')).trim()) && await wp.isHidden('#mazeCamBtn') && await wp.isVisible('#mazeComfortBtn'), 'the HUD says Explore and offers comfort, not ball cam');
         // Comfort: a wider view, saved and applied at once.
         await wp.tap('#mazeComfortBtn');
         await wp.waitForSelector('#comfortPanel', { state: 'visible' });
