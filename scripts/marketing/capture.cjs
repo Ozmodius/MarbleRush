@@ -30,6 +30,8 @@ const OUT = path.join(ROOT, 'marketing');
 const TMP = process.env.CAPTURE_TMP || path.join(require('os').tmpdir(), 'planetilt-capture');
 const LEVELS = JSON.parse(fs.readFileSync(path.join(ROOT, 'mazeLevels.json'), 'utf8')).levels;
 const FPS = 30, DT = 1000 / FPS;
+// CAPTURE_SCALE=0.3 renders a short preview of each video segment.
+const SCALE = Number(process.env.CAPTURE_SCALE) || 1;
 
 // --- a static server for the repo ---------------------------------------------
 function serve() {
@@ -242,13 +244,16 @@ async function runLevel(page, dbg, id, seconds, shoot, { blend = 0.12 } = {}) {
 }
 
 // A follow camera square to the board (it never turns, so it never swings):
-// south of the ball and above it, gliding after it with a long ease.
-function makeChaseCam({ back = 3.6, up = 5.2, ahead = 0.6 } = {}) {
+// south of the ball and above it, looking down steeply enough that the floor
+// fills the frame, centred on the ball and kept over the board.
+function makeChaseCam({ back = 2.2, up = 4.2, lv } = {}) {
     let cam = null;
+    const mx = lv ? lv.size.w / 2 - 1.1 : 99, mz = lv ? lv.size.d / 2 - 0.5 : 99;
     return (pos) => {
-        const want = { px: pos.x, py: up, pz: pos.z + back, lx: pos.x, ly: 0, lz: pos.z - ahead };
+        const x = Math.max(-mx, Math.min(mx, pos.x)), z = Math.max(-mz, Math.min(mz, pos.z));
+        const want = { px: x, py: up, pz: z + back, lx: x, ly: 0, lz: z };
         if (!cam) cam = { ...want };
-        for (const key of Object.keys(want)) cam[key] += (want[key] - cam[key]) * 0.06;
+        for (const key of Object.keys(want)) cam[key] += (want[key] - cam[key]) * 0.12;
         return { ...cam };
     };
 }
@@ -310,9 +315,9 @@ async function video(browser, base, { name, width, height, cinematic }) {
     ];
     for (const s of segs) {
         const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor(s) });
-        const chase = makeChaseCam(width > height ? {} : { back: 2.6, up: 6.4, ahead: 0.4 });
+        const chase = makeChaseCam(width > height ? { lv: LEVELS.find(l => l.id === s.level) } : { back: 1.4, up: 4.8, lv: LEVELS.find(l => l.id === s.level) });
         if (!cinematic) await dbg('cameraOverride', null);
-        const res = await runLevel(page, dbg, s.level, s.seconds, async (i, st) => {
+        const res = await runLevel(page, dbg, s.level, s.seconds * SCALE, async (i, st) => {
             if (cinematic) await dbg('cameraOverride', chase(st.pos));
             await put(dbg);
         });
