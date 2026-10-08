@@ -256,9 +256,14 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await page.isHidden('#rewardsPanel'), 'REWARDS closes');
         await page.tap('#homePlayBtn');
         await page.waitForSelector('#mazeExitBtn', { state: 'visible' });
+        // A tilt game gets no taps: a level keeps the screen on (wakeLock.js),
+        // by the lock or the video, and the menus let it sleep again.
+        check(await page.evaluate(() => window.__wakeDebug.wanted()) && await page.waitForFunction(() => window.__wakeDebug.mode() !== 'none', null, { timeout: 5000 }).then(() => true, () => false),
+            `a level keeps the screen on (mode ${await page.evaluate(() => window.__wakeDebug.mode())})`);
         await page.tap('#mazeExitBtn');
         await page.waitForSelector('#homeView', { state: 'visible' });
         check(await page.evaluate(() => window.__mazeDebug.menuPhase()), 'the back button in a level returns home, planet and all');
+        check(await page.evaluate(() => !window.__wakeDebug.wanted() && window.__wakeDebug.mode() === 'none' && !window.__wakeDebug.videoPlaying()), 'home lets the screen sleep again');
 
         // --- conveyors move the ball on their own -------------------------
         const lv10 = levels.find(l => (l.conveyors || []).length);

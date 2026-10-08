@@ -20,6 +20,7 @@ import { sfx as uiSfx } from './sfx.js';
 import { createMazeAudio } from './mazeAudio.js';
 import { wallForLevel, floorForLevel } from './soundModel.js';
 import { setSoundOn, isSoundOn, unlockSound } from './sound.js';
+import { keepAwake } from './wakeLock.js';
 import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
 import { ballSetup, PRIZES, AD_REWARDS, MARBLES, WALK } from './shopCatalog.js';
 const marbleName = id => (MARBLES[id] ? MARBLES[id].name.toUpperCase() : String(id));
@@ -1646,6 +1647,7 @@ function buildShowcase(kind) {
 // Leaving a level ends a marble trial.
 function enterMenus(tab) {
     trialMarble = null;
+    keepAwake(false);   // the menus let the phone sleep as usual (wakeLock.js)
     const want = tab === 'worlds' ? 'system' : 'planet';
     if (phase !== 'menu' || backdrop !== want) {
         buildShowcase(want);
@@ -1788,6 +1790,8 @@ function startLevel(levelId, opts = {}) {
     scene.add(mazeGroup);
     buildWorld(lv, built.wallSpecs);
     audio = createMazeAudio(lv, { marble: ballMarbleId });
+    // A tilt game gets no taps: keep the screen on while a level is up.
+    keepAwake(true);
     placeBallAtStart();
     // Walking: face down the open corridor, look a touch down, widen the view.
     walkStartYaw = openingYaw(lv);
