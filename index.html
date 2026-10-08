@@ -140,12 +140,11 @@
     <div id="profileTrails" class="look-grid"></div>
     <p class="shop-section">CARRYING</p>
     <div id="profileInventory" class="profile-inventory"></div>
-    <!-- ACCOUNT AND CLOUD SAVE (cloudSync.js, leaderboardUi.js): hidden with no server -->
+    <!-- ACCOUNT (leaderboardUi.js): hidden with no server. Saving to the
+         server just happens (cloudSync.js); the card is only for the account. -->
     <div id="cloudSection" hidden>
       <p class="shop-section">ACCOUNT</p>
       <div class="cloud-card">
-        <p class="cloud-status"><span id="cloudDot" class="cloud-dot"></span><span id="cloudStatus">CONNECTING…</span></p>
-        <p id="cloudName" class="cloud-name"></p>
         <!-- A guest: make an account or sign in (own accounts on the web; the
              platform's sign-in on CrazyGames) -->
         <div id="acctGuest" class="acct-block">
@@ -164,13 +163,6 @@
           </div>
           <button id="acctDeleteLink" class="acct-link acct-danger" type="button">Delete account</button>
         </div>
-        <p class="cloud-help">Play on another device as this player: make a code here, enter it there.</p>
-        <button id="cloudLinkBtn" class="maze-btn" type="button">GET A CODE</button>
-        <p id="cloudCode" class="cloud-code" hidden></p>
-        <form id="cloudClaimForm" class="cloud-claim" autocomplete="off">
-          <input id="cloudCodeInput" type="text" inputmode="text" maxlength="6" placeholder="ENTER CODE" aria-label="Code from your other device" spellcheck="false">
-          <button class="maze-btn" type="submit">JOIN</button>
-        </form>
         <p id="cloudMsg" class="cloud-msg" role="status"></p>
       </div>
     </div>

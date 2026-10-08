@@ -1,6 +1,7 @@
 import { features } from './platform.js';
 
-// THE ACCOUNT CARD (Gear: the player's account, cloud save, device codes),
+// THE ACCOUNT CARD (Gear: make an account, sign in or out -- saving to the
+// server just happens, so the card shows nothing about it),
 // THE ACCOUNT PANEL (sign in, create, confirm the email, reset, delete), and
 // THE LEADERBOARDS (the CLEARED panel's
 // trophy button and its modal). Everything here talks to cloudSync.js; with
@@ -17,18 +18,19 @@ import { features } from './platform.js';
 
 const $ = id => document.getElementById(id);
 const fmtMs = ms => (ms / 1000).toFixed(2) + 's';
-const STATUS = { idle: 'CONNECTING…', syncing: 'SYNCING…', synced: 'SAVED TO THE CLOUD', offline: 'OFFLINE — SAVED ON THIS DEVICE' };
 
 let sync = null, login = null, current = null;
 
 function renderStatus() {
-    const s = sync.status(), me = sync.player(), a = sync.account();
-    $('cloudStatus').textContent = STATUS[s] || s.toUpperCase();
-    $('cloudDot').className = 'cloud-dot is-' + s;
+    const me = sync.player(), a = sync.account();
     const signedIn = !!(a && me && me.kind === 'account');
-    $('cloudName').textContent = me && !signedIn ? `Playing as ${me.name}` : '';
-    $('acctGuest').hidden = signedIn || (me && me.kind === 'crazygames');
+    const crazySignedIn = !!(me && me.kind === 'crazygames');
+    const platformOffer = !!(login && login.available() && !crazySignedIn);
+    $('acctGuest').hidden = signedIn || crazySignedIn;
     $('acctOwnButtons').hidden = !features.externalLogin;
+    // Nothing to offer (signed in with CrazyGames, or no way to sign in
+    // here): no card at all.
+    $('cloudSection').hidden = !(signedIn || features.externalLogin || platformOffer);
     $('acctSigned').hidden = !signedIn;
     if (signedIn) {
         const who = $('acctWho');
@@ -37,7 +39,7 @@ function renderStatus() {
         small.textContent = a.email + (a.verified ? '' : ' (not confirmed)');
         who.appendChild(small);
     }
-    $('cloudLoginBtn').hidden = !(login && login.available() && (!me || me.kind !== 'crazygames'));
+    $('cloudLoginBtn').hidden = !platformOffer;
 }
 
 // --- the account panel ---------------------------------------------------------
@@ -161,33 +163,6 @@ function wireAccountPanel(reload) {
     });
 }
 
-async function makeCode() {
-    const btn = $('cloudLinkBtn'), out = $('cloudCode');
-    btn.disabled = true;
-    const r = await sync.createLink();
-    btn.disabled = false;
-    if (!r) { $('cloudMsg').textContent = 'Could not reach the server. Try again in a moment.'; return; }
-    out.textContent = r.code;
-    const note = document.createElement('small');
-    note.textContent = 'enter it on your other device within 10 minutes';
-    out.appendChild(note);
-    out.hidden = false;
-    $('cloudMsg').textContent = '';
-}
-
-async function claim(e) {
-    e.preventDefault();
-    const input = $('cloudCodeInput'), code = input.value.trim().toUpperCase();
-    if (code.length !== 6) { $('cloudMsg').textContent = 'A code is six letters and numbers.'; return; }
-    $('cloudMsg').textContent = 'Joining…';
-    const r = await sync.claimLink(code);
-    $('cloudMsg').textContent = r.ok ? 'Joined! Your progress from both devices is combined.'
-        : r.error === 'bad-code' ? 'That code is wrong or has run out. Make a new one.'
-        : 'Could not reach the server. Try again in a moment.';
-    if (r.ok) input.value = '';
-    renderStatus();
-}
-
 // --- the leaderboard modal ------------------------------------------------------
 async function openBoard(info) {
     const panel = $('boardPanel'), list = $('boardList');
@@ -240,8 +215,6 @@ export function initCloudUi(opts) {
     wireAccountPanel(opts.reload || (() => { try { location.reload(); } catch (_) { /* ignore */ } }));
     sync.onStatus(renderStatus);
     renderStatus();
-    $('cloudLinkBtn').addEventListener('click', (e) => { e.preventDefault(); makeCode(); });
-    $('cloudClaimForm').addEventListener('submit', claim);
     $('cloudLoginBtn').addEventListener('click', async (e) => { e.preventDefault(); if (login && await login.show()) sync.reconnect(); });
     $('mazeRankBtn').addEventListener('click', (e) => { e.preventDefault(); if (current) openBoard(current); });
     $('boardCloseBtn').addEventListener('click', (e) => { e.preventDefault(); closeBoard(); });
