@@ -4,7 +4,7 @@ import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 import { onFrame, getRenderer } from './sceneHost.js';
 import { showBanner, adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { sfx } from './sfx.js';
-import { worldName, LAUNCH_WORLDS } from './worlds.js';
+import { worldName, placeName, LAUNCH_WORLDS } from './worlds.js';
 import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, showLevelUps } from './dailyUi.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
@@ -193,7 +193,8 @@ function renderWorldNav(home) {
     const worlds = ctx.game.worldsInfo();
     const n = home.world;
     const name = $('homeWorldName');
-    name.textContent = `WORLD ${n}  ·  ${worldName(n).toUpperCase()}`;
+    name.textContent = worldName(n).toUpperCase();
+    $('homeWorldPlace').textContent = `WORLD ${n}  ·  ${placeName(n).toUpperCase()}`;
     name.classList.toggle('is-locked-name', home.locked);
     const dots = $('homeWorldDots');
     dots.innerHTML = '';
@@ -261,6 +262,7 @@ function renderSheet(w) {
     }
     $('worldSheetNum').textContent = 'WORLD ' + w.n;
     $('worldSheetName').textContent = w.name;
+    $('worldSheetPlace').textContent = placeName(w.n);
     const grid = $('mazeSelectList');
     grid.innerHTML = '';
     const done = w.levels.filter(l => (walk ? p.walks[l.id] : p.cleared[l.id])).length;

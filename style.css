@@ -639,6 +639,8 @@ html, body {
   color: var(--ink);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
+.home-worldname .world-planet { font-size: 1.05rem; font-weight: 900; letter-spacing: 0.2em; }
+.home-worldname .world-place { font-size: 0.66rem; letter-spacing: 0.16em; opacity: 0.75; margin-top: -3px; }
 .home-worldname .is-locked-name { opacity: 0.7; }
 .world-dots { display: flex; gap: 6px; }
 .world-dots i {
@@ -818,6 +820,7 @@ html, body {
 .world-sheethead { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .world-sheetnum { margin: 0; font-size: 0.64rem; letter-spacing: 0.22em; color: var(--accent); }
 .world-sheetname { margin: 0; font-size: 1.05rem; letter-spacing: 0.04em; text-wrap: balance; }
+.world-sheetplace { display: block; font-size: 0.72rem; color: var(--ink-dim); letter-spacing: 0.04em; }
 .mode-switch { display: inline-flex; padding: 2px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line); }
 .mode-btn { font: inherit; font-size: 0.68rem; font-weight: 900; letter-spacing: 0.12em; padding: 5px 12px; border: 0; border-radius: 999px; color: var(--ink-dim); background: none; cursor: pointer; }
 .mode-btn.is-on { color: #3a2408; background: linear-gradient(#ffd66e, #e69a22); }
@@ -1358,6 +1361,7 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
 .lp-world img { width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: cover; display: block; }
 .lp-world > div { padding: 14px 16px 16px; }
 .lp-world h3 { margin: 0 0 6px; font-size: 1.15rem; font-weight: 900; display: flex; align-items: center; gap: 8px; }
+.lp-world h3 small { font-size: 0.78rem; font-weight: 700; opacity: 0.6; }
 .lp-world h3 span { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: #ffd66e; color: #2a1a08; font-size: 0.85rem; }
 .lp-world p { margin: 0 0 10px; color: #c9bba3; font-size: 0.92rem; line-height: 1.45; }
 .lp-world ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
