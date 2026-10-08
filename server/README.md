@@ -28,6 +28,7 @@ Environment variables:
 | `ALLOWED_ORIGINS` | optional; default `*`. To lock it down: `https://ozmodius.github.io,https://*.crazygames.com` |
 | `CRAZYGAMES_PUBLIC_KEY_URL` | optional; default `https://sdk.crazygames.com/publicKey.json` |
 | `RATE_LIMIT` | optional; requests per IP per minute, default 240 |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | optional; email for account codes (port 465 by default). Without them, accounts are made with no emailed code and "Forgot password?" says it is not available |
 | `ADMIN_TOKEN` | optional; a long random string of your choosing. Opens the stats page at `/admin`. Unset, the page is off |
 
 Tables are created on first start. Without `DATABASE_URL` the server runs on
@@ -49,6 +50,29 @@ The URL is baked in at build time; unset, the game builds with no server.
 Render's free web services sleep after 15 minutes idle and take ~30-60 s to
 wake. The game never waits on the server (saves stay on the device and sync
 when it answers), so that is a delay on the leaderboard, not on play.
+
+## Accounts
+
+On the web build, the Gear page's ACCOUNT card offers CREATE ACCOUNT and
+SIGN IN (on CrazyGames, players sign in with CrazyGames instead):
+
+- **Create:** username (3–16 letters, numbers, `_ . -`, unique, checked
+  against a slur list), email (unique, never shown), password (8+). With
+  email set up, a 6-digit code is emailed first (15 minutes, 5 guesses).
+  The device's guest *becomes* the account, so nothing is lost.
+- **Sign in:** username or email + password. The device's guest progress is
+  added to the account (the account keeps its coins). 10 wrong passwords
+  in 15 minutes and that login has to wait.
+- **Forgot password** (needs email set up): a code to the account's email,
+  then a new password; every other session is signed out.
+- **Sign out** ends the session on the server; the device starts over as a
+  new guest (the progress stays in the account).
+- **Delete account:** password + typing DELETE; the account, its save and
+  its leaderboard times are removed.
+
+Passwords are salted scrypt hashes; codes and session tokens are stored
+hashed. For email, any SMTP service works (e.g. a Gmail app password, Brevo,
+Mailgun, SendGrid's SMTP).
 
 ## Stats page (play tracking)
 
@@ -77,6 +101,14 @@ is sent when the game is built without a server.
 | `GET /v1/leaderboard?board=&limit=` | `{ top: [{rank, name, ms, you}], you, total }`; no token needed |
 | `POST /v1/events {events}` | `{ accepted }`: play tracking, `[{type: start/clear/fall/quit, level, mode: roll/explore/daily, ms?}]` |
 | `GET /v1/admin/stats?days=&idle=` | the stats page's data; `Authorization: Bearer <ADMIN_TOKEN>` |
+| `GET /v1/account` | `{ player, account, email }` (email: whether codes can be sent) |
+| `POST /v1/account/register {username, email, password}` | a session, or `{ verify: true, email }` when a code was emailed |
+| `POST /v1/account/verify {email, code}` | a session |
+| `POST /v1/account/login {login, password}` | a session (`login`: username or email) |
+| `POST /v1/account/logout` | ends this token |
+| `POST /v1/account/forgot {login}` | `{ ok }`, emails a reset code if the account exists |
+| `POST /v1/account/reset {login, code, password}` | a session; other sessions end |
+| `POST /v1/account/delete {password}` | deletes the account and everything of it |
 | `POST /v1/link` | `{ code, expiresAt }`: 6 letters, 10 minutes, one use |
 | `POST /v1/link/claim {code}` | `{ token, player, save }`: this device becomes that player |
 

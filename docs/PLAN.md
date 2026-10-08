@@ -142,6 +142,19 @@ Phase 2 as built (2026-10-06), on Oz's call to go ahead before Basic Launch:
   Its gate ("gets real play") needs usage numbers this build cannot see
   -- CrazyGames' dashboard or an analytics call would be the way to judge it.
 
+Accounts and play tracking (2026-10-08, Oz's call):
+- *Accounts* like 3dBallSmack's, without Google: username or email +
+  password, a 6-digit emailed code to confirm (when SMTP is set), sign out,
+  delete (type DELETE), and -- which Ball Smack lacks -- password reset by
+  email, an 8-character minimum, limits on wrong passwords and codes,
+  expiring codes, and a server-side sign-out. Web build only; CrazyGames
+  players use CrazyGames' sign-in. A guest who creates an account becomes
+  it; signing in elsewhere adds that device's progress to the account.
+- *Play tracking*: per level and mode, daily counts of starts, clears (and
+  their times), falls and quits, plus each player's furthest level from
+  their save. `/admin` (ADMIN_TOKEN) shows clear rates and the level players
+  stop at -- the data for tuning difficulty and the XP curve.
+
 A steeper player level (2026-10-08, Oz's call): each level's XP step is
 100 + 30(k-1) + 6(k-1)^2 (was 100 + 50(k-1)), so levels keep getting harder
 even though later worlds pay more XP -- 1-2 clears a level at first, 5-7 by

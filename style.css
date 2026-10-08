@@ -1210,3 +1210,22 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
 .achievement-name { margin: 0 0 2px; font-weight: 900; letter-spacing: 0.04em; color: #ffd66e; font-size: 0.95rem; }
 .achievement .mission-text { color: var(--ink-dim); font-size: 0.82rem; }
 .achievement.is-claimed .achievement-name { color: var(--ink); }
+
+/* --- account card and panel ---------------------------------------------------- */
+.acct-block { display: flex; flex-direction: column; gap: 10px; }
+.acct-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.acct-buttons .maze-btn { flex: 1 1 auto; }
+.acct-who { margin: 0; font-weight: 800; }
+.acct-who small { display: block; font-weight: 500; color: var(--ink-dim); }
+.acct-link { align-self: center; padding: 6px 8px; border: 0; background: none; color: #6fc3ff; font: inherit; font-size: 0.85rem; text-decoration: underline; cursor: pointer; }
+.acct-danger { color: #ff8a7a; }
+.acct-card { width: min(100%, 380px); }
+.acct-form { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.acct-form input { padding: 12px 14px; border-radius: 12px; border: 2px solid rgba(255, 214, 110, 0.3); background: rgba(0, 0, 0, 0.35); color: var(--ink); font: inherit; font-size: 1rem; }
+.acct-form input:focus { outline: none; border-color: #ffd66e; }
+.acct-form .maze-btn-big { align-self: stretch; }
+.acct-code { text-align: center; font-size: 1.6rem !important; font-weight: 900; letter-spacing: 0.4em; font-variant-numeric: tabular-nums; }
+.acct-note { margin: 0; font-size: 0.82rem; color: var(--ink-dim); text-wrap: pretty; }
+.acct-msg { margin: 10px 0 0; min-height: 1.2em; text-align: center; font-size: 0.88rem; font-weight: 700; color: #ff8a7a; }
+.acct-msg.is-ok { color: #4fd18b; }
+.acct-delete:not(:disabled) { background: linear-gradient(#ff7a6a, #c9372a); color: #fff; box-shadow: 0 3px 0 #7d1d14; }

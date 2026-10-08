@@ -563,6 +563,9 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         // Cloud sync (cloudSync.js): be told of every save, and take in a save
         // from elsewhere -- merged, never overwritten (mergeProgress).
         onSave(fn) { saved.add(fn); return () => saved.delete(fn); },
+        // Signed out or deleted (cloudSync.js): this device starts fresh. The
+        // progress lives on in the account, not here.
+        wipe() { progress = freshProgress(); levelUps = []; persist(); },
         adopt(remote) {
             const before = JSON.stringify(progress);
             const merged = mergeProgress(progress, remote);

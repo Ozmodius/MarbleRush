@@ -54,6 +54,30 @@ CREATE TABLE IF NOT EXISTS level_stats (
 ALTER TABLE players ADD COLUMN IF NOT EXISTS last_seen BIGINT;
 ALTER TABLE players ADD COLUMN IF NOT EXISTS furthest INTEGER;
 ALTER TABLE players ADD COLUMN IF NOT EXISTS player_level INTEGER;
+-- Player accounts (2026-10-08): a username and email with a password. The
+-- player row stays the identity (saves, scores, tokens hang off it);
+-- kind becomes 'account'.
+CREATE TABLE IF NOT EXISTS accounts (
+    player_id     TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+    username      TEXT NOT NULL,
+    username_key  TEXT NOT NULL UNIQUE,        -- lower case
+    email         TEXT NOT NULL,
+    email_key     TEXT NOT NULL UNIQUE,        -- lower case
+    password_hash TEXT NOT NULL,
+    verified      BOOLEAN NOT NULL DEFAULT false,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Emailed codes: confirming a new account ('verify', carrying the pending
+-- account) or resetting a password ('reset'). Hashed; few tries; short life.
+CREATE TABLE IF NOT EXISTS codes (
+    email_key   TEXT NOT NULL,
+    purpose     TEXT NOT NULL,
+    code_hash   TEXT NOT NULL,
+    expires_at  BIGINT NOT NULL,
+    tries       INTEGER NOT NULL DEFAULT 0,
+    payload     JSONB,
+    PRIMARY KEY (email_key, purpose)
+);
 CREATE TABLE IF NOT EXISTS links (
     code        TEXT PRIMARY KEY,
     player_id   TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
@@ -138,6 +162,37 @@ export async function createPgStore(url) {
             const { rows } = await pool.query('SELECT furthest, player_level, last_seen FROM players WHERE last_seen IS NOT NULL');
             return rows.map(r => ({ furthest: r.furthest || 0, playerLevel: r.player_level || 1, lastSeen: Number(r.last_seen) }));
         },
+        // --- accounts ---
+        async accountByKey(key) {
+            const r = await one('SELECT * FROM accounts WHERE username_key = $1 OR email_key = $1', [key]);
+            return r && { playerId: r.player_id, username: r.username, email: r.email, passwordHash: r.password_hash, verified: r.verified };
+        },
+        async accountOf(playerId) {
+            const r = await one('SELECT * FROM accounts WHERE player_id = $1', [playerId]);
+            return r && { playerId: r.player_id, username: r.username, email: r.email, passwordHash: r.password_hash, verified: r.verified };
+        },
+        async usernameTaken(key) { return !!(await one('SELECT 1 FROM accounts WHERE username_key = $1', [key])); },
+        async emailTaken(key) { return !!(await one('SELECT 1 FROM accounts WHERE email_key = $1', [key])); },
+        async createAccount({ playerId, username, email, passwordHash, verified }) {
+            await pool.query(`INSERT INTO accounts (player_id, username, username_key, email, email_key, password_hash, verified)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)`, [playerId, username, username.toLowerCase(), email, email.toLowerCase(), passwordHash, !!verified]);
+            await pool.query("UPDATE players SET kind = 'account', name = $2, external_id = NULL WHERE id = $1", [playerId, username]);
+        },
+        async setPassword(playerId, passwordHash) { await pool.query('UPDATE accounts SET password_hash = $2, verified = true WHERE player_id = $1', [playerId, passwordHash]); },
+        async deletePlayer(playerId) { await pool.query('DELETE FROM players WHERE id = $1', [playerId]); },
+        async deleteToken(hash) { await pool.query('DELETE FROM tokens WHERE token_hash = $1', [hash]); },
+        async revokeTokens(playerId) { await pool.query('DELETE FROM tokens WHERE player_id = $1', [playerId]); },
+        async putCode(emailKey, purpose, { codeHash, expiresAt, payload = null }) {
+            await pool.query(`INSERT INTO codes (email_key, purpose, code_hash, expires_at, tries, payload) VALUES ($1, $2, $3, $4, 0, $5)
+                ON CONFLICT (email_key, purpose) DO UPDATE SET code_hash = EXCLUDED.code_hash, expires_at = EXCLUDED.expires_at, tries = 0, payload = EXCLUDED.payload`,
+                [emailKey, purpose, codeHash, expiresAt, payload]);
+        },
+        async getCode(emailKey, purpose) {
+            const r = await one('SELECT * FROM codes WHERE email_key = $1 AND purpose = $2', [emailKey, purpose]);
+            return r && { codeHash: r.code_hash, expiresAt: Number(r.expires_at), tries: r.tries, payload: r.payload };
+        },
+        async bumpCode(emailKey, purpose) { await pool.query('UPDATE codes SET tries = tries + 1 WHERE email_key = $1 AND purpose = $2', [emailKey, purpose]); },
+        async deleteCode(emailKey, purpose) { await pool.query('DELETE FROM codes WHERE email_key = $1 AND purpose = $2', [emailKey, purpose]); },
         async createLink(code, playerId, expiresAt) {
             await pool.query('DELETE FROM links WHERE expires_at < $1', [Date.now()]);
             await pool.query('INSERT INTO links (code, player_id, expires_at) VALUES ($1, $2, $3)', [code, playerId, expiresAt]);
@@ -153,6 +208,8 @@ export async function createPgStore(url) {
 
 export function createMemoryStore() {
     const players = new Map(), tokens = new Map(), saves = new Map(), scores = new Map(), links = new Map(), stats = new Map();
+    const accounts = new Map(), codes = new Map();
+    const acct = a => a && { ...a };
     const key = (p, b) => p + '\u0000' + b;
     return {
         kind: 'memory',
@@ -210,6 +267,27 @@ export function createMemoryStore() {
         async playerPositions() {
             return [...players.values()].filter(p => p.lastSeen).map(p => ({ furthest: p.furthest || 0, playerLevel: p.playerLevel || 1, lastSeen: p.lastSeen }));
         },
+        async accountByKey(key) { for (const a of accounts.values()) if (a.username.toLowerCase() === key || a.email.toLowerCase() === key) return acct(a); return null; },
+        async accountOf(playerId) { return acct(accounts.get(playerId)) || null; },
+        async usernameTaken(key) { return [...accounts.values()].some(a => a.username.toLowerCase() === key); },
+        async emailTaken(key) { return [...accounts.values()].some(a => a.email.toLowerCase() === key); },
+        async createAccount({ playerId, username, email, passwordHash, verified }) {
+            accounts.set(playerId, { playerId, username, email, passwordHash, verified: !!verified });
+            const p = players.get(playerId);
+            if (p) { p.kind = 'account'; p.name = username; p.externalId = null; }
+        },
+        async setPassword(playerId, passwordHash) { const a = accounts.get(playerId); if (a) { a.passwordHash = passwordHash; a.verified = true; } },
+        async deletePlayer(playerId) {
+            players.delete(playerId); accounts.delete(playerId); saves.delete(playerId);
+            for (const [h, id] of tokens) if (id === playerId) tokens.delete(h);
+            for (const [k, s] of scores) if (s.playerId === playerId) scores.delete(k);
+        },
+        async deleteToken(hash) { tokens.delete(hash); },
+        async revokeTokens(playerId) { for (const [h, id] of tokens) if (id === playerId) tokens.delete(h); },
+        async putCode(emailKey, purpose, { codeHash, expiresAt, payload = null }) { codes.set(emailKey + '|' + purpose, { codeHash, expiresAt, tries: 0, payload: payload && JSON.parse(JSON.stringify(payload)) }); },
+        async getCode(emailKey, purpose) { const c = codes.get(emailKey + '|' + purpose); return c ? { ...c } : null; },
+        async bumpCode(emailKey, purpose) { const c = codes.get(emailKey + '|' + purpose); if (c) c.tries++; },
+        async deleteCode(emailKey, purpose) { codes.delete(emailKey + '|' + purpose); },
         async createLink(code, playerId, expiresAt) { links.set(code, { playerId, expiresAt }); },
         async claimLink(code, now) {
             const l = links.get(code);

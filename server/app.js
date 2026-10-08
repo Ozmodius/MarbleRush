@@ -28,6 +28,7 @@
 import { mergeProgress } from '../progressStore.js';
 import { levelForXp } from '../playerLevel.js';
 import { ADMIN_PAGE } from './adminPage.js';
+import { hashPassword, verifyPassword, newCode, hashCode, usernameProblem, emailProblem, passwordProblem, codeEmail, CODE_TTL_MS, CODE_TRIES } from './accounts.js';
 import { hashToken, newToken, newId, newLinkCode, cleanLinkCode, guestName, cleanName } from './auth.js';
 
 const MAX_BODY = 256 * 1024;
@@ -77,7 +78,7 @@ const EVENT_METRIC = { start: 'starts', clear: 'clears', fall: 'falls', quit: 'q
 const MODES = new Set(['roll', 'explore', 'daily']);
 const dayOf = t => new Date(t).toISOString().slice(0, 10);
 
-export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = null, origins = '*', rateMax = 240, now = () => Date.now(), adminToken = null }) {
+export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = null, origins = '*', rateMax = 240, now = () => Date.now(), adminToken = null, mailer = { enabled: false, async send() { throw new Error('email is not set up'); } } }) {
     const ladder = new Map(levels.map(l => [l.id, l]));
     const dailies = new Map(dailyLevels.map(l => [l.id, l]));
     const allowOrigin = originMatcher(origins);
@@ -135,6 +136,53 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
         if (s) await mergeJoining(target.id, s.data);
         for (const { board, ms } of await store.scoresOf(from.id)) await store.upsertScore(target.id, board, ms);
         await store.deleteScores(from.id);
+    };
+
+    // --- account helpers ---
+    const pub = p => ({ id: p.id, name: p.name, kind: p.kind });
+    // A hash to check against when there is no account, so a wrong username
+    // takes as long to refuse as a wrong password.
+    const DUMMY_HASH = 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$' + Buffer.alloc(64).toString('base64');
+    // Login guesses: 10 failures per IP and login per 15 minutes.
+    const tries = new Map();
+    const limitKey = (req, key) => (String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?') + '|' + key;
+    const tryAllowed = k => { const t = tries.get(k); return !t || now() - t.at > 15 * 60e3 || t.n < 10; };
+    const tryFailed = k => { const t = tries.get(k); if (!t || now() - t.at > 15 * 60e3) tries.set(k, { n: 1, at: now() }); else t.n++; };
+    const tryCleared = k => tries.delete(k);
+
+    // A code check: right, unexpired, within its tries. Spends the code.
+    const checkCode = async (emailKey, purpose, code) => {
+        const c = await store.getCode(emailKey, purpose);
+        if (!c || c.expiresAt < now()) throw new HttpError(400, 'code-expired');
+        if (c.tries >= CODE_TRIES) { await store.deleteCode(emailKey, purpose); throw new HttpError(400, 'code-tries'); }
+        if (hashCode(String(code || '').trim()) !== c.codeHash) { await store.bumpCode(emailKey, purpose); throw new HttpError(400, 'code-wrong'); }
+        await store.deleteCode(emailKey, purpose);
+        return c;
+    };
+
+    const sessionFor = async (player) => {
+        const out = await issue(player);
+        const s = await store.getSave(player.id);
+        const a = await store.accountOf(player.id);
+        return { ...out, save: s ? s.data : null, account: a ? { username: a.username, email: a.email, verified: a.verified } : null };
+    };
+
+    // The device's guest becomes the account (same player); otherwise a
+    // fresh player is made for it.
+    const makeAccount = async (me, { username, email, passwordHash, verified }) => {
+        let player;
+        if (me && me.kind === 'guest') player = me;
+        else player = await store.createPlayer({ id: newId(), kind: 'account', name: username });
+        await store.createAccount({ playerId: player.id, username, email, passwordHash, verified });
+        return { ...(await sessionFor(await store.playerById(player.id))), created: true };
+    };
+
+    // Signing in to an existing account from this device: its guest folds in.
+    const signInTo = async (req, playerId) => {
+        const target = await store.playerById(playerId);
+        const me = await authed(req, false);
+        if (me && me.kind === 'guest' && me.id !== target.id) await fold(me, target);
+        return { ...(await sessionFor(target)), joined: !me || me.id !== target.id };
     };
 
     const checkScore = (board, ms) => {
@@ -294,6 +342,106 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             }
             const total = you ? you.total : (await store.rank(board, 2147483647)).total;
             return { board, top, you, total };
+        },
+
+        // --- accounts (accounts.js) ---------------------------------------
+        // Who this token is, and its account if it has one.
+        'GET /v1/account': async (req) => {
+            const p = await authed(req);
+            const a = await store.accountOf(p.id);
+            return { player: pub(p), account: a ? { username: a.username, email: a.email, verified: a.verified } : null, email: mailer.enabled };
+        },
+
+        // A new account: the device's guest BECOMES it (same player, so its
+        // save and times are already there); from a signed-in device, a new
+        // player. With email set up, a 6-digit code is sent first and the
+        // account is made at /verify; without, it is made now.
+        'POST /v1/account/register': async (req, body) => {
+            const username = String(body.username || '').trim(), email = String(body.email || '').trim(), password = String(body.password || '');
+            const problem = usernameProblem(username) || emailProblem(email) || passwordProblem(password);
+            if (problem) throw new HttpError(400, problem);
+            if (await store.usernameTaken(username.toLowerCase())) throw new HttpError(409, 'username-taken');
+            if (await store.emailTaken(email.toLowerCase())) throw new HttpError(409, 'email-taken');
+            const passwordHash = await hashPassword(password);
+            const me = await authed(req, false);
+            if (!mailer.enabled) return makeAccount(me, { username, email, passwordHash, verified: false });
+            const code = newCode();
+            await store.putCode(email.toLowerCase(), 'verify', { codeHash: hashCode(code), expiresAt: now() + CODE_TTL_MS, payload: { username, email, passwordHash } });
+            try { await mailer.send({ to: email, ...codeEmail(code, 'verify') }); }
+            catch (e) { console.error('[mail]', e && e.message); throw new HttpError(502, 'email-failed'); }
+            return { verify: true, email };
+        },
+
+        'POST /v1/account/verify': async (req, body) => {
+            const email = String(body.email || '').trim();
+            const pending = await checkCode(email.toLowerCase(), 'verify', body.code);
+            const { username, passwordHash } = pending.payload || {};
+            if (!username || !passwordHash) throw new HttpError(400, 'code-expired');
+            if (await store.usernameTaken(username.toLowerCase())) throw new HttpError(409, 'username-taken');
+            if (await store.emailTaken(email.toLowerCase())) throw new HttpError(409, 'email-taken');
+            return makeAccount(await authed(req, false), { username, email: pending.payload.email || email, passwordHash, verified: true });
+        },
+
+        // Username or email + password. The device's guest folds into the
+        // account (its clears and times kept, the account's coins kept).
+        'POST /v1/account/login': async (req, body) => {
+            const key = String(body.login || '').trim().toLowerCase();
+            const tries = limitKey(req, key);
+            if (!tryAllowed(tries)) throw new HttpError(429, 'too-many-tries');
+            const a = key ? await store.accountByKey(key) : null;
+            const ok = a ? await verifyPassword(String(body.password || ''), a.passwordHash) : (await verifyPassword('x', DUMMY_HASH), false);
+            if (!ok) { tryFailed(tries); throw new HttpError(401, 'login-wrong'); }
+            tryCleared(tries);
+            return signInTo(req, a.playerId);
+        },
+
+        // Ends this device's session on the server too.
+        'POST /v1/account/logout': async (req) => {
+            await authed(req);
+            const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization || '');
+            await store.deleteToken(hashToken(m[1]));
+            return { ok: true };
+        },
+
+        // A reset code to the account's email. Always answers ok, so nobody
+        // can use it to learn which emails have accounts.
+        'POST /v1/account/forgot': async (req, body) => {
+            if (!mailer.enabled) throw new HttpError(501, 'email-off');
+            const key = String(body.login || body.email || '').trim().toLowerCase();
+            const tries = limitKey(req, 'forgot:' + key);
+            if (!tryAllowed(tries)) throw new HttpError(429, 'too-many-tries');
+            tryFailed(tries);
+            const a = key ? await store.accountByKey(key) : null;
+            if (a) {
+                const code = newCode();
+                await store.putCode(a.email.toLowerCase(), 'reset', { codeHash: hashCode(code), expiresAt: now() + CODE_TTL_MS });
+                try { await mailer.send({ to: a.email, ...codeEmail(code, 'reset') }); } catch (e) { console.error('[mail]', e && e.message); }
+            }
+            return { ok: true };
+        },
+
+        // The code and a new password: every other session of the account
+        // ends, and this device is signed in.
+        'POST /v1/account/reset': async (req, body) => {
+            const key = String(body.login || body.email || '').trim().toLowerCase();
+            const a = key ? await store.accountByKey(key) : null;
+            if (!a) throw new HttpError(400, 'code-wrong');
+            const problem = passwordProblem(body.password);
+            if (problem) throw new HttpError(400, problem);
+            await checkCode(a.email.toLowerCase(), 'reset', body.code);
+            await store.setPassword(a.playerId, await hashPassword(String(body.password)));
+            await store.revokeTokens(a.playerId);
+            return signInTo(req, a.playerId);
+        },
+
+        // Gone for good: the account, its save, its times, every session.
+        'POST /v1/account/delete': async (req, body) => {
+            const p = await authed(req);
+            const a = await store.accountOf(p.id);
+            if (!a) throw new HttpError(400, 'no-account');
+            if (!(await verifyPassword(String(body.password || ''), a.passwordHash))) throw new HttpError(401, 'login-wrong');
+            await store.deletePlayer(p.id);
+            return { ok: true };
         },
 
         'POST /v1/link': async (req) => {

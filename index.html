@@ -140,13 +140,30 @@
     <div id="profileTrails" class="look-grid"></div>
     <p class="shop-section">CARRYING</p>
     <div id="profileInventory" class="profile-inventory"></div>
-    <!-- CLOUD SAVE (cloudSync.js, leaderboardUi.js): hidden with no server -->
+    <!-- ACCOUNT AND CLOUD SAVE (cloudSync.js, leaderboardUi.js): hidden with no server -->
     <div id="cloudSection" hidden>
-      <p class="shop-section">CLOUD SAVE</p>
+      <p class="shop-section">ACCOUNT</p>
       <div class="cloud-card">
         <p class="cloud-status"><span id="cloudDot" class="cloud-dot"></span><span id="cloudStatus">CONNECTING…</span></p>
         <p id="cloudName" class="cloud-name"></p>
-        <button id="cloudLoginBtn" class="maze-btn" type="button" hidden>SIGN IN TO CRAZYGAMES</button>
+        <!-- A guest: make an account or sign in (own accounts on the web; the
+             platform's sign-in on CrazyGames) -->
+        <div id="acctGuest" class="acct-block">
+          <p class="cloud-help">Make an account to keep your progress safe and pick it up on any device.</p>
+          <div id="acctOwnButtons" class="acct-buttons">
+            <button id="acctCreateBtn" class="maze-btn maze-btn-big" type="button">CREATE ACCOUNT</button>
+            <button id="acctSignInBtn" class="maze-btn" type="button">SIGN IN</button>
+          </div>
+          <button id="cloudLoginBtn" class="maze-btn" type="button" hidden>SIGN IN TO CRAZYGAMES</button>
+        </div>
+        <!-- Signed in to an account -->
+        <div id="acctSigned" class="acct-block" hidden>
+          <p id="acctWho" class="acct-who"></p>
+          <div class="acct-buttons">
+            <button id="acctSignOutBtn" class="maze-btn" type="button">SIGN OUT</button>
+          </div>
+          <button id="acctDeleteLink" class="acct-link acct-danger" type="button">Delete account</button>
+        </div>
         <p class="cloud-help">Play on another device as this player: make a code here, enter it there.</p>
         <button id="cloudLinkBtn" class="maze-btn" type="button">GET A CODE</button>
         <p id="cloudCode" class="cloud-code" hidden></p>
@@ -230,6 +247,54 @@
     <button id="mazeWinExitBtn" class="maze-btn" type="button" style="display:none">EXIT</button>
   </div>
 </section>
+
+<!-- ACCOUNT: sign in, create, confirm the email, reset, delete (leaderboardUi.js) -->
+<div id="accountPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="acctTitle" hidden>
+  <div class="modal-card acct-card">
+    <button id="acctCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+    <h2 id="acctTitle" class="modal-title">SIGN IN</h2>
+    <form id="acctView_signin" class="acct-form" data-title="SIGN IN" hidden>
+      <input id="acctLogin" type="text" placeholder="Username or email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="254" required>
+      <input id="acctPassword" type="password" placeholder="Password" autocomplete="current-password" maxlength="200" required>
+      <button class="maze-btn maze-btn-big" type="submit">SIGN IN</button>
+      <button class="acct-link" type="button" data-go="forgot">Forgot password?</button>
+      <button class="acct-link" type="button" data-go="register">New here? Create an account</button>
+    </form>
+    <form id="acctView_register" class="acct-form" data-title="CREATE ACCOUNT" hidden>
+      <input id="regUsername" type="text" placeholder="Username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="16" required>
+      <input id="regEmail" type="email" placeholder="Email" autocomplete="email" maxlength="254" required>
+      <input id="regPassword" type="password" placeholder="Password (8+ characters)" autocomplete="new-password" maxlength="200" required>
+      <p class="acct-note">Your username shows on leaderboards: 3–16 letters, numbers, _ . or -. Your email is never shown.</p>
+      <button class="maze-btn maze-btn-big" type="submit">CREATE ACCOUNT</button>
+      <button class="acct-link" type="button" data-go="signin">Have an account? Sign in</button>
+    </form>
+    <form id="acctView_verify" class="acct-form" data-title="CHECK YOUR EMAIL" hidden>
+      <p id="acctVerifyNote" class="acct-note"></p>
+      <input id="acctCode" class="acct-code" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="000000" maxlength="6" autocomplete="one-time-code" required>
+      <button class="maze-btn maze-btn-big" type="submit">CONFIRM</button>
+      <button class="acct-link" type="button" data-go="register">Wrong email? Go back</button>
+    </form>
+    <form id="acctView_forgot" class="acct-form" data-title="FORGOT PASSWORD" hidden>
+      <p class="acct-note">Enter your username or email and we'll email you a code.</p>
+      <input id="forgotLogin" type="text" placeholder="Username or email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="254" required>
+      <button class="maze-btn maze-btn-big" type="submit">SEND CODE</button>
+      <button class="acct-link" type="button" data-go="signin">Back to sign in</button>
+    </form>
+    <form id="acctView_reset" class="acct-form" data-title="NEW PASSWORD" hidden>
+      <p class="acct-note">If that account exists, a code is on its way. It works for 15 minutes.</p>
+      <input id="resetCode" class="acct-code" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="000000" maxlength="6" autocomplete="one-time-code" required>
+      <input id="resetPassword" type="password" placeholder="New password (8+ characters)" autocomplete="new-password" maxlength="200" required>
+      <button class="maze-btn maze-btn-big" type="submit">SET PASSWORD</button>
+    </form>
+    <form id="acctView_delete" class="acct-form" data-title="DELETE ACCOUNT" hidden>
+      <p class="acct-note acct-danger">This permanently deletes your account, its progress and its leaderboard times. It cannot be undone.</p>
+      <input id="deletePassword" type="password" placeholder="Your password" autocomplete="current-password" maxlength="200" required>
+      <input id="deleteConfirm" type="text" placeholder="Type DELETE" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+      <button id="deleteGoBtn" class="maze-btn maze-btn-big acct-delete" type="submit" disabled>DELETE ACCOUNT</button>
+    </form>
+    <p id="acctMsg" class="acct-msg" role="alert"></p>
+  </div>
+</div>
 
 <!-- LEADERBOARD: best times on one level (leaderboardUi.js) -->
 <div id="boardPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="boardTitle" hidden>

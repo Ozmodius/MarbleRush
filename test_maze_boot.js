@@ -808,6 +808,46 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 `device 2 has device 1's clears and coins: ${JSON.stringify({ w: d2prog.wallet, w1: d1prog.wallet, h: d2prog.highestIndex })}`);
             check((await d2.pg.textContent('#cloudName')) === (await d1.pg.textContent('#cloudName')), 'both devices play as the same player');
             check((await d2.pg.textContent('#profileWallet')).replace(/,/g, '').trim() === String(d1prog.wallet), 'the Gear page redraws with the joined coins');
+            // Accounts (no email on this server: made at once). Device 2 makes
+            // one; signing out starts it over as a guest; signing in brings
+            // the progress back. Own accounts are web only: the CrazyGames
+            // bundle offers CrazyGames' sign-in instead.
+            const crazyBuild = /crazygames/.test(ROOT);
+            if (crazyBuild) {
+                check(await d2.pg.isHidden('#acctOwnButtons'), 'on CrazyGames there is no own-account sign-in (CrazyGames\' is the way)');
+            } else {
+                await d2.pg.tap('#acctCreateBtn');
+                await d2.pg.waitForSelector('#acctView_register', { state: 'visible' });
+                await d2.pg.fill('#regUsername', 'x');
+                await d2.pg.fill('#regEmail', 'tilt@example.com');
+                await d2.pg.fill('#regPassword', 'marbles-rule');
+                await d2.pg.tap('#acctView_register button[type=submit]');
+                await d2.pg.waitForFunction(() => document.getElementById('acctMsg').textContent.length > 0);
+                check(/at least 3/.test(await d2.pg.textContent('#acctMsg')) && await d2.pg.isVisible('#accountPanel'), 'a too-short username is explained in the panel');
+                await d2.pg.fill('#regUsername', 'TiltTester');
+                await d2.pg.tap('#acctView_register button[type=submit]');
+                await d2.pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 10000 });
+                check(/^Signed in as TiltTester/.test(await d2.pg.textContent('#acctWho')) && await d2.pg.isHidden('#acctGuest'), 'creating an account signs in, shown on the card');
+                check((await d2.dbg('progress')).cleared.w1_01, 'the progress is the account\'s');
+                await d2.pg.tap('#acctSignOutBtn');
+                await d2.pg.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+                await homeUp(d2.pg);
+                await d2.pg.waitForFunction(() => window.__cloudSync && window.__cloudSync.status() === 'synced', null, { timeout: 15000 });
+                const outP = await d2.dbg('progress');
+                check(!outP.cleared.w1_01 && /^Guest-/.test(await d2.pg.evaluate(() => window.__cloudSync.player().name)), 'signing out starts this device over as a new guest');
+                await d2.pg.tap('#tab_gear');
+                await d2.pg.tap('#acctSignInBtn');
+                await d2.pg.fill('#acctLogin', 'tilt@example.com');
+                await d2.pg.fill('#acctPassword', 'wrong-password');
+                await d2.pg.tap('#acctView_signin button[type=submit]');
+                await d2.pg.waitForFunction(() => document.getElementById('acctMsg').textContent.length > 0);
+                check(/Wrong username/.test(await d2.pg.textContent('#acctMsg')), 'a wrong password says so');
+                await d2.pg.fill('#acctPassword', 'marbles-rule');
+                await d2.pg.tap('#acctView_signin button[type=submit]');
+                await d2.pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 10000 });
+                const backP = await d2.dbg('progress');
+                check(backP.cleared.w1_01 && /^Signed in as TiltTester/.test(await d2.pg.textContent('#acctWho')), 'signing in by email brings the account\'s progress back');
+            }
             await d1.c.close();
             await d2.c.close();
         } finally { apiServer.close(); }
