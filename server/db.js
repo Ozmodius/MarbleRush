@@ -39,6 +39,21 @@ CREATE TABLE IF NOT EXISTS scores (
     PRIMARY KEY (player_id, board)
 );
 CREATE INDEX IF NOT EXISTS scores_board_ms ON scores (board, ms);
+-- Play tracking (2026-10-08): anonymous counts per day, per maze level and
+-- mode -- starts, clears, falls, quits, and the sum of clear times.
+CREATE TABLE IF NOT EXISTS level_stats (
+    day         TEXT NOT NULL,                 -- YYYY-MM-DD (UTC)
+    level       TEXT NOT NULL,                 -- 'w1_01', or a daily maze id
+    mode        TEXT NOT NULL,                 -- 'roll' | 'explore' | 'daily'
+    metric      TEXT NOT NULL,                 -- 'starts' | 'clears' | 'falls' | 'quits' | 'clear_ms'
+    n           BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, level, mode, metric)
+);
+-- Where each player has got to, from their synced save: so a stats page can
+-- show the level players stop at.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS last_seen BIGINT;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS furthest INTEGER;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS player_level INTEGER;
 CREATE TABLE IF NOT EXISTS links (
     code        TEXT PRIMARY KEY,
     player_id   TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
@@ -102,6 +117,27 @@ export async function createPgStore(url) {
             const r = await one('SELECT COUNT(*) FILTER (WHERE ms < $2) AS faster, COUNT(*) AS total FROM scores WHERE board = $1', [board, ms]);
             return { rank: Number(r.faster) + 1, total: Number(r.total) };
         },
+        // Tracking: add to the day's counters (rows: [{ level, mode, metric, n }]).
+        async addStats(day, rows) {
+            for (const r of rows) {
+                await pool.query(`INSERT INTO level_stats (day, level, mode, metric, n) VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (day, level, mode, metric) DO UPDATE SET n = level_stats.n + EXCLUDED.n`, [day, r.level, r.mode, r.metric, r.n]);
+            }
+        },
+        // Totals since `fromDay`: [{ level, mode, metric, n }].
+        async statsSince(fromDay) {
+            const { rows } = await pool.query('SELECT level, mode, metric, SUM(n)::BIGINT AS n FROM level_stats WHERE day >= $1 GROUP BY level, mode, metric', [fromDay]);
+            return rows.map(r => ({ level: r.level, mode: r.mode, metric: r.metric, n: Number(r.n) }));
+        },
+        async touchPlayer(id, { lastSeen, furthest, playerLevel }) {
+            await pool.query('UPDATE players SET last_seen = $2, furthest = COALESCE($3, furthest), player_level = COALESCE($4, player_level) WHERE id = $1',
+                [id, lastSeen, furthest ?? null, playerLevel ?? null]);
+        },
+        // Every player with a known position: [{ furthest, playerLevel, lastSeen }].
+        async playerPositions() {
+            const { rows } = await pool.query('SELECT furthest, player_level, last_seen FROM players WHERE last_seen IS NOT NULL');
+            return rows.map(r => ({ furthest: r.furthest || 0, playerLevel: r.player_level || 1, lastSeen: Number(r.last_seen) }));
+        },
         async createLink(code, playerId, expiresAt) {
             await pool.query('DELETE FROM links WHERE expires_at < $1', [Date.now()]);
             await pool.query('INSERT INTO links (code, player_id, expires_at) VALUES ($1, $2, $3)', [code, playerId, expiresAt]);
@@ -116,7 +152,7 @@ export async function createPgStore(url) {
 }
 
 export function createMemoryStore() {
-    const players = new Map(), tokens = new Map(), saves = new Map(), scores = new Map(), links = new Map();
+    const players = new Map(), tokens = new Map(), saves = new Map(), scores = new Map(), links = new Map(), stats = new Map();
     const key = (p, b) => p + '\u0000' + b;
     return {
         kind: 'memory',
@@ -147,6 +183,32 @@ export function createMemoryStore() {
         async rank(board, ms) {
             const all = [...scores.values()].filter(s => s.board === board);
             return { rank: all.filter(s => s.ms < ms).length + 1, total: all.length };
+        },
+        async addStats(day, rows) {
+            for (const r of rows) {
+                const k = [day, r.level, r.mode, r.metric].join('\u0000');
+                stats.set(k, (stats.get(k) || 0) + r.n);
+            }
+        },
+        async statsSince(fromDay) {
+            const sum = new Map();
+            for (const [k, n] of stats) {
+                const [day, level, mode, metric] = k.split('\u0000');
+                if (day < fromDay) continue;
+                const kk = [level, mode, metric].join('\u0000');
+                sum.set(kk, (sum.get(kk) || 0) + n);
+            }
+            return [...sum].map(([k, n]) => { const [level, mode, metric] = k.split('\u0000'); return { level, mode, metric, n }; });
+        },
+        async touchPlayer(id, { lastSeen, furthest, playerLevel }) {
+            const p = players.get(id);
+            if (!p) return;
+            p.lastSeen = lastSeen;
+            if (furthest !== undefined && furthest !== null) p.furthest = furthest;
+            if (playerLevel !== undefined && playerLevel !== null) p.playerLevel = playerLevel;
+        },
+        async playerPositions() {
+            return [...players.values()].filter(p => p.lastSeen).map(p => ({ furthest: p.furthest || 0, playerLevel: p.playerLevel || 1, lastSeen: p.lastSeen }));
         },
         async createLink(code, playerId, expiresAt) { links.set(code, { playerId, expiresAt }); },
         async claimLink(code, now) {

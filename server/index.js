@@ -10,6 +10,7 @@
 //   CRAZYGAMES_PUBLIC_KEY_URL  where CrazyGames publishes its token key
 //   CRAZYGAMES_PUBLIC_KEY_PEM  or the key itself
 //   RATE_LIMIT                 requests per IP per minute (default 240)
+//   ADMIN_TOKEN                opens the stats page (/admin); unset, it is off
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -35,7 +36,8 @@ const handle = createApp({
         keyUrl: env.CRAZYGAMES_PUBLIC_KEY_URL || DEFAULT_KEY_URL
     }),
     origins: env.ALLOWED_ORIGINS || '*',
-    rateMax: Number(env.RATE_LIMIT) || 240
+    rateMax: Number(env.RATE_LIMIT) || 240,
+    adminToken: env.ADMIN_TOKEN || null
 });
 
 const server = http.createServer(handle);

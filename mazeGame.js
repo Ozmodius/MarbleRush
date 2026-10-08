@@ -1221,6 +1221,7 @@ function knockOut(message) {
 
 function fall(message) {
     phase = 'falling';
+    if (attemptOpen) { attemptOpen = false; emitRun('fall'); }
     fallStartedAt = performance.now();
     // Drop through the floor rather than teleporting: the player needs to see
     // WHY the run ended. collisionResponse=false keeps the body in the sim (so
@@ -1264,6 +1265,7 @@ async function reviveFromAd() {
     // the wall clock never stopped, so the ad's time is in the run's time.
     const back = pickupState.safe;
     revivedThisAttempt = true;
+    attemptOpen = true;          // the same attempt, carried on
     ballBody.collisionResponse = true;
     ballBody.position.set(back.x, FLOOR_Y + level.ballRadius + 0.02, back.z);
     ballBody.velocity.setZero();
@@ -1303,6 +1305,17 @@ async function freeShieldFromAd() {
     setStatus('SHIELD READY  —  IT ARMS WHEN YOU START');
 }
 
+// Play tracking (cloudSync.js, via main.js): each attempt's start, fall,
+// clear, or quit (left the level mid-attempt), as { type, level, mode, ms? }.
+let runListener = null;
+let attemptOpen = false;
+export function setRunListener(fn) { runListener = fn || null; }
+function emitRun(type, extra) {
+    if (!runListener || !level) return;
+    const mode = walkMode ? 'explore' : isDaily(level) ? 'daily' : 'roll';
+    try { runListener({ type, level: level.id, mode, ...extra }); } catch (e) { /* tracking never breaks play */ }
+}
+
 // Told of each win: { board, ms, levelName, walk, daily }, or null when the
 // clear did not count.
 let clearListener = null;
@@ -1310,6 +1323,7 @@ export function setClearListener(fn) { clearListener = fn || null; }
 
 function win() {
     phase = 'won';
+    attemptOpen = false;
     renderPowerups();
     setGameplayActive(false);
     const ms = Math.round(performance.now() - runStartedAt);
@@ -1340,6 +1354,7 @@ function win() {
         const info = counted ? { board, ms, levelName: level.name, walk: walkMode, daily: isDaily(level) } : null;
         try { clearListener(info); } catch (e) { console.warn('[maze] clear listener:', e && e.message); }
     }
+    emitRun('clear', { ms });
     showClearResult(result, ms);
     showNearMiss(result);
     lastClear = result && result.accepted && result.earned > 0 ? result : null;
@@ -1417,6 +1432,8 @@ function restart() {
     renderCoins();
     renderPowerups();
     phase = 'running';
+    attemptOpen = true;
+    emitRun('start');
     setStatus('');
     showWinStar(false);
     showEl('mazeWinPanel', false);
@@ -1753,6 +1770,7 @@ function startLevel(levelId, opts = {}) {
 
 // Drop the current level's scene + physics without leaving the maze.
 function teardownLevel() {
+    if (attemptOpen) { attemptOpen = false; emitRun('quit'); }
     setGameplayActive(false);
     if (mazeGroup && scene) scene.remove(mazeGroup);
     disposeAll();

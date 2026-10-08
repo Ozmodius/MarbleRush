@@ -736,7 +736,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // fresh, joins with it and gets device 1's progress and coins.
         const { createApp } = await import('./server/app.js');
         const { createMemoryStore } = await import('./server/db.js');
-        const apiServer = http.createServer(createApp({ store: createMemoryStore(), levels, dailyLevels: JSON.parse(fs.readFileSync(path.join(__dirname, 'dailyLevels.json'), 'utf8')).levels }));
+        const apiServer = http.createServer(createApp({ store: createMemoryStore(), levels, adminToken: 'test-admin', dailyLevels: JSON.parse(fs.readFileSync(path.join(__dirname, 'dailyLevels.json'), 'utf8')).levels }));
         await new Promise(r => apiServer.listen(0, '127.0.0.1', r));
         const apiUrl = `http://127.0.0.1:${apiServer.address().port}`;
         try {
@@ -781,6 +781,11 @@ const check = (c, m) => { if (!c) failures.push(m); };
             check(await d1.pg.locator('#boardList li').count() === 1 && await d1.pg.locator('#boardList li.is-you').count() === 1 && /#1 of 1/.test(await d1.pg.textContent('#boardYou')),
                 'the leaderboard lists the time as yours');
             await d1.pg.tap('#boardCloseBtn');
+            // Play tracking: the attempt's start and clear reach the stats.
+            await d1.pg.evaluate(() => window.__cloudSync.flushEvents());
+            const stats = await (await fetch(apiUrl + '/v1/admin/stats', { headers: { Authorization: 'Bearer test-admin' } })).json();
+            const w101 = stats.levels.find(l => l.id === 'w1_01').roll;
+            check(w101.starts === 1 && w101.clears === 1 && w101.avgClearMs >= l1.goldMs, `the run is tracked: a start and a clear on w1_01 (${JSON.stringify(w101)})`);
             check(await d1.pg.isHidden('#boardPanel'), 'the leaderboard closes');
             await d1.pg.tap('#mazeLevelsBtn');
             await d1.pg.waitForFunction(() => window.__cloudSync.status() === 'synced');

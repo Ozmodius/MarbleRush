@@ -184,6 +184,28 @@ export function createCloudSync({
 
     if (base) store.onSave(() => { if (!adopting) schedulePush(); });
 
+    // Play tracking: events queue here and go up in batches -- every 30s,
+    // at 20 waiting, and when the page is hidden (sent with keepalive so a
+    // closing tab still delivers). Kept in memory only, at most 200; a
+    // failed send keeps them for the next try.
+    const events = [];
+    let eventTimer = null;
+    async function flushEvents(keepalive = false) {
+        if (eventTimer) { clearTimer(eventTimer); eventTimer = null; }
+        if (!base || !token || !events.length) return;
+        const batch = events.splice(0, 100);
+        try {
+            if (keepalive) {
+                await fetchImpl(base + '/v1/events', { method: 'POST', keepalive: true,
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ events: batch }) });
+            } else await req('POST', '/v1/events', { events: batch });
+        } catch (_) { events.unshift(...batch.slice(0, 200 - events.length)); }
+        if (events.length && !eventTimer) eventTimer = setTimer(() => { eventTimer = null; flushEvents(); }, 30e3);
+    }
+    if (base && typeof document !== 'undefined' && document.addEventListener) {
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushEvents(true); });
+    }
+
     return {
         enabled: !!base,
         start() {
@@ -196,6 +218,15 @@ export function createCloudSync({
         player: () => me,
         onStatus(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
+        // One play event: { type: start|clear|fall|quit, level, mode, ms? }.
+        track(ev) {
+            if (!base || !ev) return;
+            events.push({ type: ev.type, level: ev.level, mode: ev.mode, ...(Number.isFinite(ev.ms) ? { ms: Math.round(ev.ms) } : {}) });
+            if (events.length > 200) events.splice(0, events.length - 200);
+            if (events.length >= 20) flushEvents();
+            else if (!eventTimer) eventTimer = setTimer(() => { eventTimer = null; flushEvents(); }, 30e3);
+        },
+        flushEvents: () => flushEvents(),
         async submitScore(board, ms) {
             if (!base) return null;
             const s = { board, ms: Math.round(ms) };

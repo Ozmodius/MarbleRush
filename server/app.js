@@ -14,6 +14,9 @@
 //   POST /v1/scores   {board, ms}     -> { best, rank, total }
 //   POST /v1/scores/batch {scores: [{board, ms}]} -> { accepted }
 //   GET  /v1/leaderboard?board=&limit= -> { board, top: [{rank,name,ms,you}], you }
+//   POST /v1/events   {events}        -> { accepted }   play tracking
+//   GET  /v1/admin/stats?days=&idle=  -> per-level stats (ADMIN_TOKEN only)
+//   GET  /admin                       the stats page (asks for the token)
 //   POST /v1/link                     -> { code, expiresAt }
 //   POST /v1/link/claim {code}        -> { token, player, save }
 //        Another device's player, by its 6-letter code: this device becomes
@@ -23,6 +26,8 @@
 // time below the level's minMs (the generator's physical floor) is refused.
 
 import { mergeProgress } from '../progressStore.js';
+import { levelForXp } from '../playerLevel.js';
+import { ADMIN_PAGE } from './adminPage.js';
 import { hashToken, newToken, newId, newLinkCode, cleanLinkCode, guestName, cleanName } from './auth.js';
 
 const MAX_BODY = 256 * 1024;
@@ -66,7 +71,13 @@ function nearDays(now) {
     return out;
 }
 
-export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = null, origins = '*', rateMax = 240, now = () => Date.now() }) {
+// Play tracking (POST /v1/events): what the game reports, and what each
+// counts as. Anonymous: only daily totals per level and mode are kept.
+const EVENT_METRIC = { start: 'starts', clear: 'clears', fall: 'falls', quit: 'quits' };
+const MODES = new Set(['roll', 'explore', 'daily']);
+const dayOf = t => new Date(t).toISOString().slice(0, 10);
+
+export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = null, origins = '*', rateMax = 240, now = () => Date.now(), adminToken = null }) {
     const ladder = new Map(levels.map(l => [l.id, l]));
     const dailies = new Map(dailyLevels.map(l => [l.id, l]));
     const allowOrigin = originMatcher(origins);
@@ -174,8 +185,71 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
         'PUT /v1/save': async (req, body) => {
             const p = await authed(req);
             if (!body.save || typeof body.save !== 'object' || Array.isArray(body.save)) throw new HttpError(400, 'bad-save');
-            return { save: await mergeInto(p.id, body.save) };
+            const save = await mergeInto(p.id, body.save);
+            // Where this player has got to, for the stats page.
+            await store.touchPlayer(p.id, { lastSeen: now(), furthest: save.highestIndex || 0, playerLevel: levelForXp(save.xp || 0) });
+            return { save };
         },
+
+        // Play tracking: [{ type: start|clear|fall|quit, level, mode, ms? }],
+        // up to 100 a call; anything malformed is skipped.
+        'POST /v1/events': async (req, body) => {
+            const p = await authed(req);
+            const list = Array.isArray(body.events) ? body.events.slice(0, 100) : [];
+            const sums = new Map();
+            const add = (level, mode, metric, n) => { const k = level + '|' + mode + '|' + metric; sums.set(k, (sums.get(k) || 0) + n); };
+            let accepted = 0;
+            for (const e of list) {
+                if (!e || !EVENT_METRIC[e.type] || !MODES.has(e.mode)) continue;
+                const known = e.mode === 'daily' ? dailies.has(e.level) : ladder.has(e.level);
+                if (!known) continue;
+                add(e.level, e.mode, EVENT_METRIC[e.type], 1);
+                if (e.type === 'clear' && Number.isInteger(e.ms) && e.ms > 0 && e.ms <= MAX_MS) add(e.level, e.mode, 'clear_ms', e.ms);
+                accepted++;
+            }
+            if (sums.size) await store.addStats(dayOf(now()), [...sums].map(([k, n]) => { const [level, mode, metric] = k.split('|'); return { level, mode, metric, n }; }));
+            await store.touchPlayer(p.id, { lastSeen: now() });
+            return { accepted };
+        },
+
+        // The stats page's data (ADMIN_TOKEN only): per level and mode, the
+        // counts over the last `days`, clear rate and mean clear time; how
+        // many players stopped there (furthest level, not seen for `idle`
+        // days); and how player levels are spread.
+        'GET /v1/admin/stats': async (req, body, url) => {
+            const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization || '');
+            if (!adminToken || !m || hashToken(m[1]) !== hashToken(adminToken)) throw new HttpError(404, 'not-found');
+            const days = Math.max(1, Math.min(365, Math.floor(Number(url.searchParams.get('days')) || 30)));
+            const idle = Math.max(1, Math.min(90, Math.floor(Number(url.searchParams.get('idle')) || 7)));
+            const rows = await store.statsSince(dayOf(now() - (days - 1) * 86400e3));
+            const by = new Map();
+            for (const r of rows) {
+                const k = r.level + '|' + r.mode;
+                if (!by.has(k)) by.set(k, { level: r.level, mode: r.mode, starts: 0, clears: 0, falls: 0, quits: 0, clear_ms: 0 });
+                by.get(k)[r.metric] = r.n;
+            }
+            const positions = await store.playerPositions();
+            const cutoff = now() - idle * 86400e3;
+            const stoppedAt = new Map();
+            for (const pos of positions) if (pos.lastSeen < cutoff) stoppedAt.set(pos.furthest, (stoppedAt.get(pos.furthest) || 0) + 1);
+            const describe = (lv, mode) => {
+                const s = by.get(lv.id + '|' + mode) || { starts: 0, clears: 0, falls: 0, quits: 0, clear_ms: 0 };
+                return { starts: s.starts, clears: s.clears, falls: s.falls, quits: s.quits,
+                    clearRate: s.starts ? s.clears / s.starts : null, avgClearMs: s.clears ? Math.round(s.clear_ms / s.clears) : null };
+            };
+            const levelsOut = levels.map(lv => ({
+                id: lv.id, name: lv.name, world: lv.world, index: lv.index, goldMs: lv.goldMs,
+                roll: describe(lv, 'roll'), explore: describe(lv, 'explore'),
+                // Stopped HERE: their furthest clear is the level before this one.
+                stopped: stoppedAt.get(lv.index - 1) || 0
+            }));
+            const daily = dailyLevels.map(lv => ({ id: lv.id, world: lv.world, ...describe(lv, 'daily') })).filter(d => d.starts);
+            const playerLevels = {};
+            for (const pos of positions) playerLevels[pos.playerLevel] = (playerLevels[pos.playerLevel] || 0) + 1;
+            return { days, idle, players: { total: positions.length, active: positions.filter(pp => pp.lastSeen >= cutoff).length, finished: stoppedAt.get(levels.length) || 0 },
+                levels: levelsOut, daily, playerLevels };
+        },
+        'GET /admin': () => ({ html: ADMIN_PAGE }),
 
         'POST /v1/scores': async (req, body) => {
             const p = await authed(req);
@@ -280,7 +354,13 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             const route = routes[`${req.method} ${url.pathname.replace(/\/+$/, '') || '/'}`];
             if (!route) throw new HttpError(404, 'not-found');
             const body = req.method === 'GET' ? {} : await readBody(req);
-            send(200, await route(req, body, url));
+            const out = await route(req, body, url);
+            if (out && out.html) {
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
+                res.end(out.html);
+                return;
+            }
+            send(200, out);
         } catch (e) {
             if (e instanceof HttpError) return send(e.status, { error: e.code });
             console.error('[api]', e);

@@ -30,11 +30,11 @@ const crazyToken = (userId, username, key = privateKey) =>
 const pgUrl = process.env.TEST_DATABASE_URL;
 if (pgUrl) {
     const c = new pg.Client({ connectionString: pgUrl }); await c.connect();
-    await c.query('DROP TABLE IF EXISTS links, scores, saves, tokens, players'); await c.end();
+    await c.query('DROP TABLE IF EXISTS level_stats, links, scores, saves, tokens, players'); await c.end();
 }
 const store = pgUrl ? await createPgStore(pgUrl) : createMemoryStore();
 let clock = Date.parse('2026-10-07T12:00:00Z');
-const app = createApp({ store, levels, dailyLevels, verifyCrazy: createCrazyVerifier({ pem }), rateMax: 10000, now: () => clock });
+const app = createApp({ store, levels, dailyLevels, verifyCrazy: createCrazyVerifier({ pem }), rateMax: 10000, now: () => clock, adminToken: 'sekret-admin' });
 const server = http.createServer(app);
 await new Promise(r => server.listen(0, r));
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -162,6 +162,40 @@ check(cg3.body.player.id !== cg.body.player.id && !(await call('GET', '/v1/save'
 // The verifier fetches the key as { publicKey } JSON.
 const fetched = createCrazyVerifier({ keyUrl: 'https://key.test/publicKey.json', fetchImpl: async () => ({ ok: true, text: async () => JSON.stringify({ publicKey: pem }) }) });
 check((await fetched(await crazyToken('u1', 'Fetched'))).username === 'Fetched', 'the key is read from the publicKey JSON');
+
+// --- play tracking and the stats page ---
+const TE = (await call('POST', '/v1/session', { body: {} })).body.token;
+const l2 = levels[1];
+const ev = (type, level = l2.id, mode = 'roll', ms) => ({ type, level, mode, ...(ms ? { ms } : {}) });
+const sent = await call('POST', '/v1/events', { token: TE, body: { events: [
+    ev('start'), ev('fall'), ev('start'), ev('clear', l2.id, 'roll', 20000), ev('start'), ev('clear', l2.id, 'roll', 30000), ev('start'), ev('quit'),
+    ev('start', l2.id, 'explore'), ev('start', dailyLevels[0].id, 'daily'),
+    ev('start', 'nope'), ev('bogus'), ev('start', l2.id, 'flying'), ev('start', l2.id, 'daily'), null] } });
+check(sent.status === 200 && sent.body.accepted === 10, `events count the good and skip the bad (${sent.body.accepted})`);
+check((await call('POST', '/v1/events', { body: { events: [ev('start')] } })).status === 401, 'events need a token');
+check((await call('GET', '/v1/admin/stats')).status === 404, 'the stats are hidden without the admin token');
+check((await call('GET', '/v1/admin/stats', { token: TE })).status === 404, 'a player token does not open them');
+// A player who reached level 8 and then went away: they stopped at level 9.
+const TS = (await call('POST', '/v1/session', { body: {} })).body.token;
+await call('PUT', '/v1/save', { token: TS, body: { save: { ...freshProgress(), highestIndex: 8, xp: 700, savedAt: 1 } } });
+clock += 10 * 86400e3;
+await call('PUT', '/v1/save', { token: TE, body: { save: { ...freshProgress(), highestIndex: 1, savedAt: 1 } } });   // TE active today
+const st = await call('GET', '/v1/admin/stats?days=30&idle=7', { token: 'sekret-admin' });
+check(st.status === 200, 'the admin token opens the stats');
+const row = st.body.levels.find(l => l.id === l2.id);
+check(row.roll.starts === 4 && row.roll.clears === 2 && row.roll.falls === 1 && row.roll.quits === 1 && row.roll.clearRate === 0.5 && row.roll.avgClearMs === 25000,
+    `per level: starts, clears, falls, quits, clear rate, mean clear time: ${JSON.stringify(row.roll)}`);
+check(row.explore.starts === 1 && st.body.daily.length === 1 && st.body.daily[0].starts === 1, 'explore and the daily maze are counted apart');
+const l9 = st.body.levels.find(l => l.index === 9);
+check(l9.stopped === 1 && st.body.levels.find(l => l.index === 3).stopped === 0, `a player gone 10 days with 8 levels cleared stopped at level 9 (${l9.stopped})`);
+check(st.body.players.total >= 2 && st.body.players.active >= 1 && st.body.playerLevels[5] >= 1, `players and their levels are counted: ${JSON.stringify(st.body.players)} ${JSON.stringify(st.body.playerLevels)}`);
+const narrow = await call('GET', '/v1/admin/stats?days=1', { token: 'sekret-admin' });
+check(narrow.body.levels.find(l => l.id === l2.id).roll.starts === 0, 'counts outside the chosen days are left out');
+clock -= 10 * 86400e3;
+const page = await fetch(base + '/admin');
+const html = await page.text();
+check(page.status === 200 && /text\/html/.test(page.headers.get('content-type')) && html.includes('PlaneTilt Stats') && page.headers.get('x-robots-tag') === 'noindex',
+    'the stats page is served, and kept out of search engines');
 
 // --- CORS, routing ---
 const opt = await call('OPTIONS', '/v1/save', { origin: 'https://ozmodius.github.io' });

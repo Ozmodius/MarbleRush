@@ -67,8 +67,10 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   too -- change it in one place). Nothing in a run may wait on the network,
   and with no `PLANETILT_API_URL` the game must play exactly as before. A new
   save field needs a merge rule in `mergeProgress` and a case in
-  `test_sync.js`. Do not add server features beyond saves and boards (no
-  accounts of our own, no real-money purchases) without the user's call.
+  `test_sync.js`. The server does saves, leaderboards, anonymous play
+  tracking (per-level counts for the `/admin` stats page, 2026-10-08) and
+  player accounts (2026-10-08); anything further (real-money purchases,
+  personal data beyond an account's email) needs the user's call.
   `npm test` runs `server/` tests too (`npm ci --prefix server` first);
   `TEST_DATABASE_URL` runs them against a real Postgres.
 - **No ad during a run, ever.** Midgame ads only at natural breaks; rewarded

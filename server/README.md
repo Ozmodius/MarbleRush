@@ -28,6 +28,7 @@ Environment variables:
 | `ALLOWED_ORIGINS` | optional; default `*`. To lock it down: `https://ozmodius.github.io,https://*.crazygames.com` |
 | `CRAZYGAMES_PUBLIC_KEY_URL` | optional; default `https://sdk.crazygames.com/publicKey.json` |
 | `RATE_LIMIT` | optional; requests per IP per minute, default 240 |
+| `ADMIN_TOKEN` | optional; a long random string of your choosing. Opens the stats page at `/admin`. Unset, the page is off |
 
 Tables are created on first start. Without `DATABASE_URL` the server runs on
 an in-memory store (handy to try it; everything is lost on restart).
@@ -49,6 +50,20 @@ Render's free web services sleep after 15 minutes idle and take ~30-60 s to
 wake. The game never waits on the server (saves stay on the device and sync
 when it answers), so that is a delay on the leaderboard, not on play.
 
+## Stats page (play tracking)
+
+Open `https://<your-service>.onrender.com/admin` and enter your `ADMIN_TOKEN`.
+It shows, per maze level: starts, clear rate, falls per attempt, quits, mean
+clear time against gold, and how many players **stopped there** (their
+furthest clear is the level before, and they have not played for 7 days, or
+whatever you pick). The row where most players stop is highlighted: that is
+the level to look at. Explore mode, daily mazes and the spread of player
+levels are shown too.
+
+Tracking is anonymous: the server keeps daily totals per level, plus each
+player's furthest level and player level (from their synced save). Nothing
+is sent when the game is built without a server.
+
 ## Endpoints
 
 | | |
@@ -60,6 +75,8 @@ when it answers), so that is a delay on the leaderboard, not on play.
 | `POST /v1/scores {board, ms}` | `{ best, rank, total }` |
 | `POST /v1/scores/batch {scores}` | `{ accepted }`: best times already in a save, sent once |
 | `GET /v1/leaderboard?board=&limit=` | `{ top: [{rank, name, ms, you}], you, total }`; no token needed |
+| `POST /v1/events {events}` | `{ accepted }`: play tracking, `[{type: start/clear/fall/quit, level, mode: roll/explore/daily, ms?}]` |
+| `GET /v1/admin/stats?days=&idle=` | the stats page's data; `Authorization: Bearer <ADMIN_TOKEN>` |
 | `POST /v1/link` | `{ code, expiresAt }`: 6 letters, 10 minutes, one use |
 | `POST /v1/link/claim {code}` | `{ token, player, save }`: this device becomes that player |
 
