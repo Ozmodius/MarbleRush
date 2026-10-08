@@ -921,6 +921,7 @@ function step() {
         const t = performance.now() / 1000;
         tickSurfaces(t);
         (planet || solar).tick(t);
+        if (planet) slidePlanet();
         return;
     }
     if (!active || !world || !ballBody) return;
@@ -1628,7 +1629,9 @@ function buildShowcase(kind) {
         solar.setSpin(systemSpin);
         mazeGroup = solar.group;
     } else {
-        const lv = nextLevel();
+        // The world picked on home (a swipe), or the one being played.
+        const home = homeLevel();
+        const lv = home && home.level;
         if (!lv) return;
         const prog = progressNow();
         ballSpec = ballSetup(prog.marble, prog.upgrades);
@@ -1647,6 +1650,13 @@ function buildShowcase(kind) {
 // Leaving a level ends a marble trial.
 function enterMenus(tab) {
     trialMarble = null;
+    // Back from a level, home shows the world just played -- or, if that
+    // finished it, the world it opened.
+    if (phase !== 'menu' && level && !isDaily(level)) {
+        const played = level.world, next = nextLevel();
+        const done = allLevels.filter(l => l.world === played).every(l => progressNow().cleared[l.id]);
+        homeWorldN = done && next && next.world > played ? next.world : played;
+    }
     keepAwake(false);   // the menus let the phone sleep as usual (wakeLock.js)
     const want = tab === 'worlds' ? 'system' : 'planet';
     if (phase !== 'menu' || backdrop !== want) {
@@ -1734,7 +1744,59 @@ export function worldAnchors() {
 // The menus ask mazeGame for screens through these.
 export function setMenuHandler(fn) { menuHandler = fn; }
 export function showMenus(tab) { enterMenus(tab); }
-export function playLevel(id) { startLevel(id || (nextLevel() && nextLevel().id)); }
+export function playLevel(id) {
+    if (!id) {
+        const home = homeLevel();
+        if (!home || home.locked) return;   // a locked world's PLAY is greyed out (menus.js)
+        id = home.level.id;
+    }
+    startLevel(id);
+}
+
+// HOME'S WORLD: home shows one world's planet at a time, and a swipe (or
+// its arrows) moves between them (menus.js). PLAY starts that world's level:
+// the next one if the ladder is in this world, its first unbeaten one if
+// the player came back to it, its first if it is all beaten -- and nothing
+// if the world is still locked.
+let homeWorldN = null;                 // null: the world the ladder is in
+let planetSlide = null;                // { from, t0 }: the planet sliding in
+const PLANET_SLIDE_X = 9, PLANET_SLIDE_MS = 380;
+export function homeWorld() {
+    const n = homeWorldN || (nextLevel() ? nextLevel().world : 1);
+    return Math.max(1, Math.min(LAUNCH_WORLDS, n));
+}
+export function homeLevel() {
+    const n = homeWorld();
+    const lvls = allLevels.filter(l => l.world === n);
+    if (!lvls.length) return null;
+    const prog = progressNow(), next = nextLevel();
+    const open = lvls.filter(l => isUnlocked(prog, l));
+    if (!open.length) return { world: n, level: lvls[0], locked: true, done: false };
+    if (next && next.world === n && !prog.cleared[next.id]) return { world: n, level: next, locked: false, done: false };
+    const todo = open.find(l => !prog.cleared[l.id]);
+    return { world: n, level: todo || lvls[0], locked: false, done: !todo };
+}
+// Show world n on home (dir: +1 it came from the right, -1 the left).
+export function setHomeWorld(n, dir = 0) {
+    n = Math.max(1, Math.min(LAUNCH_WORLDS, n));
+    if (n === homeWorld()) return false;
+    homeWorldN = n;
+    if (phase === 'menu' && backdrop === 'planet') {
+        buildShowcase('planet');
+        planetSlide = dir ? { from: dir * PLANET_SLIDE_X, t0: performance.now() } : null;
+        slidePlanet();
+        requestRender();
+    }
+    return true;
+}
+function slidePlanet() {
+    if (!planet || !planet.world) return;
+    if (!planetSlide) { planet.world.position.x = 0; return; }
+    const k = Math.min(1, (performance.now() - planetSlide.t0) / PLANET_SLIDE_MS);
+    const e = 1 - Math.pow(1 - k, 3);
+    planet.world.position.x = planetSlide.from * (1 - e);
+    if (k >= 1) planetSlide = null;
+}
 
 // Walk a level in first person (the Labyrinth). Only a level already cleared
 // by rolling: the walk is a second way through, not a way past.
@@ -1900,6 +1962,12 @@ export function isMazeActive() { return active; }
 // unverifiable off-device: raw Euler angles -> mazeTilt -> gravity -> cannon ->
 // the ball actually moving, and moving in the right direction.
 window.__mazeDebug = {
+    // Home's world picker: which world is shown, what PLAY would start, and
+    // where the planet is (0 once it has slid home).
+    homeWorld: () => homeWorld(),
+    homeLevel: () => { const h = homeLevel(); return h && { world: h.world, id: h.level.id, locked: h.locked, done: h.done }; },
+    planetX: () => (planet && planet.world ? planet.world.position.x : null),
+    hasSun: () => !!(planet && planet.sun),
     active: () => active,
     phase: () => phase,
     ballPos: () => (ballBody ? { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z } : null),

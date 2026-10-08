@@ -600,6 +600,55 @@ html, body {
   border-radius: 20px;
   position: relative;
 }
+/* A locked world: PLAY greys out and stops pulsing. */
+.home-playbtn:disabled, .home-playbtn.is-locked {
+  filter: grayscale(1) brightness(0.62);
+  cursor: default;
+}
+.home-playbtn.is-locked::after { display: none; }
+.home-playbtn.is-locked .play-label { font-size: 1.35rem; }
+/* Home's world picker: arrows either side of the world's name and its dots. */
+.home-worldnav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+}
+.world-arrow {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: rgba(10, 7, 5, 0.55);
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+}
+.world-arrow svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.world-arrow:disabled { opacity: 0.25; cursor: default; }
+.home-worldname {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 150px;
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.home-worldname .is-locked-name { opacity: 0.7; }
+.world-dots { display: flex; gap: 6px; }
+.world-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+}
+.world-dots i.is-on { background: #ffd66e; box-shadow: 0 0 6px rgba(255, 214, 110, 0.8); }
+.world-dots i.is-locked { background: rgba(255, 255, 255, 0.12); }
 /* The pulse is a glow ring behind the button, never the button itself: a
    target that keeps moving is harder to hit (and tests cannot tap it). */
 .home-playbtn::after {

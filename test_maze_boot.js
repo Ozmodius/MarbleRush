@@ -83,6 +83,41 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await page.isHidden('#bootMsg'), 'the boot message must clear once the game is up');
         check(await page.isVisible('#tabBar'), 'the tab bar shows on the home screen');
         check(await page.evaluate(() => window.__mazeDebug.menuPhase()), 'the home planet is built behind the home screen');
+        // Home's worlds: a swipe across the planet (or the arrows) moves
+        // between them, a sun burns in the distance, and a locked world's
+        // PLAY is greyed out and starts nothing.
+        check(await page.evaluate(() => window.__mazeDebug.hasSun()), 'a sun burns behind the home planet');
+        check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 1 && /WORLD 1/.test(await page.textContent('#homeWorldName'))
+            && await page.isDisabled('#homePrevWorld'), 'home opens on world 1, with nothing to its left');
+        {
+            const cdp = await ctx.newCDPSession(page);
+            const swipe = async (x0, x1) => {
+                await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: 420 }] });
+                for (let k = 1; k <= 6; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0 + (x1 - x0) * k / 6, y: 420 }] });
+                await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+            };
+            await swipe(300, 90);
+            const h2 = await page.evaluate(() => window.__mazeDebug.homeLevel());
+            check(h2 && h2.world === 2 && h2.locked, `a swipe left brings in world 2, locked for a new player: ${JSON.stringify(h2)}`);
+            check(await page.evaluate(() => window.__mazeDebug.planetX()) > 0, 'the new planet slides in from the right');
+            check(await page.isDisabled('#homePlayBtn') && (await page.textContent('#homePlayLabel')).trim() === 'LOCKED'
+                && /Finish Workshop/.test(await page.textContent('#homeGoal')), 'a locked world greys PLAY out and says what opens it');
+            await page.tap('#homePlayBtn', { force: true });
+            check(await page.isVisible('#homeView') && await page.evaluate(() => window.__mazeDebug.menuPhase()), 'and its PLAY starts nothing');
+            await swipe(200, 180);
+            check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 2, 'a small drag is not a swipe');
+            await swipe(90, 300);
+            check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 1 && !(await page.isDisabled('#homePlayBtn')), 'a swipe right goes back to world 1, PLAY lit again');
+            await page.tap('#homeNextWorld');
+            await page.tap('#homeNextWorld');
+            check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 3, 'the arrows step through the worlds too');
+            for (let i = 0; i < 4; i++) if (!(await page.isDisabled('#homeNextWorld'))) await page.tap('#homeNextWorld');
+            check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 5 && await page.isDisabled('#homeNextWorld'), 'and stop at the last world');
+            await page.keyboard.press('ArrowLeft');
+            check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 4, 'the arrow keys step on a computer');
+            while (await page.evaluate(() => window.__mazeDebug.homeWorld()) > 1) await page.tap('#homePrevWorld');
+            check((await page.textContent('#homePlayLevel')).trim() === 'LEVEL 1', 'back on world 1, PLAY is level 1');
+        }
         check(!(await page.$('#homeLevelNum')) && !(await page.$('#homeWorld')), 'the home HUD carries no level info');
         const homeLabels = await page.$$eval('.home-statlabel', els => els.map(e => e.textContent.trim()));
         check(['GOLD', 'MEDALS', 'POWER-UPS'].every(l => homeLabels.includes(l)), `the home HUD labels gold, medals and power-ups, shows ${homeLabels}`);

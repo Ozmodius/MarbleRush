@@ -4,6 +4,7 @@ import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 import { onFrame, getRenderer } from './sceneHost.js';
 import { showBanner, adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { sfx } from './sfx.js';
+import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, showLevelUps } from './dailyUi.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
@@ -146,9 +147,12 @@ async function freeCoinsFromAd() {
 function renderHome() {
     const p = ctx.store.get();
     const levels = ctx.game.getLevels();
-    const lv = ctx.game.nextLevel();
-    if (!lv) return;
-    const allDone = levels.every(l => p.cleared[l.id]);
+    // The world on screen (swiped to, or where the ladder is) and the level
+    // PLAY starts there (mazeGame.js homeLevel).
+    const home = ctx.game.homeLevel();
+    if (!home) return;
+    const lv = home.level;
+    renderWorldNav(home);
 
     // Medals by best time, across every level (progressStore.js tierForMs).
     const medals = { gold: 0, silver: 0, bronze: 0 };
@@ -161,15 +165,55 @@ function renderHome() {
     for (const id of CHARGE_IDS) $('homeCharge_' + id).textContent = String(p.charges?.[id] || 0);
 
     const best = p.cleared[lv.id];
-    $('homeGoal').textContent = best
-        ? `Best ${(best.bestMs / 1000).toFixed(1)}s  ·  gold under ${(lv.goldMs / 1000).toFixed(1)}s`
-        : `Gold under ${(lv.goldMs / 1000).toFixed(1)}s  ·  ${(lv.coins || []).length} coins to find`;
-    $('homePlayLabel').textContent = allDone ? 'PLAY AGAIN' : 'PLAY';
-    $('homePlayLevel').textContent = 'LEVEL ' + lv.index;
+    const play = $('homePlayBtn');
+    play.disabled = home.locked;
+    play.classList.toggle('is-locked', home.locked);
+    play.setAttribute('aria-disabled', String(home.locked));
+    if (home.locked) {
+        // Locked: say what opens it -- the world before, finished.
+        $('homeGoal').textContent = `Finish ${worldName(home.world - 1)} to unlock`;
+        $('homePlayLabel').textContent = 'LOCKED';
+        $('homePlayLevel').textContent = 'WORLD ' + home.world;
+    } else {
+        $('homeGoal').textContent = best
+            ? `Best ${(best.bestMs / 1000).toFixed(1)}s  ·  gold under ${(lv.goldMs / 1000).toFixed(1)}s`
+            : `Gold under ${(lv.goldMs / 1000).toFixed(1)}s  ·  ${(lv.coins || []).length} coins to find`;
+        $('homePlayLabel').textContent = home.done ? 'PLAY AGAIN' : 'PLAY';
+        $('homePlayLevel').textContent = 'LEVEL ' + lv.index;
+    }
     renderFreeCoins();
     renderDailyMaze();
     renderDailyButtons();
     renderWallets();
+}
+
+// Home's world picker: the shown world's name, a dot per world (lit for the
+// shown one, dim for locked ones), and arrows that stop at the ends.
+function renderWorldNav(home) {
+    const worlds = ctx.game.worldsInfo();
+    const n = home.world;
+    const name = $('homeWorldName');
+    name.textContent = `WORLD ${n}  ·  ${worldName(n).toUpperCase()}`;
+    name.classList.toggle('is-locked-name', home.locked);
+    const dots = $('homeWorldDots');
+    dots.innerHTML = '';
+    for (const w of worlds) {
+        const d = document.createElement('i');
+        if (w.n === n) d.className = 'is-on';
+        else if (w.state !== 'open') d.className = 'is-locked';
+        dots.append(d);
+    }
+    $('homePrevWorld').disabled = n <= 1;
+    $('homeNextWorld').disabled = n >= LAUNCH_WORLDS;
+}
+
+// Move home to the next (+1) or previous (-1) world, sliding the new planet
+// in from that side.
+function stepHomeWorld(d) {
+    if (current !== 'home') return;
+    const n = ctx.game.homeWorld() + d;
+    if (n < 1 || n > LAUNCH_WORLDS) return;
+    if (ctx.game.setHomeWorld(n, d)) renderHome();
 }
 
 // --- WORLDS ------------------------------------------------------------------
@@ -286,7 +330,18 @@ export function initMenus({ store, game }) {
         if (b) b.addEventListener('click', (e) => { e.preventDefault(); if (current !== t) game.showMenus(t); });
     }
     const play = $('homePlayBtn');
-    if (play) play.addEventListener('click', (e) => { e.preventDefault(); game.playLevel(); });
+    if (play) play.addEventListener('click', (e) => { e.preventDefault(); if (!play.disabled) game.playLevel(); });
+    for (const [id, d] of [['homePrevWorld', -1], ['homeNextWorld', 1]]) {
+        const b = $(id);
+        if (b) b.addEventListener('click', (e) => { e.preventDefault(); stepHomeWorld(d); });
+    }
+    // The arrow keys do the same on a computer.
+    window.addEventListener('keydown', (e) => {
+        if (current !== 'home' || e.repeat || e.target.closest?.('input, textarea, select, [role="dialog"]')) return;
+        if (document.querySelector('.modal.is-up')) return;
+        if (e.code === 'ArrowLeft') stepHomeWorld(-1);
+        else if (e.code === 'ArrowRight') stepHomeWorld(1);
+    });
     // The HUD chips go where their thing is: more gold and power-ups in the
     // store, medals on the worlds map.
     const go = (id, tab) => { const b = $(id); if (b) b.addEventListener('click', (e) => { e.preventDefault(); game.showMenus(tab); }); };
@@ -320,6 +375,22 @@ export function initMenus({ store, game }) {
     if (canvas) {
         const DRAG_PX = 8, RAD_PER_PX = 0.008;
         let drag = null;
+        // HOME: a swipe across the planet moves to the next world -- left
+        // brings in the one on the right, as a page turns.
+        const SWIPE_PX = 45;
+        let swipe = null;
+        canvas.addEventListener('pointerdown', (e) => {
+            if (current === 'home') swipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        });
+        const swipeEnd = (e) => {
+            if (!swipe || e.pointerId !== swipe.id) return;
+            const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+            swipe = null;
+            if (current !== 'home' || Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+            stepHomeWorld(dx < 0 ? 1 : -1);
+        };
+        canvas.addEventListener('pointerup', swipeEnd);
+        canvas.addEventListener('pointercancel', () => { swipe = null; });
         canvas.addEventListener('pointerdown', (e) => {
             if (current !== 'worlds') return;
             drag = { id: e.pointerId, x0: e.clientX, x: e.clientX, t: performance.now(), v: 0, moved: false };

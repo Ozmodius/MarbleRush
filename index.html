@@ -191,6 +191,12 @@
   </div>
   <p id="homeToast" class="home-toast" role="status"></p>
   <div class="home-play">
+    <!-- Swipe the planet, or these arrows, to pick a world (menus.js) -->
+    <div class="home-worldnav">
+      <button id="homePrevWorld" class="world-arrow" type="button" aria-label="Previous world"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <div class="home-worldname"><span id="homeWorldName"></span><span id="homeWorldDots" class="world-dots" aria-hidden="true"></span></div>
+      <button id="homeNextWorld" class="world-arrow" type="button" aria-label="Next world"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+    </div>
     <p id="homeGoal" class="home-goal"></p>
     <button id="homePlayBtn" class="maze-btn maze-btn-big home-playbtn" type="button"><span id="homePlayLabel" class="play-label">PLAY</span><span id="homePlayLevel" class="play-sub"></span></button>
   </div>

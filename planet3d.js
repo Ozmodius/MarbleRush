@@ -4,7 +4,8 @@ import { applySurface } from './mazeSurface3d.js';
 import { applySkin } from './skins3d.js';
 
 // THE HOME SCREEN'S PLANET: the current world as a big marble, turning slowly
-// in space, with the player's chosen marble orbiting it as a moon.
+// in space, with the player's chosen marble orbiting it as a moon, and the
+// system's sun burning in the distance behind it.
 //
 // The planet wears the world's own floor surface (mazeTheme3d.js), so Magma
 // Works is basalt split by glowing lava seams and the Workshop is warm wood-
@@ -92,6 +93,10 @@ export function atmosphere(color) {
 // Everything allocated is pushed onto `tracked` for disposal.
 export function buildPlanet(theme, look, tracked = [], skin = 'plain') {
     const group = new THREE.Group();
+    // The planet and its moon ride in their own group, so a swipe to the
+    // next world can slide them in while the sun and the stars stay put.
+    const world = new THREE.Group();
+    group.add(world);
 
     const planetMat = makePlanetMaterial(theme, PLANET_R);
     const planetGeo = new THREE.SphereGeometry(PLANET_R, 128, 96);
@@ -99,14 +104,14 @@ export function buildPlanet(theme, look, tracked = [], skin = 'plain') {
     const spinner = new THREE.Group();  // an axial tilt; the planet spins inside it
     spinner.rotation.z = 0.35;
     spinner.add(planet);
-    group.add(spinner);
+    world.add(spinner);
 
     // Atmosphere: the world's glow if it has one (lava), else a pale tint of
     // its floor, so even the Workshop has a soft edge against space.
     const glowColor = planetGlow(theme);
     const atmoGeo = new THREE.SphereGeometry(PLANET_R * 1.08, 64, 48);
     const atmoMat = atmosphere(glowColor);
-    group.add(new THREE.Mesh(atmoGeo, atmoMat));
+    world.add(new THREE.Mesh(atmoGeo, atmoMat));
 
 
     // CLOUDS over the worlds that have weather: a thin shell drifting a
@@ -130,7 +135,7 @@ export function buildPlanet(theme, look, tracked = [], skin = 'plain') {
     const orbit = new THREE.Group();
     orbit.rotation.set(0.28, 0, 0.12);
     orbit.add(moon);
-    group.add(orbit);
+    world.add(orbit);
 
     const starGeo = starfield(500, 1337);
     const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.12, sizeAttenuation: true, transparent: true, opacity: 0.8 });
@@ -138,8 +143,13 @@ export function buildPlanet(theme, look, tracked = [], skin = 'plain') {
 
     tracked.push(planetGeo, planetMat, atmoGeo, atmoMat, moonGeo, moonMat, starGeo, starMat);
 
+    const sun = buildDistantSun(tracked);
+    group.add(sun.group);
+
     return {
         group,
+        world,
+        sun: sun.group,
         radius: MOON_ORBIT + 0.6,
         tick(seconds) {
             planet.rotation.y = seconds * 0.12;
@@ -147,6 +157,58 @@ export function buildPlanet(theme, look, tracked = [], skin = 'plain') {
             const a = seconds * 0.35;
             moon.position.set(Math.cos(a) * MOON_ORBIT, 0, Math.sin(a) * MOON_ORBIT);
             moon.rotation.y = seconds * 1.4;
+            sun.tick(seconds);
+        }
+    };
+}
+
+// THE SUN, far off behind the planet and up to one side: so the home screen
+// reads as one world of a solar system (the WORLDS tab's sun, seen from out
+// here). A small white-hot disc in two soft glows, a faint shimmer, and a
+// warm light from its side that rims the planet's edge.
+export const SUN_AT = new THREE.Vector3(3.8, 6.9, -26);
+function glowTexture(stops) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    for (const [at, col] of stops) grad.addColorStop(at, col);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+}
+function buildDistantSun(tracked) {
+    const group = new THREE.Group();
+    group.position.copy(SUN_AT);
+    const coreGeo = new THREE.SphereGeometry(0.7, 32, 24);
+    // Not tone-mapped: the renderer's filmic curve would dull it to a pale ball.
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xfffaf0, toneMapped: false });
+    group.add(new THREE.Mesh(coreGeo, coreMat));
+    const sprite = (tex, scale, opacity) => {
+        const m = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+        const sp = new THREE.Sprite(m);
+        sp.scale.setScalar(scale);
+        group.add(sp);
+        tracked.push(m);
+        return sp;
+    };
+    const innerTex = glowTexture([[0, 'rgba(255,250,230,1)'], [0.18, 'rgba(255,226,150,0.9)'], [0.45, 'rgba(255,170,60,0.35)'], [1, 'rgba(255,140,40,0)']]);
+    const outerTex = glowTexture([[0, 'rgba(255,200,120,0.55)'], [0.35, 'rgba(255,150,60,0.18)'], [1, 'rgba(255,120,40,0)']]);
+    const inner = sprite(innerTex, 5.2, 1);
+    const outer = sprite(outerTex, 17, 0.8);
+    // The rim light: from the sun's side, warm, on top of the scene's own.
+    const light = new THREE.DirectionalLight(0xffc98a, 1.4);
+    light.position.set(0, 0, 0);
+    light.target.position.copy(SUN_AT).multiplyScalar(-1);   // toward the planet at the origin
+    group.add(light, light.target);
+    tracked.push(coreGeo, coreMat, innerTex, outerTex);
+    return {
+        group,
+        tick(t) {
+            inner.scale.setScalar(5.2 * (1 + 0.025 * Math.sin(t * 1.7)));
+            outer.material.opacity = 0.75 + 0.08 * Math.sin(t * 0.9 + 1);
         }
     };
 }
