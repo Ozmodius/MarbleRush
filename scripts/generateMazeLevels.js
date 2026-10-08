@@ -1240,8 +1240,10 @@ const WORLDS = [
         // Starts in the Workshop and grows into a forest, level by level: each
         // level's blend runs 0 -> 1 (forestDressing.js, mazeTheme3d.js).
         world: 1, theme: 'workshop', themeTo: 'forest', ball: 0.32, wall: 0.33, braid: 0.3,
-        names: ['First Roll', 'Threading', 'The Long Way', 'Sliding Door', 'Clockwork',
-                'Metronome', 'Shift Work', 'Dovetail', 'Sawdust', 'Assembly Line'],
+        // Places on Sawturn, a workbench growing into a forest (the user asked
+        // for every level to be a place on its planet, 2026-10-08).
+        names: ['Sawdust Landing', 'Knothole Crossing', 'The Long Plank', 'Hinge Gate', 'Clockwork Copse',
+                'Pendulum Mill', 'Shift Work Hollow', 'Dovetail Thicket', 'Splinterwood', 'Beltway Grove'],
         teaches: ['HOLES, and the tilt mapping itself.', 'Holes off the route.', 'A longer route.',
                   'MOVING GATES: bars that slide across a doorway and withdraw, forever.', 'Gates.', 'Gates.',
                   'Gates and holes together.', 'A finer grid.', 'The finest grid this ball fits.',
@@ -1267,8 +1269,9 @@ const WORLDS = [
         // WIND FANS (L4), FALLING ICICLES (L10). Holes and gates come back as
         // review -- the player already knows them from world 1.
         world: 2, theme: 'snowfield', themeTo: 'glacier', ball: 0.3, wall: 0.32, braid: 0.28,
-        names: ['First Frost', 'Black Ice', 'Slip Road', 'Crosswind', 'Whiteout',
-                'Gale Force', 'Snow Blind', 'Deep Freeze', 'Avalanche Run', 'Icicle Hall'],
+        // Places on Slipstonia.
+        names: ['First Frost Ridge', 'Black Ice Pass', 'Slip Road', 'Crosswind Col', 'Whiteout Basin',
+                'Gale Gap', 'Snowblind Summit', 'Deep Freeze Hollow', 'Avalanche Run', 'Icicle Hall'],
         teaches: ['ICE: no grip, so speed carried in is speed you cannot shed.', 'More ice.', 'Ice and a gate.',
                   'WIND FANS: gusts that shove you sideways, then fall calm.', 'Wind and ice.', 'Two fans.',
                   'Wind, ice and a gate.', 'A finer grid.', 'The finest grid this ball fits.',
@@ -1292,8 +1295,9 @@ const WORLDS = [
         // lava (blend cinder -> lava). New here: FLARING SEAMS (L1), MOLTEN
         // GATES (L4), GEYSERS (L10). Holes and gates return as review.
         world: 3, theme: 'cinder', themeTo: 'lava', ball: 0.28, wall: 0.3, braid: 0.25,
-        names: ['Ash Road', 'Hot Ground', 'Cinder Path', 'Forge Door', 'Slag Run',
-                'Firewall', 'Crucible', 'Caldera', 'Smelter', 'Geyser Field'],
+        // Places on Magmars.
+        names: ['Ash Road', 'Hotfoot Flats', 'Cinder Path', 'Forge Door', 'Slag Run',
+                'Firewall Ridge', 'Crucible Crater', 'Caldera Rim', "Smelter's Rest", 'Geyser Field'],
         teaches: ['FLARING SEAMS: bands of lava that glow, then flare. Cross in the quiet.', 'More seams.', 'Seams and a gate.',
                   'MOLTEN GATES: they burn while they close. Wait, then follow them out.', 'Seams and a molten gate.', 'Two molten gates.',
                   'Seams and molten gates.', 'A finer grid.', 'The finest grid this ball fits.',
@@ -1318,8 +1322,9 @@ const WORLDS = [
         // toybox). New here: BUMPERS (L1), SPRING PADS (L4), SPINNING ARMS
         // (L10). Holes and gates return as review.
         world: 4, theme: 'playroom', themeTo: 'toybox', ball: 0.26, wall: 0.28, braid: 0.25,
-        names: ['Pinball', 'Ricochet', 'Rebound', 'Jack in the Box', 'Boing',
-                'Pogo', 'Wind-Up', 'Bounce House', 'Toy Soldier', 'Merry-Go-Round'],
+        // Places in Bouncelot, a toy castle.
+        names: ['Pinball Gate', 'Ricochet Rampart', 'Rebound Keep', 'Springboard Tower', 'Boing Bailey',
+                'Pogo Parapet', 'Wind-Up Courtyard', 'Bounce House Hall', 'Toy Soldier Barracks', 'Merry-Go-Round Throne'],
         teaches: ['BUMPERS: posts in the corners that kick you back. Cut the corner.', 'More bumpers.', 'Bumpers and a gate.',
                   'SPRING PADS: they wind down, then launch you along the corridor. Cross while they rest.', 'Springs and bumpers.', 'Springs and a gate.',
                   'More springs.', 'A finer grid.', 'The finest grid this ball fits.',
@@ -1344,8 +1349,9 @@ const WORLDS = [
         // MAGNETS (L1), CRUSHERS (L4), ELECTRIC RAILS (L10). Holes and gates
         // return as review.
         world: 5, theme: 'rustworks', themeTo: 'foundry', ball: 0.24, wall: 0.26, braid: 0.25,
-        names: ['Scrap Yard', 'Pull', 'Lodestone', 'Drop Forge', 'Stamping Line',
-                'Heavy Press', 'Rolling Mill', 'Tool and Die', 'Night Shift', 'Live Wire'],
+        // Places on Gearth.
+        names: ['Scrap Yard', 'Magnet Quay', 'Lodestone Docks', 'Drop Forge', 'Stamping Line',
+                'Heavy Press Row', 'Rolling Mill', 'Tool and Die Works', 'Night Shift Depot', 'Live Wire Junction'],
         teaches: ['MAGNETS: they drag you toward the wall. Lean away.', 'More magnets.', 'Magnets and a gate.',
                   'CRUSHERS: presses that shudder, then slam. Pass under while they are up.', 'Presses and magnets.', 'Presses and a gate.',
                   'A finer grid.', 'More of everything.', 'The finest grid this ball fits.',
