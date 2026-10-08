@@ -22,6 +22,7 @@
 // the HONEST game behaves -- a replay must not pay a first clear twice.
 
 import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT, AD_REWARDS, LOOKS, DAILY_MAZE, WALK, EXPLORER, COMFORT } from './shopCatalog.js';
+import { achievementList, achievementsReady, claimAchievement, parseAchievements } from './achievements.js';
 import * as daily from './daily.js';
 import * as levelUp from './playerLevel.js';
 import { XP } from './shopCatalog.js';
@@ -60,8 +61,9 @@ export function freshProgress() {
         daily: { streak: 0, last: '', doubled: '' }, missions: null,
         // Skins and trails (shopCatalog.js LOOKS): owned, and worn.
         skins: ['plain'], skin: 'plain', trails: ['none'], trail: 'none',
-        // Player level (playerLevel.js): total XP.
-        xp: 0,
+        // Player level (playerLevel.js): total XP, and the highest level
+        // whose reward has been paid (so no level pays twice).
+        xp: 0, levelPaid: 1,
         // Today's daily maze: { date, id, best, paid, gold } (daily.js).
         dailyMaze: null,
         // Ball cam (mazeGame.js): the closer camera that follows the ball.
@@ -69,6 +71,9 @@ export function freshProgress() {
         // The Labyrinth (walkMode.js): best walk per level, explorer kit
         // owned, and the comfort settings.
         walks: {}, explorer: [], comfort: defaultComfort(),
+        // Achievements claimed (achievements.js): ids. Their progress is read
+        // from the rest of the save, never stored.
+        achievements: [],
         // When this save was last written (ms): cloud sync's tie-breaker.
         savedAt: 0
     };
@@ -113,6 +118,9 @@ export function parseProgress(text) {
     // A save from before player levels has no xp at all: null marks it, and
     // the store works it out from what was already cleared (backfillXp).
     p.xp = raw.xp === undefined || raw.xp === null ? null : Math.max(0, Math.floor(Number(raw.xp) || 0));
+    // A save from before levelPaid was paid up to its level on the old curve.
+    p.levelPaid = Number.isFinite(raw.levelPaid) ? Math.max(1, Math.floor(raw.levelPaid))
+        : p.xp === null ? 1 : levelUp.legacyLevelForXp(p.xp);
     p.daily = daily.parseDaily(raw.daily);
     p.dailyMaze = daily.parseDailyMaze(raw.dailyMaze);
     p.ballCam = raw.ballCam === true;
@@ -125,6 +133,7 @@ export function parseProgress(text) {
     if (Array.isArray(raw.explorer)) p.explorer = raw.explorer.filter((id, i, a) => EXPLORER[id] && a.indexOf(id) === i);
     p.comfort = cleanComfort(raw.comfort);
     p.missions = daily.parseMissions(raw.missions);
+    p.achievements = parseAchievements(raw.achievements);
     return p;
 }
 
@@ -329,11 +338,12 @@ export function mergeProgress(a, b) {
         const n = p.walks[id];
         p.walks[id] = n ? { bestMs: Math.min(n.bestMs, w.bestMs), coins: Math.max(n.coins, w.coins), gold: n.gold || w.gold } : w;
     }
-    for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer']) p[key] = union(p[key], older[key]);
+    for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer', 'achievements']) p[key] = union(p[key], older[key]);
     for (const [id, n] of Object.entries(older.upgrades)) p.upgrades[id] = Math.max(p.upgrades[id] || 0, n);
     // A prize only the older save has earned brings its uses with it.
     for (const id of older.prizes) if (!newer.prizes.includes(id) && older.prizeUses[id]) p.prizeUses[id] = older.prizeUses[id];
     p.xp = A.xp === null && B.xp === null ? null : Math.max(A.xp || 0, B.xp || 0);
+    p.levelPaid = Math.max(A.levelPaid, B.levelPaid);
     p.adCoinsAt = Math.max(A.adCoinsAt, B.adCoinsAt);
     p.adUpgradeAt = Math.max(A.adUpgradeAt, B.adUpgradeAt);
     // Daily things: the later day wins; the same day combines.
@@ -525,10 +535,18 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         const out = levelUp.addXp(progress, amount);
         progress = out.progress;
         levelUps.push(...out.gained);
+        for (const g of out.gained) if (!g.repeat) act('levelup:' + g.level);
         return out.gained;
     };
     // Listeners told after every save (cloud sync pushes from here).
     const saved = new Set();
+    // Listeners told of each thing the player did with the store -- bought,
+    // used, claimed, an ad paid out, a level reached -- as a short name
+    // ('buy:marble:steel', 'claim:daily', 'levelup:5'): play tracking.
+    const actions = new Set();
+    const act = name => { for (const fn of actions) { try { fn(name); } catch (_) { /* tracking never breaks play */ } } };
+    // Pass a result through, telling the listeners when it succeeded.
+    const did = (r, name) => { if (r && (r.ok === undefined ? r : r.ok)) act(name); return r; };
     const persist = () => {
         progress = { ...progress, savedAt: Date.now() };
         try { adapter.save(SAVE_KEY, JSON.stringify(progress)); } catch (e) { console.warn('[progress] save failed:', e && e.message); }
@@ -553,6 +571,10 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         // Cloud sync (cloudSync.js): be told of every save, and take in a save
         // from elsewhere -- merged, never overwritten (mergeProgress).
         onSave(fn) { saved.add(fn); return () => saved.delete(fn); },
+        onAction(fn) { actions.add(fn); return () => actions.delete(fn); },
+        // Signed out or deleted (cloudSync.js): this device starts fresh. The
+        // progress lives on in the account, not here.
+        wipe() { progress = freshProgress(); levelUps = []; persist(); },
         adopt(remote) {
             const before = JSON.stringify(progress);
             const merged = mergeProgress(progress, remote);
@@ -596,26 +618,26 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             return out.ok;
         },
         // Shop actions: each returns { ok, reason } and saves on success.
-        buyMarble: id => apply(buyMarble(progress, id)),
+        buyMarble: id => did(apply(buyMarble(progress, id)), 'buy:marble:' + id),
         selectMarble: id => apply(selectMarble(progress, id)),
-        buyUpgrade: id => apply(buyUpgrade(progress, id)),
-        buyLook: (kind, id) => apply(buyLook(progress, kind, id)),
+        buyUpgrade: id => did(apply(buyUpgrade(progress, id)), 'buy:upgrade:' + id),
+        buyLook: (kind, id) => did(apply(buyLook(progress, kind, id)), `buy:${kind}:${id}`),
         selectLook: (kind, id) => apply(selectLook(progress, kind, id)),
-        buyCharge: id => apply(buyCharge(progress, id)),
-        buyPrizeRefill: id => apply(buyPrizeRefill(progress, id)),
+        buyCharge: id => did(apply(buyCharge(progress, id)), 'buy:charge:' + id),
+        buyPrizeRefill: id => did(apply(buyPrizeRefill(progress, id)), 'buy:refill:' + id),
         // A spent power-up also counts toward a "use power-ups" mission.
         useCharge: id => {
             const out = consume(progress, 'charges', id);
             if (out.ok) out.progress = daily.trackMissions(out.progress, { powerup: 1 }, clock()).progress;
-            return apply(out).ok;
+            return did(apply(out), 'use:charge:' + id).ok;
         },
-        usePrize: id => apply(consume(progress, 'prizeUses', id)).ok,
+        usePrize: id => did(apply(consume(progress, 'prizeUses', id)), 'use:prize:' + id).ok,
         // Rewarded-ad payouts: call only once the ad has finished.
-        adCoins: () => apply(adCoins(progress)),
+        adCoins: () => did(apply(adCoins(progress)), 'ad:coins'),
         adCoinsWaitMs: () => adCoinsWaitMs(progress),
-        adDoubleClear: earned => { const out = adDoubleClear(progress, earned); apply(out); return { ok: out.ok, amount: out.amount || 0 }; },
-        adCharge: id => apply(adCharge(progress, id)),
-        adUpgrade: id => apply(adUpgrade(progress, id)),
+        adDoubleClear: earned => { const out = adDoubleClear(progress, earned); did(apply(out), 'ad:double-clear'); return { ok: out.ok, amount: out.amount || 0 }; },
+        adCharge: id => did(apply(adCharge(progress, id)), 'ad:charge:' + id),
+        adUpgrade: id => did(apply(adUpgrade(progress, id)), 'ad:upgrade:' + id),
         adUpgradeEligible: id => adUpgradeEligible(progress, id),
         adUpgradeWaitMs: () => adUpgradeWaitMs(progress),
         // Daily rewards and missions (daily.js).
@@ -623,10 +645,10 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         claimDaily: () => {
             const out = daily.claimDaily(progress, clock());
             apply(out);
-            if (out.ok) { earn(XP.dailyClaim); persist(); }
+            if (out.ok) { act('claim:daily:day' + out.day); earn(XP.dailyClaim); persist(); }
             return { ok: out.ok, day: out.day, reward: out.reward };
         },
-        adDoubleDaily: () => { const out = daily.adDoubleDaily(progress, clock()); apply(out); return { ok: out.ok, amount: out.amount || 0 }; },
+        adDoubleDaily: () => { const out = daily.adDoubleDaily(progress, clock()); did(apply(out), 'ad:double-daily'); return { ok: out.ok, amount: out.amount || 0 }; },
         // The day's set is saved the first time anything reads it, so what the
         // player is shown cannot change later in the day.
         missions: () => { rollMissions(); return daily.missionList(progress, clock()); },
@@ -648,10 +670,19 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             persist();
             return { ...r, missionsDone: m.done, xp, levelUps: gained, wallet: progress.wallet };
         },
+        // Achievements (achievements.js): the list with progress, how many
+        // wait to be claimed, and claiming one (pays its coins once).
+        achievements: () => achievementList(progress, levels),
+        achievementsReady: () => achievementsReady(progress, levels),
+        claimAchievement: id => {
+            const out = claimAchievement(progress, levels, id);
+            if (out.ok) { progress = out.progress; persist(); act('claim:achievement:' + id); }
+            return { ok: out.ok, reason: out.reason || null, coins: out.coins || 0, wallet: progress.wallet };
+        },
         claimMission: id => {
             const out = daily.claimMission(progress, id, clock());
             apply(out);
-            if (out.ok) { earn(XP.mission + (out.bonus ? XP.missionsBonus : 0)); persist(); }
+            if (out.ok) { act('claim:mission' + (out.bonus ? ':all' : '')); earn(XP.mission + (out.bonus ? XP.missionsBonus : 0)); persist(); }
             return { ok: out.ok, reward: out.reward || 0, bonus: out.bonus || 0 };
         },
         msUntilTomorrow: () => daily.msUntilTomorrow(clock()),
@@ -670,7 +701,7 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             persist();
             return { ...r, missionsDone: m.done, xp, levelUps: gained, wallet: progress.wallet };
         },
-        buyExplorer: id => apply(buyExplorer(progress, id)),
+        buyExplorer: id => did(apply(buyExplorer(progress, id)), 'buy:explorer:' + id),
         setComfort: patch => { apply(setComfort(progress, patch)); return progress.comfort; },
         setBallCam(on) { progress = { ...progress, ballCam: !!on }; persist(); return progress.ballCam; },
         // Levels gained since the last call (each { level, reward }); the

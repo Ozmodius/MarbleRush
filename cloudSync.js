@@ -54,6 +54,7 @@ export function createCloudSync({
     let saved = read();
     let token = saved.token || null, me = saved.player || null;
     let status = base ? 'idle' : 'off';
+    let acct = null, mailOn = false;       // the account, if signed in to one
     const listeners = new Set();
     let adopting = false, pushTimer = null, retryTimer = null, connecting = null;
     const pending = [];          // scores that could not be sent yet
@@ -148,6 +149,7 @@ export function createCloudSync({
             setStatus('syncing');
             try {
                 const joined = await session();
+                try { const a = await req('GET', '/v1/account'); acct = a.account; mailOn = !!a.email; } catch (_) { /* an older server */ }
                 const r = await req('GET', '/v1/save');
                 adopt(r.save, joined);
                 await pushNow();
@@ -184,6 +186,67 @@ export function createCloudSync({
 
     if (base) store.onSave(() => { if (!adopting) schedulePush(); });
 
+    // An account call that may sign this device in: a session in the answer
+    // becomes ours, and its save is adopted (as JOINED if it is a player
+    // this device was not -- the account's coins win, see adopt).
+    async function accountCall(path, body) {
+        if (!base) return { ok: false, error: 'off' };
+        if (!token && !(await connect())) return { ok: false, error: 'offline' };
+        let r;
+        try { r = await req('POST', path, body); }
+        catch (e) { return { ok: false, error: e.status ? (e.message || 'server') : 'offline' }; }
+        if (r.token && r.player) {
+            const joined = !me || me.id !== r.player.id;
+            remember(r.token, r.player);
+            acct = r.account || null;
+            adopt(r.save, joined);
+            try { await pushNow(); } catch (_) { /* it goes up with the next save */ }
+            status = 'synced';
+            for (const fn of listeners) { try { fn(status, me); } catch (_) { /* ignore */ } }
+        }
+        return { ok: true, ...r };
+    }
+    // Signed out or deleted: no token, no account, a fresh local save.
+    function forgetDevice() {
+        remember(null, null);
+        acct = null;
+        saved = {}; write(saved);
+        adopting = true;
+        try { store.wipe(); } finally { adopting = false; }
+    }
+
+    // Play tracking: events queue here and go up in batches -- every 30s,
+    // at 20 waiting, and when the page is hidden (sent with keepalive so a
+    // closing tab still delivers). Kept in memory only, at most 200; a
+    // failed send keeps them for the next try.
+    const events = [];
+    let eventTimer = null;
+    async function flushEvents(keepalive = false) {
+        if (eventTimer) { clearTimer(eventTimer); eventTimer = null; }
+        if (!base || !token || !events.length) return;
+        const batch = events.splice(0, 100);
+        try {
+            if (keepalive) {
+                await fetchImpl(base + '/v1/events', { method: 'POST', keepalive: true,
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ events: batch }) });
+            } else await req('POST', '/v1/events', { events: batch });
+        } catch (_) { events.unshift(...batch.slice(0, 200 - events.length)); }
+        if (events.length && !eventTimer) eventTimer = setTimer(() => { eventTimer = null; flushEvents(); }, 30e3);
+    }
+    // Sessions: each stretch with the game on screen is one, reported with
+    // its length when the page is hidden (2 seconds or more; at most 3 hours).
+    let shownAt = Date.now();
+    const endSession = () => {
+        const ms = Date.now() - shownAt;
+        if (ms >= 2000) events.push({ type: 'session', ms: Math.min(ms, 3 * 3600e3) });
+    };
+    if (base && typeof document !== 'undefined' && document.addEventListener) {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') { endSession(); flushEvents(true); }
+            else shownAt = Date.now();
+        });
+    }
+
     return {
         enabled: !!base,
         start() {
@@ -196,6 +259,21 @@ export function createCloudSync({
         player: () => me,
         onStatus(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
+        // One play event: a run's { type: start|clear|fall|quit|revive|shield,
+        // level, mode, ms?, tier?, coins?, coinsOf?, cause?, hole? }, an
+        // { type: 'act', name } (bought, claimed, ...), or a { type:
+        // 'session', ms } (sent by this module itself).
+        track(ev) {
+            if (!base || !ev || typeof ev.type !== 'string') return;
+            const e = { type: ev.type };
+            for (const k of ['level', 'mode', 'tier', 'cause', 'name']) if (typeof ev[k] === 'string') e[k] = ev[k];
+            for (const k of ['ms', 'coins', 'coinsOf', 'hole']) if (Number.isFinite(ev[k])) e[k] = Math.round(ev[k]);
+            events.push(e);
+            if (events.length > 200) events.splice(0, events.length - 200);
+            if (events.length >= 20) flushEvents();
+            else if (!eventTimer) eventTimer = setTimer(() => { eventTimer = null; flushEvents(); }, 30e3);
+        },
+        flushEvents: () => flushEvents(),
         async submitScore(board, ms) {
             if (!base) return null;
             const s = { board, ms: Math.round(ms) };
@@ -210,6 +288,32 @@ export function createCloudSync({
             if (!base) return null;
             try { return await req('GET', `/v1/leaderboard?board=${encodeURIComponent(board)}&limit=${limit}`); }
             catch (_) { return null; }
+        },
+        // --- accounts (server/accounts.js) ---------------------------------
+        // Each resolves { ok, error?, ... }; error is the server's code
+        // (username-taken, login-wrong, code-wrong, ...) or 'offline'.
+        account: () => acct,
+        emailOn: () => mailOn,
+        register: (f) => accountCall('/v1/account/register', { username: f.username, email: f.email, password: f.password }),
+        verifyEmail: (f) => accountCall('/v1/account/verify', { email: f.email, code: f.code }),
+        login: (f) => accountCall('/v1/account/login', { login: f.login, password: f.password }),
+        forgot: (f) => accountCall('/v1/account/forgot', { login: f.login }),
+        resetPassword: (f) => accountCall('/v1/account/reset', { login: f.login, code: f.code, password: f.password }),
+        // Signing out: the latest progress goes up first (refused if it
+        // cannot), the session ends on the server, and this device starts
+        // over as a new guest. The caller reloads the page.
+        async logout() {
+            if (!token) return { ok: false, error: 'offline' };
+            try { await pushNow(); await req('POST', '/v1/account/logout'); }
+            catch (e) { return { ok: false, error: e.status ? (e.message || 'server') : 'offline' }; }
+            forgetDevice();
+            return { ok: true };
+        },
+        async deleteAccount(password) {
+            try { await req('POST', '/v1/account/delete', { password }); }
+            catch (e) { return { ok: false, error: e.status ? e.message : 'offline' }; }
+            forgetDevice();
+            return { ok: true };
         },
         async createLink() {
             if (!base) return null;

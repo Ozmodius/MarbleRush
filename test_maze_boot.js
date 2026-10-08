@@ -56,8 +56,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const homeUp = async (pg) => {
         await pg.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
         if (await pg.isVisible('#levelPanel')) await pg.tap('#levelOkBtn');
-        if (await pg.isVisible('#dailyPanel')) await pg.tap('#dailyCloseBtn');
-        await pg.waitForSelector('#dailyPanel', { state: 'hidden' });
+        if (await pg.isVisible('#rewardsPanel')) await pg.tap('#rewardsCloseBtn');
+        await pg.waitForSelector('#rewardsPanel', { state: 'hidden' });
         await pg.waitForSelector('#levelPanel', { state: 'hidden' });
     };
     try {
@@ -71,10 +71,12 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // --- boot -> home ------------------------------------------------
         await page.goto(base);
         await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
-        check(await page.isVisible('#dailyPanel') && (await page.textContent('#dailyNote')).includes('Day 1'),
-            'a new player is met by the daily calendar, on day 1');
+        check(await page.isVisible('#rewardsPanel') && await page.isVisible('#dailyPanel') && (await page.textContent('#dailyNote')).includes('Day 1')
+            && (await page.getAttribute('#rewardsTab_daily', 'aria-selected')) === 'true',
+            'a new player is met by REWARDS on the DAILY tab, day 1');
+        check((await page.textContent('#homeRewardsBtn')).includes('REWARDS') && await page.isHidden('#homeMissionsBtn'), 'the side button says REWARDS (missions live in it now)');
         await homeUp(page);
-        check(await page.isVisible('#homeDailyBadge'), 'closed unclaimed, the DAILY button keeps a badge');
+        check(await page.isVisible('#homeRewardsBadge'), 'closed unclaimed, the REWARDS button keeps a badge');
         check(await page.isVisible('#homeDailyMaze') && (await page.textContent('#homeMazeLabel')).trim() === 'LOCKED', 'a new player sees the daily maze locked');
         await page.tap('#homeDailyMaze');
         check(/Clear 3 levels/.test(await page.textContent('#homeToast')) && await page.isVisible('#homeView'), 'tapping it says what unlocks it, and starts nothing');
@@ -215,12 +217,28 @@ const check = (c, m) => { if (!c) failures.push(m); };
             && /60 coins/.test(await page.textContent('#levelRewards')), 'home shows the level-up and what it paid');
         await page.tap('#levelOkBtn');
         check(await page.isHidden('#levelPanel') && await page.isHidden('#dailyPanel'), 'NICE! closes it (the calendar was already seen this session)');
-        check((await page.textContent('#homePlayerLevel')).trim() === '2' && /^20 \/ 150 XP$/.test((await page.textContent('#homeXpText')).trim()),
-            `the level bar shows level 2, 20 of 150 XP: ${await page.textContent('#homeXpText')}`);
+        check((await page.textContent('#homePlayerLevel')).trim() === '2' && /^20 \/ 136 XP$/.test((await page.textContent('#homeXpText')).trim()),
+            `the level bar shows level 2, 20 of 136 XP: ${await page.textContent('#homeXpText')}`);
         await page.tap('#homeLevelBar');
         check(await page.isVisible('#levelPanel') && (await page.textContent('#levelTitle')).trim() === 'PLAYER LEVEL' && /LV 3/.test(await page.textContent('#levelNext')),
             'the level bar opens what the next levels bring');
         await page.tap('#levelCloseBtn');
+        // REWARDS: tabs switch panes; the first clear unlocked an achievement.
+        await page.tap('#homeRewardsBtn');
+        await page.waitForSelector('#rewardsPanel', { state: 'visible' });
+        await page.tap('#rewardsTab_missions');
+        check(await page.isVisible('#missionsPanel') && await page.isHidden('#dailyPanel') && await page.locator('#missionsList .mission').count() === 3, 'the MISSIONS tab shows the day\'s three');
+        check(await page.isVisible('#rewardsBadge_achievements'), 'the ACHIEVEMENTS tab has a dot: one is ready');
+        await page.tap('#rewardsTab_achievements');
+        const first = page.locator('#achievementsList [data-achievement="clear1"]');
+        check(await page.isVisible('#achievementsPanel') && await first.count() === 1, 'First Roll is ready to claim, at the top');
+        const aw0 = (await page.evaluate(() => window.__mazeDebug.progress())).wallet;
+        await first.tap();
+        const ap = await page.evaluate(() => window.__mazeDebug.progress());
+        check(ap.wallet === aw0 + 25 && ap.achievements.includes('clear1') && /First Roll: \+25/.test(await page.textContent('#achievementsNote'))
+            && await page.isHidden('#rewardsBadge_achievements'), `claiming First Roll pays 25 once (${aw0} -> ${ap.wallet})`);
+        await page.tap('#rewardsCloseBtn');
+        check(await page.isHidden('#rewardsPanel'), 'REWARDS closes');
         await page.tap('#homePlayBtn');
         await page.waitForSelector('#mazeExitBtn', { state: 'visible' });
         await page.tap('#mazeExitBtn');
@@ -466,7 +484,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const after = await page.$$eval('.level-node', els => els.map(e => ({ cleared: e.classList.contains('is-cleared'), next: e.classList.contains('is-next'), locked: e.disabled })));
         check(after[0].cleared, 'after a reload, level 1 shows as cleared');
         check(after[1].next && !after[1].locked, 'after a reload, level 2 is unlocked and next');
-        check((await page.textContent('#mazeWallet')).trim() === '181', `after a reload, the wallet still holds 181, shows ${await page.textContent('#mazeWallet')}`);
+        check((await page.textContent('#mazeWallet')).trim() === '206', `after a reload, the wallet still holds 206 (181 played + First Roll's 25), shows ${await page.textContent('#mazeWallet')}`);
 
         // --- the store and profile ----------------------------------------
         // A fresh page with a seeded save: enough coins to shop.
@@ -718,7 +736,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // fresh, joins with it and gets device 1's progress and coins.
         const { createApp } = await import('./server/app.js');
         const { createMemoryStore } = await import('./server/db.js');
-        const apiServer = http.createServer(createApp({ store: createMemoryStore(), levels, dailyLevels: JSON.parse(fs.readFileSync(path.join(__dirname, 'dailyLevels.json'), 'utf8')).levels }));
+        const apiServer = http.createServer(createApp({ store: createMemoryStore(), levels, adminToken: 'test-admin', dailyLevels: JSON.parse(fs.readFileSync(path.join(__dirname, 'dailyLevels.json'), 'utf8')).levels }));
         await new Promise(r => apiServer.listen(0, '127.0.0.1', r));
         const apiUrl = `http://127.0.0.1:${apiServer.address().port}`;
         try {
@@ -741,10 +759,17 @@ const check = (c, m) => { if (!c) failures.push(m); };
             const today = new Date();
             const dayKeyNow = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
             const d1 = await cloudDevice({ v: 1, wallet: 777, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: dayKeyNow } });
+            const crazyBuild = /crazygames/.test(ROOT);
             await d1.pg.tap('#tab_gear');
-            await d1.pg.waitForSelector('#cloudSection', { state: 'visible' });
-            check((await d1.pg.textContent('#cloudStatus')).trim() === 'SAVED TO THE CLOUD' && /^Playing as Guest-/.test(await d1.pg.textContent('#cloudName')),
-                'with a server, Gear shows the cloud save synced, playing as a guest');
+            check(await d1.pg.locator('#cloudStatus, #cloudLinkBtn, #cloudClaimForm').count() === 0, 'no cloud status or device codes on the card: saving just happens');
+            if (crazyBuild) {
+                // No own accounts on CrazyGames, and no CrazyGames sign-in in
+                // this test: nothing to offer, so no card.
+                check(await d1.pg.isHidden('#cloudSection') && await d1.pg.isHidden('#acctOwnButtons'), 'on CrazyGames there is no own-account sign-in (CrazyGames\' is the way)');
+            } else {
+                await d1.pg.waitForSelector('#cloudSection', { state: 'visible' });
+                check(await d1.pg.isVisible('#acctCreateBtn') && await d1.pg.isVisible('#acctSignInBtn'), 'a guest is offered CREATE ACCOUNT and SIGN IN');
+            }
             // Clear level 1: ranked on the CLEARED panel, and on the board.
             await d1.pg.tap('#tab_worlds');
             await d1.pg.waitForSelector('#mazeSelect', { state: 'visible' });
@@ -763,28 +788,68 @@ const check = (c, m) => { if (!c) failures.push(m); };
             check(await d1.pg.locator('#boardList li').count() === 1 && await d1.pg.locator('#boardList li.is-you').count() === 1 && /#1 of 1/.test(await d1.pg.textContent('#boardYou')),
                 'the leaderboard lists the time as yours');
             await d1.pg.tap('#boardCloseBtn');
+            // Play tracking: the attempt's start and clear reach the stats.
+            await d1.pg.evaluate(() => window.__cloudSync.flushEvents());
+            const stats = await (await fetch(apiUrl + '/v1/admin/stats', { headers: { Authorization: 'Bearer test-admin' } })).json();
+            const w101 = stats.levels.find(l => l.id === 'w1_01').roll;
+            check(w101.starts === 1 && w101.clears === 1 && w101.avgClearMs >= l1.goldMs, `the run is tracked: a start and a clear on w1_01 (${JSON.stringify(w101)})`);
+            check(w101.medals && w101.medals.silver + w101.medals.bronze + w101.medals.gold === 1 && w101.coinsFound !== null, `the clear's medal and coins are tracked (${JSON.stringify({ m: w101.medals, c: w101.coinsFound })})`);
+            check(stats.actions.some(x => x.name === 'open:leaderboard') && stats.activity.byDay[stats.activity.byDay.length - 1].dau >= 1, `opening the leaderboard reached the action counts, and today has an active player (${JSON.stringify(stats.actions)})`);
             check(await d1.pg.isHidden('#boardPanel'), 'the leaderboard closes');
             await d1.pg.tap('#mazeLevelsBtn');
             await d1.pg.waitForFunction(() => window.__cloudSync.status() === 'synced');
             const d1prog = await d1.dbg('progress');
-            // A code, and device 2 joins with it.
-            await d1.pg.tap('#tab_gear');
-            await d1.pg.tap('#cloudLinkBtn');
-            await d1.pg.waitForSelector('#cloudCode', { state: 'visible' });
-            const code = (await d1.pg.textContent('#cloudCode')).slice(0, 6);
-            check(/^[A-Z2-9]{6}$/.test(code), `GET A CODE shows a six-letter code (${code})`);
+            // Accounts (no email on this server: made at once). Device 1 makes
+            // one; device 2 signs in to it and gets its progress; signing out
+            // starts a device over as a guest; signing in brings it back. Own
+            // accounts are web only.
             const d2 = await cloudDevice(null);
-            check((await d2.dbg('progress')).wallet !== d1prog.wallet, 'device 2 starts as its own player');
-            await d2.pg.tap('#tab_gear');
-            await d2.pg.fill('#cloudCodeInput', code.toLowerCase());
-            await d2.pg.tap('#cloudClaimForm button');
-            await d2.pg.waitForFunction(() => /^Joined/.test(document.getElementById('cloudMsg').textContent), null, { timeout: 10000 }).catch(() => {});
-            const d2prog = await d2.dbg('progress');
-            check(/^Joined/.test(await d2.pg.textContent('#cloudMsg')), `joining says so (${await d2.pg.textContent('#cloudMsg')})`);
-            check(d2prog.cleared.w1_01 && d2prog.cleared.w1_02 && d2prog.highestIndex === d1prog.highestIndex && d2prog.wallet === d1prog.wallet,
-                `device 2 has device 1's clears and coins: ${JSON.stringify({ w: d2prog.wallet, w1: d1prog.wallet, h: d2prog.highestIndex })}`);
-            check((await d2.pg.textContent('#cloudName')) === (await d1.pg.textContent('#cloudName')), 'both devices play as the same player');
-            check((await d2.pg.textContent('#profileWallet')).replace(/,/g, '').trim() === String(d1prog.wallet), 'the Gear page redraws with the joined coins');
+            if (!crazyBuild) {
+                await d1.pg.tap('#tab_gear');
+                await d1.pg.tap('#acctCreateBtn');
+                await d1.pg.waitForSelector('#acctView_register', { state: 'visible' });
+                await d1.pg.fill('#regUsername', 'x');
+                await d1.pg.fill('#regEmail', 'tilt@example.com');
+                await d1.pg.fill('#regPassword', 'marbles-rule');
+                await d1.pg.tap('#acctView_register button[type=submit]');
+                await d1.pg.waitForFunction(() => document.getElementById('acctMsg').textContent.length > 0);
+                check(/at least 3/.test(await d1.pg.textContent('#acctMsg')) && await d1.pg.isVisible('#accountPanel'), 'a too-short username is explained in the panel');
+                await d1.pg.fill('#regUsername', 'TiltTester');
+                await d1.pg.tap('#acctView_register button[type=submit]');
+                await d1.pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 10000 });
+                check(/^Signed in as TiltTester/.test(await d1.pg.textContent('#acctWho')) && await d1.pg.isHidden('#acctGuest'), 'creating an account signs in, shown on the card');
+                check((await d1.dbg('progress')).cleared.w1_01, 'device 1\'s progress is the account\'s');
+                // Device 2, a fresh guest, signs in.
+                check((await d2.dbg('progress')).wallet !== d1prog.wallet, 'device 2 starts as its own player');
+                await d2.pg.tap('#tab_gear');
+                await d2.pg.tap('#acctSignInBtn');
+                await d2.pg.fill('#acctLogin', 'tilt@example.com');
+                await d2.pg.fill('#acctPassword', 'wrong-password');
+                await d2.pg.tap('#acctView_signin button[type=submit]');
+                await d2.pg.waitForFunction(() => document.getElementById('acctMsg').textContent.length > 0);
+                check(/Wrong username/.test(await d2.pg.textContent('#acctMsg')), 'a wrong password says so');
+                await d2.pg.fill('#acctPassword', 'marbles-rule');
+                await d2.pg.tap('#acctView_signin button[type=submit]');
+                await d2.pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 10000 });
+                const d2prog = await d2.dbg('progress');
+                check(d2prog.cleared.w1_01 && d2prog.cleared.w1_02 && d2prog.wallet === d1prog.wallet && /^Signed in as TiltTester/.test(await d2.pg.textContent('#acctWho')),
+                    `signing in on device 2 brings the account's clears and coins: ${JSON.stringify({ w: d2prog.wallet, w1: d1prog.wallet })}`);
+                check((await d2.pg.textContent('#profileWallet')).replace(/,/g, '').trim() === String(d1prog.wallet), 'the Gear page redraws with the account\'s coins');
+                // Sign out: a fresh guest. Sign in again: the progress is back.
+                await d2.pg.tap('#acctSignOutBtn');
+                await d2.pg.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+                await homeUp(d2.pg);
+                await d2.pg.waitForFunction(() => window.__cloudSync && window.__cloudSync.status() === 'synced', null, { timeout: 15000 });
+                const outP = await d2.dbg('progress');
+                check(!outP.cleared.w1_01 && /^Guest-/.test(await d2.pg.evaluate(() => window.__cloudSync.player().name)), 'signing out starts this device over as a new guest');
+                await d2.pg.tap('#tab_gear');
+                await d2.pg.tap('#acctSignInBtn');
+                await d2.pg.fill('#acctLogin', 'TiltTester');
+                await d2.pg.fill('#acctPassword', 'marbles-rule');
+                await d2.pg.tap('#acctView_signin button[type=submit]');
+                await d2.pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 10000 });
+                check((await d2.dbg('progress')).cleared.w1_01 && /^Signed in as TiltTester/.test(await d2.pg.textContent('#acctWho')), 'signing in by username brings it back');
+            }
             await d1.c.close();
             await d2.c.close();
         } finally { apiServer.close(); }
@@ -939,19 +1004,19 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // with an ad -- once.
         await ad.tap('#mazeExitBtn');
         await ad.waitForSelector('#homeView', { state: 'visible', timeout: 10000 });
-        await ad.tap('#homeDailyBtn');
+        await ad.tap('#homeRewardsBtn');
         await ad.waitForSelector('#dailyPanel', { state: 'visible' });
         check(await ad.isHidden('#dailyDoubleBtn'), 'no ×2 before claiming');
         const dw0 = (await adbg('progress')).wallet;
         await ad.tap('#dailyClaimBtn');
         const dw1 = (await adbg('progress')).wallet;
-        check(dw1 === dw0 + 50 && await ad.isDisabled('#dailyClaimBtn') && await ad.isHidden('#homeDailyBadge'), `claiming day 1 pays 50 once (${dw0} -> ${dw1})`);
+        check(dw1 === dw0 + 50 && await ad.isDisabled('#dailyClaimBtn') && await ad.isHidden('#rewardsBadge_daily'), `claiming day 1 pays 50 once (${dw0} -> ${dw1})`);
         check(await ad.isVisible('#dailyDoubleBtn'), 'then offers ×2 for an ad');
         await ad.tap('#dailyDoubleBtn');
         await ad.waitForFunction((w) => window.__mazeDebug.progress().wallet > w, dw1, { timeout: 5000 }).catch(() => {});
         check((await adbg('progress')).wallet === dw1 + 50 && await ad.isHidden('#dailyDoubleBtn'), 'a finished ad pays day 1 again, and the offer goes');
-        await ad.tap('#dailyCloseBtn');
-        check(await ad.isHidden('#dailyPanel'), 'the calendar closes');
+        await ad.tap('#rewardsCloseBtn');
+        check(await ad.isHidden('#rewardsPanel'), 'the rewards card closes');
         await adCtx.close();
 
         check(!errors.length, 'no page errors:\n   ' + errors.join('\n   '));

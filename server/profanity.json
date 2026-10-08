@@ -1,0 +1,18 @@
+{
+  "_comment": "Server-side list of slurs that may not appear in a PlaneTilt account username (accounts.js). Copied from 3dBallSmack. Never served to clients.",
+  "slurs": [
+    "nigger",
+    "nigga",
+    "faggot",
+    "fag",
+    "tranny",
+    "retard",
+    "retarded",
+    "spic",
+    "chink",
+    "kike",
+    "wetback",
+    "gook",
+    "cunt"
+  ]
+}

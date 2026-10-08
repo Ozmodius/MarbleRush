@@ -28,6 +28,8 @@ Environment variables:
 | `ALLOWED_ORIGINS` | optional; default `*`. To lock it down: `https://ozmodius.github.io,https://*.crazygames.com` |
 | `CRAZYGAMES_PUBLIC_KEY_URL` | optional; default `https://sdk.crazygames.com/publicKey.json` |
 | `RATE_LIMIT` | optional; requests per IP per minute, default 240 |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | optional; email for account codes (port 465 by default). Without them, accounts are made with no emailed code and "Forgot password?" says it is not available |
+| `ADMIN_TOKEN` | optional; a long random string of your choosing. Opens the stats page at `/admin`. Unset, the page is off |
 
 Tables are created on first start. Without `DATABASE_URL` the server runs on
 an in-memory store (handy to try it; everything is lost on restart).
@@ -49,6 +51,55 @@ Render's free web services sleep after 15 minutes idle and take ~30-60 s to
 wake. The game never waits on the server (saves stay on the device and sync
 when it answers), so that is a delay on the leaderboard, not on play.
 
+## Accounts
+
+On the web build, the Gear page's ACCOUNT card offers CREATE ACCOUNT and
+SIGN IN (on CrazyGames, players sign in with CrazyGames instead):
+
+- **Create:** username (3–16 letters, numbers, `_ . -`, unique, checked
+  against a slur list), email (unique, never shown), password (8+). With
+  email set up, a 6-digit code is emailed first (15 minutes, 5 guesses).
+  The device's guest *becomes* the account, so nothing is lost.
+- **Sign in:** username or email + password. The device's guest progress is
+  added to the account (the account keeps its coins). 10 wrong passwords
+  in 15 minutes and that login has to wait.
+- **Forgot password** (needs email set up): a code to the account's email,
+  then a new password; every other session is signed out.
+- **Sign out** ends the session on the server; the device starts over as a
+  new guest (the progress stays in the account).
+- **Delete account:** password + typing DELETE; the account, its save and
+  its leaderboard times are removed.
+
+Passwords are salted scrypt hashes; codes and session tokens are stored
+hashed. For email, any SMTP service works (e.g. a Gmail app password, Brevo,
+Mailgun, SendGrid's SMTP).
+
+## Stats page (play tracking)
+
+Open `https://<your-service>.onrender.com/admin` and enter your `ADMIN_TOKEN`.
+
+- **Retention:** players today (and how many are new), day-1 / day-7 /
+  day-30 return rates, and a table of them by the day players started.
+- **Activity:** players a day (new and returning), sessions and their
+  average length, play time per player.
+- **Funnel:** the share of players who have cleared 1, 2, 3, 5, 10 ... 50
+  levels -- where the curve drops is where players leave.
+- **Per maze level:** starts, clear rate, falls per attempt, quits, mean
+  clear time against gold, the medal split (few golds = gold time too
+  tight), coins found, what ends runs (holes, icicles, flares, molten gates,
+  rails, crushers) and the deadliest hole, ad revives, and how many players
+  **stopped there** (furthest clear is the level before, not seen for 7 days
+  or whatever you pick). The row where most players stop is highlighted.
+- **What players do:** purchases by item, power-ups and prizes used,
+  rewards claimed (daily, missions, achievements), rewarded ads watched,
+  level-ups, leaderboard opens, account sign-ups and sign-ins.
+- Explore mode, daily mazes and the spread of player levels.
+
+Tracking is anonymous: the server keeps daily totals (per level, and per
+action), which days each player played (for return rates), and each
+player's furthest level and player level (from their synced save). Nothing
+is sent when the game is built without a server.
+
 ## Endpoints
 
 | | |
@@ -60,6 +111,16 @@ when it answers), so that is a delay on the leaderboard, not on play.
 | `POST /v1/scores {board, ms}` | `{ best, rank, total }` |
 | `POST /v1/scores/batch {scores}` | `{ accepted }`: best times already in a save, sent once |
 | `GET /v1/leaderboard?board=&limit=` | `{ top: [{rank, name, ms, you}], you, total }`; no token needed |
+| `POST /v1/events {events}` | `{ accepted }`: play tracking -- runs `{type: start/clear/fall/quit/revive/shield, level, mode, ms?, tier?, coins?, coinsOf?, cause?, hole?}`, `{type: 'act', name}`, `{type: 'session', ms}` |
+| `GET /v1/admin/stats?days=&idle=` | the stats page's data; `Authorization: Bearer <ADMIN_TOKEN>` |
+| `GET /v1/account` | `{ player, account, email }` (email: whether codes can be sent) |
+| `POST /v1/account/register {username, email, password}` | a session, or `{ verify: true, email }` when a code was emailed |
+| `POST /v1/account/verify {email, code}` | a session |
+| `POST /v1/account/login {login, password}` | a session (`login`: username or email) |
+| `POST /v1/account/logout` | ends this token |
+| `POST /v1/account/forgot {login}` | `{ ok }`, emails a reset code if the account exists |
+| `POST /v1/account/reset {login, code, password}` | a session; other sessions end |
+| `POST /v1/account/delete {password}` | deletes the account and everything of it |
 | `POST /v1/link` | `{ code, expiresAt }`: 6 letters, 10 minutes, one use |
 | `POST /v1/link/claim {code}` | `{ token, player, save }`: this device becomes that player |
 

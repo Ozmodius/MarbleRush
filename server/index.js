@@ -10,6 +10,11 @@
 //   CRAZYGAMES_PUBLIC_KEY_URL  where CrazyGames publishes its token key
 //   CRAZYGAMES_PUBLIC_KEY_PEM  or the key itself
 //   RATE_LIMIT                 requests per IP per minute (default 240)
+//   ADMIN_TOKEN                opens the stats page (/admin); unset, it is off
+//   SMTP_HOST, SMTP_PORT,      email for account codes (confirming a new
+//   SMTP_USER, SMTP_PASS,      account, resetting a password); unset,
+//   SMTP_FROM                  accounts are made without a code and there
+//                              is no password reset
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -18,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { createPgStore, createMemoryStore } from './db.js';
 import { createCrazyVerifier, DEFAULT_KEY_URL } from './auth.js';
+import { createMailer } from './accounts.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readLevels = f => JSON.parse(fs.readFileSync(path.join(root, f), 'utf8')).levels || [];
@@ -35,7 +41,9 @@ const handle = createApp({
         keyUrl: env.CRAZYGAMES_PUBLIC_KEY_URL || DEFAULT_KEY_URL
     }),
     origins: env.ALLOWED_ORIGINS || '*',
-    rateMax: Number(env.RATE_LIMIT) || 240
+    rateMax: Number(env.RATE_LIMIT) || 240,
+    adminToken: env.ADMIN_TOKEN || null,
+    mailer: await createMailer(env)
 });
 
 const server = http.createServer(handle);

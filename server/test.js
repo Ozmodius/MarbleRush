@@ -30,11 +30,11 @@ const crazyToken = (userId, username, key = privateKey) =>
 const pgUrl = process.env.TEST_DATABASE_URL;
 if (pgUrl) {
     const c = new pg.Client({ connectionString: pgUrl }); await c.connect();
-    await c.query('DROP TABLE IF EXISTS links, scores, saves, tokens, players'); await c.end();
+    await c.query('DROP TABLE IF EXISTS event_stats, player_days, codes, accounts, level_stats, links, scores, saves, tokens, players'); await c.end();
 }
 const store = pgUrl ? await createPgStore(pgUrl) : createMemoryStore();
 let clock = Date.parse('2026-10-07T12:00:00Z');
-const app = createApp({ store, levels, dailyLevels, verifyCrazy: createCrazyVerifier({ pem }), rateMax: 10000, now: () => clock });
+const app = createApp({ store, levels, dailyLevels, verifyCrazy: createCrazyVerifier({ pem }), rateMax: 10000, now: () => clock, adminToken: 'sekret-admin' });
 const server = http.createServer(app);
 await new Promise(r => server.listen(0, r));
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -162,6 +162,87 @@ check(cg3.body.player.id !== cg.body.player.id && !(await call('GET', '/v1/save'
 // The verifier fetches the key as { publicKey } JSON.
 const fetched = createCrazyVerifier({ keyUrl: 'https://key.test/publicKey.json', fetchImpl: async () => ({ ok: true, text: async () => JSON.stringify({ publicKey: pem }) }) });
 check((await fetched(await crazyToken('u1', 'Fetched'))).username === 'Fetched', 'the key is read from the publicKey JSON');
+
+// --- play tracking and the stats page ---
+const TE = (await call('POST', '/v1/session', { body: {} })).body.token;
+const l2 = levels[1];
+const ev = (type, level = l2.id, mode = 'roll', ms) => ({ type, level, mode, ...(ms ? { ms } : {}) });
+const sent = await call('POST', '/v1/events', { token: TE, body: { events: [
+    ev('start'), ev('fall'), ev('start'), ev('clear', l2.id, 'roll', 20000), ev('start'), ev('clear', l2.id, 'roll', 30000), ev('start'), ev('quit'),
+    ev('start', l2.id, 'explore'), ev('start', dailyLevels[0].id, 'daily'),
+    ev('start', 'nope'), ev('bogus'), ev('start', l2.id, 'flying'), ev('start', l2.id, 'daily'), null] } });
+check(sent.status === 200 && sent.body.accepted === 10, `events count the good and skip the bad (${sent.body.accepted})`);
+check((await call('POST', '/v1/events', { body: { events: [ev('start')] } })).status === 401, 'events need a token');
+check((await call('GET', '/v1/admin/stats')).status === 404, 'the stats are hidden without the admin token');
+check((await call('GET', '/v1/admin/stats', { token: TE })).status === 404, 'a player token does not open them');
+// A player who reached level 8 and then went away: they stopped at level 9.
+const TS = (await call('POST', '/v1/session', { body: {} })).body.token;
+await call('PUT', '/v1/save', { token: TS, body: { save: { ...freshProgress(), highestIndex: 8, xp: 700, savedAt: 1 } } });
+clock += 10 * 86400e3;
+await call('PUT', '/v1/save', { token: TE, body: { save: { ...freshProgress(), highestIndex: 1, savedAt: 1 } } });   // TE active today
+const st = await call('GET', '/v1/admin/stats?days=30&idle=7', { token: 'sekret-admin' });
+check(st.status === 200, 'the admin token opens the stats');
+const row = st.body.levels.find(l => l.id === l2.id);
+check(row.roll.starts === 4 && row.roll.clears === 2 && row.roll.falls === 1 && row.roll.quits === 1 && row.roll.clearRate === 0.5 && row.roll.avgClearMs === 25000,
+    `per level: starts, clears, falls, quits, clear rate, mean clear time: ${JSON.stringify(row.roll)}`);
+check(row.explore.starts === 1 && st.body.daily.length === 1 && st.body.daily[0].starts === 1, 'explore and the daily maze are counted apart');
+const l9 = st.body.levels.find(l => l.index === 9);
+check(l9.stopped === 1 && st.body.levels.find(l => l.index === 3).stopped === 0, `a player gone 10 days with 8 levels cleared stopped at level 9 (${l9.stopped})`);
+check(st.body.players.total >= 2 && st.body.players.active >= 1 && st.body.playerLevels[5] >= 1, `players and their levels are counted: ${JSON.stringify(st.body.players)} ${JSON.stringify(st.body.playerLevels)}`);
+const narrow = await call('GET', '/v1/admin/stats?days=1', { token: 'sekret-admin' });
+check(narrow.body.levels.find(l => l.id === l2.id).roll.starts === 0, 'counts outside the chosen days are left out');
+clock -= 10 * 86400e3;
+// Level tuning, actions, sessions, retention, the funnel.
+{
+    const lvH = levels.find(l => (l.holes || []).length >= 2);
+    const TM = (await call('POST', '/v1/session', { body: {} })).body.token;
+    const r = await call('POST', '/v1/events', { token: TM, body: { events: [
+        { type: 'start', level: lvH.id, mode: 'roll' }, { type: 'fall', level: lvH.id, mode: 'roll', cause: 'hole', hole: 1 },
+        { type: 'start', level: lvH.id, mode: 'roll' }, { type: 'fall', level: lvH.id, mode: 'roll', cause: 'hole', hole: 1 },
+        { type: 'start', level: lvH.id, mode: 'roll' }, { type: 'fall', level: lvH.id, mode: 'roll', cause: 'hole', hole: 0 },
+        { type: 'start', level: lvH.id, mode: 'roll' }, { type: 'revive', level: lvH.id, mode: 'roll' }, { type: 'shield', level: lvH.id, mode: 'roll', cause: 'hole' },
+        { type: 'clear', level: lvH.id, mode: 'roll', ms: 30000, tier: 'gold', coins: 2, coinsOf: 4 },
+        { type: 'start', level: lvH.id, mode: 'roll' }, { type: 'clear', level: lvH.id, mode: 'roll', ms: 40000, tier: 'bronze', coins: 4, coinsOf: 4 },
+        { type: 'fall', level: lvH.id, mode: 'roll', cause: 'hole', hole: 999 }, { type: 'clear', level: lvH.id, mode: 'roll', tier: 'platinum' },
+        { type: 'act', name: 'buy:marble:steel' }, { type: 'act', name: 'buy:marble:steel' }, { type: 'act', name: 'claim:daily:day1' }, { type: 'act', name: 'DROP TABLE' },
+        { type: 'session', ms: 120000 }, { type: 'session', ms: 60000 }, { type: 'session', ms: -5 }] } });
+    check(r.body.accepted === 19, `rich events count the good and skip the bad (a bad tier or hole drops just that detail) (${r.body.accepted})`);
+    const st2 = await call('GET', '/v1/admin/stats?days=7', { token: 'sekret-admin' });
+    const L = st2.body.levels.find(l => l.id === lvH.id).roll;
+    check(L.medals && Math.abs(L.medals.gold - 1 / 3) < 1e-9 && Math.abs(L.medals.bronze - 1 / 3) < 1e-9, `medal split per level (one gold, one bronze of three clears): ${JSON.stringify(L.medals)}`);
+    check(L.coinsFound === 6 / 8, `share of coins found (${L.coinsFound})`);
+    check(L.causes.hole === 4 && L.worstHole && L.worstHole.index === 1 && L.worstHole.n === 2 && L.worstHole.share === 0.5, `what ends runs, and the deadliest hole: ${JSON.stringify({ c: L.causes, h: L.worstHole })}`);
+    check(L.revives === 1 && L.shields === 1, 'revives and shield saves are counted');
+    const steel = st2.body.actions.find(x => x.name === 'buy:marble:steel');
+    check(steel && steel.n === 2 && st2.body.actions.some(x => x.name === 'claim:daily:day1') && !st2.body.actions.some(x => /DROP/.test(x.name)), 'actions are counted by name, junk refused');
+    check(st2.body.activity.sessions === 2 && st2.body.activity.avgSessionMs === 90000, `sessions and their mean length (${JSON.stringify(st2.body.activity.sessions)}, ${st2.body.activity.avgSessionMs})`);
+    const today = st2.body.activity.byDay[st2.body.activity.byDay.length - 1];
+    check(today.dau >= 1 && today.sessions === 2 && today.playMsPerDau > 0, `today's active players and play time: ${JSON.stringify(today)}`);
+    check(st2.body.funnel[0].cleared === 1 && st2.body.funnel.every((f, i, a) => i === 0 || f.n <= a[i - 1].n), 'the funnel narrows step by step');
+
+    // Retention: three new players on one day; one is back the next day, two
+    // a week later.
+    const day0 = clock;
+    const tok = [];
+    for (let i = 0; i < 3; i++) tok.push((await call('POST', '/v1/session', { body: {} })).body.token);
+    clock = day0 + 86400e3;
+    await call('POST', '/v1/session', { body: { token: tok[0] } });
+    clock = day0 + 7 * 86400e3;
+    await call('POST', '/v1/session', { body: { token: tok[0] } });
+    await call('POST', '/v1/session', { body: { token: tok[1] } });
+    const st3 = await call('GET', '/v1/admin/stats?days=10', { token: 'sekret-admin' });
+    const dayKey = new Date(day0).toISOString().slice(0, 10);
+    const co = st3.body.retention.cohorts.find(c => c.day === dayKey);
+    check(co && co.size >= 3, `the day's new players form a cohort (${co && co.size})`);
+    const fresh3 = co.size;
+    check(co.d1 === 1 / fresh3 && co.d7 === 2 / fresh3 && co.d30 === null, `day-1 and day-7 return rates, day 30 not yet known: ${JSON.stringify(co)}`);
+    check(st3.body.retention.d1 !== null && st3.body.retention.d30 === null, 'and the overall return rates');
+    clock = day0;
+}
+const page = await fetch(base + '/admin');
+const html = await page.text();
+check(page.status === 200 && /text\/html/.test(page.headers.get('content-type')) && html.includes('PlaneTilt Stats') && page.headers.get('x-robots-tag') === 'noindex',
+    'the stats page is served, and kept out of search engines');
 
 // --- CORS, routing ---
 const opt = await call('OPTIONS', '/v1/save', { origin: 'https://ozmodius.github.io' });

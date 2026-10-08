@@ -142,6 +142,42 @@ Phase 2 as built (2026-10-06), on Oz's call to go ahead before Basic Launch:
   Its gate ("gets real play") needs usage numbers this build cannot see
   -- CrazyGames' dashboard or an analytics call would be the way to judge it.
 
+Accounts and play tracking (2026-10-08, Oz's call):
+- *Accounts* like 3dBallSmack's, without Google: username or email +
+  password, a 6-digit emailed code to confirm (when SMTP is set), sign out,
+  delete (type DELETE), and -- which Ball Smack lacks -- password reset by
+  email, an 8-character minimum, limits on wrong passwords and codes,
+  expiring codes, and a server-side sign-out. Web build only; CrazyGames
+  players use CrazyGames' sign-in. A guest who creates an account becomes
+  it; signing in elsewhere adds that device's progress to the account.
+- *Play tracking*: per level and mode, daily counts of starts, clears (and
+  their times), falls and quits, plus each player's furthest level from
+  their save. `/admin` (ADMIN_TOKEN) shows clear rates and the level players
+  stop at -- the data for tuning difficulty and the XP curve.
+
+A steeper player level (2026-10-08, Oz's call): each level's XP step is
+100 + 30(k-1) + 6(k-1)^2 (was 100 + 50(k-1)), so levels keep getting harder
+even though later worlds pay more XP -- 1-2 clears a level at first, 5-7 by
+level 15, which is about where the 50 launch levels end (was 18). A level's
+reward is paid once ever (`levelPaid`, merged as a max): saves from the old
+curve show a lower level now but are not paid again climbing back.
+Levels 16-19 each bring more than coins now, since the climb past 15 is
+long: 16 a Shield and Slow-mo, 17 the Aurora trail, 18 one of each power-up
+and 300 coins, 19 the Prism skin (both new, reward-only looks).
+
+REWARDS and achievements (2026-10-07, Oz's call):
+- The home rail's DAILY and MISSIONS buttons became one REWARDS button; its
+  card has DAILY (the 7-day calendar), MISSIONS (the day's three) and
+  ACHIEVEMENTS tabs, a dot on each with something to claim, and the rail
+  badge counts them all. It opens on the first tab with something waiting.
+- *Achievements* (achievements.js): 22 one-off goals -- levels cleared,
+  golds, worlds finished, every coin taken, levels explored, a full daily
+  week, player level, all marbles, a maxed upgrade -- each paying coins once
+  on a tap. Progress is read from the save as it is, so existing players
+  arrive with what they have already earned; only the claimed ids are saved
+  (`achievements`, merged as a union). The whole list pays about 3,000
+  coins, roughly a dozen first clears.
+
 Phase 3 as built (2026-10-06), on Oz's call and choices:
 - *Named EXPLORE for players* (2026-10-07; it was WALK): EXPLORE IT after a
   clear, a ROLL | EXPLORE switch, "Explore ·" in the HUD. Code, the save

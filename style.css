@@ -647,7 +647,6 @@ html, body {
 .side-maze.is-done .side-label { color: #5fe08e; }
 .side-maze .side-badge { right: auto; left: -8px; padding: 0 6px; font-size: 0.62rem; letter-spacing: 0.06em; }
 .side-daily .side-icon { background: linear-gradient(#ffd66e, #e69a22); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5), 0 4px 0 #a8650e, 0 8px 14px rgba(0, 0, 0, 0.45); }
-.side-missions .side-icon { background: linear-gradient(#6fc3ff, #2f74d0); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 4px 0 #1d4a8a, 0 8px 14px rgba(0, 0, 0, 0.45); }
 .side-badge {
   position: absolute;
   top: -6px;
@@ -1159,19 +1158,9 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
 .explorer-compass::after { content: ""; position: absolute; left: 6px; top: 3px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 15px solid #fff; }
 .explorer-map { border-radius: 5px; background: repeating-linear-gradient(90deg, #f4ead9 0 6px, #6b4a2e 6px 8px), #f4ead9; }
 
-/* --- cloud save card (Gear) and leaderboards ------------------------------------ */
+/* --- account card (Gear) and leaderboards ------------------------------------ */
 .cloud-card { display: flex; flex-direction: column; align-items: stretch; gap: 10px; padding: 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.06); }
-.cloud-status { margin: 0; display: flex; align-items: center; gap: 8px; font-weight: 900; letter-spacing: 0.08em; font-size: 0.85rem; }
-.cloud-dot { width: 10px; height: 10px; border-radius: 50%; background: #8a7b66; flex: none; }
-.cloud-dot.is-synced { background: #4fd18b; box-shadow: 0 0 8px rgba(79, 209, 139, 0.7); }
-.cloud-dot.is-syncing { background: #ffd66e; }
-.cloud-dot.is-offline { background: #e8413c; }
-.cloud-name { margin: 0; color: var(--ink-dim); font-size: 0.85rem; }
 .cloud-help { margin: 4px 0 0; color: var(--ink-dim); font-size: 0.8rem; font-weight: 500; }
-.cloud-code { margin: 0; text-align: center; font-size: 1.9rem; font-weight: 900; letter-spacing: 0.3em; color: #ffd66e; font-variant-numeric: tabular-nums; }
-.cloud-code small { display: block; font-size: 0.7rem; letter-spacing: 0.08em; color: var(--ink-dim); font-weight: 600; }
-.cloud-claim { display: flex; gap: 8px; }
-.cloud-claim input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 12px; border: 2px solid rgba(255, 214, 110, 0.35); background: rgba(0, 0, 0, 0.35); color: var(--ink); font: inherit; font-weight: 900; letter-spacing: 0.2em; text-transform: uppercase; }
 .cloud-msg { margin: 0; min-height: 1.2em; font-size: 0.8rem; color: var(--ink-dim); }
 
 .maze-rankbtn span + span { margin-left: 6px; }
@@ -1183,3 +1172,50 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
 .board-ms { font-weight: 800; font-variant-numeric: tabular-nums; }
 .board-empty { text-align: center; color: var(--ink-dim); padding: 12px; }
 .board-you { margin: 12px 0 0; text-align: center; font-size: 0.85rem; color: var(--ink-dim); min-height: 1.2em; }
+
+/* --- rewards card: daily / missions / achievements tabs ---------------------- */
+.rewards-card { width: min(100%, 420px); }
+.rewards-tabs { display: flex; gap: 4px; margin: 12px 0 2px; padding: 4px; border-radius: 14px; background: rgba(0, 0, 0, 0.35); }
+.rewards-tab {
+  position: relative;
+  /* Sized by their labels, so ACHIEVEMENTS gets the room it needs. */
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rewards-tab.is-active { background: linear-gradient(#ffd66e, #e69a22); color: #2a1a08; box-shadow: 0 2px 0 #a8650e; }
+.tab-dot { position: absolute; top: 4px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: #e8413c; box-shadow: 0 0 0 2px #1a130e; }
+.rewards-pane .modal-note { margin-top: 10px; }
+.rewards-pane .missions-list { max-height: min(56vh, 460px); overflow-y: auto; padding-right: 2px; }
+.achievement-name { margin: 0 0 2px; font-weight: 900; letter-spacing: 0.04em; color: #ffd66e; font-size: 0.95rem; }
+.achievement .mission-text { color: var(--ink-dim); font-size: 0.82rem; }
+.achievement.is-claimed .achievement-name { color: var(--ink); }
+
+/* --- account card and panel ---------------------------------------------------- */
+.acct-block { display: flex; flex-direction: column; gap: 10px; }
+.acct-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.acct-buttons .maze-btn { flex: 1 1 auto; }
+.acct-who { margin: 0; font-weight: 800; }
+.acct-who small { display: block; font-weight: 500; color: var(--ink-dim); }
+.acct-link { align-self: center; padding: 6px 8px; border: 0; background: none; color: #6fc3ff; font: inherit; font-size: 0.85rem; text-decoration: underline; cursor: pointer; }
+.acct-danger { color: #ff8a7a; }
+.acct-card { width: min(100%, 380px); }
+.acct-form { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.acct-form input { padding: 12px 14px; border-radius: 12px; border: 2px solid rgba(255, 214, 110, 0.3); background: rgba(0, 0, 0, 0.35); color: var(--ink); font: inherit; font-size: 1rem; }
+.acct-form input:focus { outline: none; border-color: #ffd66e; }
+.acct-form .maze-btn-big { align-self: stretch; }
+.acct-code { text-align: center; font-size: 1.6rem !important; font-weight: 900; letter-spacing: 0.4em; font-variant-numeric: tabular-nums; }
+.acct-note { margin: 0; font-size: 0.82rem; color: var(--ink-dim); text-wrap: pretty; }
+.acct-msg { margin: 10px 0 0; min-height: 1.2em; text-align: center; font-size: 0.88rem; font-weight: 700; color: #ff8a7a; }
+.acct-msg.is-ok { color: #4fd18b; }
+.acct-delete:not(:disabled) { background: linear-gradient(#ff7a6a, #c9372a); color: #fff; box-shadow: 0 3px 0 #7d1d14; }
