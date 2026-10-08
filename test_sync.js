@@ -22,12 +22,12 @@ const check = (c, m) => { if (!c) failures.push(m); };
         cleared: { w1_01: { bestMs: 9000, coins: 2, at: 1 }, w1_02: { bestMs: 8000, coins: 1, at: 1 } },
         goldClaimed: ['w1_01'], marbles: ['classic', 'steel'], upgrades: { grip: 2 }, charges: { shield: 3 },
         skins: ['plain', 'stripe'], walks: { w1_01: { bestMs: 12000, coins: 1, gold: false } },
-        daily: { streak: 2, last: '2026-10-05', doubled: '' } };
+        daily: { streak: 2, last: '2026-10-05', doubled: '' }, achievements: ['clear1'] };
     const b = { ...base(), savedAt: 2000, wallet: 120, highestIndex: 2, xp: 300,
         cleared: { w1_01: { bestMs: 8500, coins: 3, at: 2 } },
         goldClaimed: [], marbles: ['classic', 'rubber'], upgrades: { grip: 1, brakes: 1 }, charges: { slowmo: 1 },
         skins: ['plain', 'galaxy'], walks: { w1_01: { bestMs: 11000, coins: 0, gold: true } },
-        daily: { streak: 3, last: '2026-10-06', doubled: '2026-10-06' } };
+        daily: { streak: 3, last: '2026-10-06', doubled: '2026-10-06' }, achievements: ['gold1', 'nonsense'] };
 
     // 1. earned things combine
     const m = S.mergeProgress(a, b);
@@ -37,6 +37,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(['classic', 'steel', 'rubber'].every(x => m.marbles.includes(x)) && m.skins.includes('stripe') && m.skins.includes('galaxy'), 'things owned on either side are owned');
     check(m.upgrades.grip === 2 && m.upgrades.brakes === 1, 'upgrade tiers take the higher');
     check(m.xp === 600, 'XP takes the higher');
+    check(m.achievements.length === 2 && m.achievements.includes('clear1') && m.achievements.includes('gold1'), `achievements claimed on either side stay claimed (never paid twice): ${m.achievements}`);
     check(m.walks.w1_01.bestMs === 11000 && m.walks.w1_01.coins === 1 && m.walks.w1_01.gold, 'walk records combine');
 
     // 2. spendables from the newer save

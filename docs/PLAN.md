@@ -142,6 +142,19 @@ Phase 2 as built (2026-10-06), on Oz's call to go ahead before Basic Launch:
   Its gate ("gets real play") needs usage numbers this build cannot see
   -- CrazyGames' dashboard or an analytics call would be the way to judge it.
 
+REWARDS and achievements (2026-10-07, Oz's call):
+- The home rail's DAILY and MISSIONS buttons became one REWARDS button; its
+  card has DAILY (the 7-day calendar), MISSIONS (the day's three) and
+  ACHIEVEMENTS tabs, a dot on each with something to claim, and the rail
+  badge counts them all. It opens on the first tab with something waiting.
+- *Achievements* (achievements.js): 22 one-off goals -- levels cleared,
+  golds, worlds finished, every coin taken, levels explored, a full daily
+  week, player level, all marbles, a maxed upgrade -- each paying coins once
+  on a tap. Progress is read from the save as it is, so existing players
+  arrive with what they have already earned; only the claimed ids are saved
+  (`achievements`, merged as a union). The whole list pays about 3,000
+  coins, roughly a dozen first clears.
+
 Phase 3 as built (2026-10-06), on Oz's call and choices:
 - *Named EXPLORE for players* (2026-10-07; it was WALK): EXPLORE IT after a
   clear, a ROLL | EXPLORE switch, "Explore ·" in the HUD. Code, the save

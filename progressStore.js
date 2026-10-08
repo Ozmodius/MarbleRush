@@ -22,6 +22,7 @@
 // the HONEST game behaves -- a replay must not pay a first clear twice.
 
 import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT, AD_REWARDS, LOOKS, DAILY_MAZE, WALK, EXPLORER, COMFORT } from './shopCatalog.js';
+import { achievementList, achievementsReady, claimAchievement, parseAchievements } from './achievements.js';
 import * as daily from './daily.js';
 import * as levelUp from './playerLevel.js';
 import { XP } from './shopCatalog.js';
@@ -69,6 +70,9 @@ export function freshProgress() {
         // The Labyrinth (walkMode.js): best walk per level, explorer kit
         // owned, and the comfort settings.
         walks: {}, explorer: [], comfort: defaultComfort(),
+        // Achievements claimed (achievements.js): ids. Their progress is read
+        // from the rest of the save, never stored.
+        achievements: [],
         // When this save was last written (ms): cloud sync's tie-breaker.
         savedAt: 0
     };
@@ -125,6 +129,7 @@ export function parseProgress(text) {
     if (Array.isArray(raw.explorer)) p.explorer = raw.explorer.filter((id, i, a) => EXPLORER[id] && a.indexOf(id) === i);
     p.comfort = cleanComfort(raw.comfort);
     p.missions = daily.parseMissions(raw.missions);
+    p.achievements = parseAchievements(raw.achievements);
     return p;
 }
 
@@ -329,7 +334,7 @@ export function mergeProgress(a, b) {
         const n = p.walks[id];
         p.walks[id] = n ? { bestMs: Math.min(n.bestMs, w.bestMs), coins: Math.max(n.coins, w.coins), gold: n.gold || w.gold } : w;
     }
-    for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer']) p[key] = union(p[key], older[key]);
+    for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer', 'achievements']) p[key] = union(p[key], older[key]);
     for (const [id, n] of Object.entries(older.upgrades)) p.upgrades[id] = Math.max(p.upgrades[id] || 0, n);
     // A prize only the older save has earned brings its uses with it.
     for (const id of older.prizes) if (!newer.prizes.includes(id) && older.prizeUses[id]) p.prizeUses[id] = older.prizeUses[id];
@@ -647,6 +652,15 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             const gained = earn(xp);
             persist();
             return { ...r, missionsDone: m.done, xp, levelUps: gained, wallet: progress.wallet };
+        },
+        // Achievements (achievements.js): the list with progress, how many
+        // wait to be claimed, and claiming one (pays its coins once).
+        achievements: () => achievementList(progress, levels),
+        achievementsReady: () => achievementsReady(progress, levels),
+        claimAchievement: id => {
+            const out = claimAchievement(progress, levels, id);
+            if (out.ok) { progress = out.progress; persist(); }
+            return { ok: out.ok, reason: out.reason || null, coins: out.coins || 0, wallet: progress.wallet };
         },
         claimMission: id => {
             const out = daily.claimMission(progress, id, clock());

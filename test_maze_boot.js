@@ -56,8 +56,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const homeUp = async (pg) => {
         await pg.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
         if (await pg.isVisible('#levelPanel')) await pg.tap('#levelOkBtn');
-        if (await pg.isVisible('#dailyPanel')) await pg.tap('#dailyCloseBtn');
-        await pg.waitForSelector('#dailyPanel', { state: 'hidden' });
+        if (await pg.isVisible('#rewardsPanel')) await pg.tap('#rewardsCloseBtn');
+        await pg.waitForSelector('#rewardsPanel', { state: 'hidden' });
         await pg.waitForSelector('#levelPanel', { state: 'hidden' });
     };
     try {
@@ -71,10 +71,12 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // --- boot -> home ------------------------------------------------
         await page.goto(base);
         await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
-        check(await page.isVisible('#dailyPanel') && (await page.textContent('#dailyNote')).includes('Day 1'),
-            'a new player is met by the daily calendar, on day 1');
+        check(await page.isVisible('#rewardsPanel') && await page.isVisible('#dailyPanel') && (await page.textContent('#dailyNote')).includes('Day 1')
+            && (await page.getAttribute('#rewardsTab_daily', 'aria-selected')) === 'true',
+            'a new player is met by REWARDS on the DAILY tab, day 1');
+        check((await page.textContent('#homeRewardsBtn')).includes('REWARDS') && await page.isHidden('#homeMissionsBtn'), 'the side button says REWARDS (missions live in it now)');
         await homeUp(page);
-        check(await page.isVisible('#homeDailyBadge'), 'closed unclaimed, the DAILY button keeps a badge');
+        check(await page.isVisible('#homeRewardsBadge'), 'closed unclaimed, the REWARDS button keeps a badge');
         check(await page.isVisible('#homeDailyMaze') && (await page.textContent('#homeMazeLabel')).trim() === 'LOCKED', 'a new player sees the daily maze locked');
         await page.tap('#homeDailyMaze');
         check(/Clear 3 levels/.test(await page.textContent('#homeToast')) && await page.isVisible('#homeView'), 'tapping it says what unlocks it, and starts nothing');
@@ -221,6 +223,22 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await page.isVisible('#levelPanel') && (await page.textContent('#levelTitle')).trim() === 'PLAYER LEVEL' && /LV 3/.test(await page.textContent('#levelNext')),
             'the level bar opens what the next levels bring');
         await page.tap('#levelCloseBtn');
+        // REWARDS: tabs switch panes; the first clear unlocked an achievement.
+        await page.tap('#homeRewardsBtn');
+        await page.waitForSelector('#rewardsPanel', { state: 'visible' });
+        await page.tap('#rewardsTab_missions');
+        check(await page.isVisible('#missionsPanel') && await page.isHidden('#dailyPanel') && await page.locator('#missionsList .mission').count() === 3, 'the MISSIONS tab shows the day\'s three');
+        check(await page.isVisible('#rewardsBadge_achievements'), 'the ACHIEVEMENTS tab has a dot: one is ready');
+        await page.tap('#rewardsTab_achievements');
+        const first = page.locator('#achievementsList [data-achievement="clear1"]');
+        check(await page.isVisible('#achievementsPanel') && await first.count() === 1, 'First Roll is ready to claim, at the top');
+        const aw0 = (await page.evaluate(() => window.__mazeDebug.progress())).wallet;
+        await first.tap();
+        const ap = await page.evaluate(() => window.__mazeDebug.progress());
+        check(ap.wallet === aw0 + 25 && ap.achievements.includes('clear1') && /First Roll: \+25/.test(await page.textContent('#achievementsNote'))
+            && await page.isHidden('#rewardsBadge_achievements'), `claiming First Roll pays 25 once (${aw0} -> ${ap.wallet})`);
+        await page.tap('#rewardsCloseBtn');
+        check(await page.isHidden('#rewardsPanel'), 'REWARDS closes');
         await page.tap('#homePlayBtn');
         await page.waitForSelector('#mazeExitBtn', { state: 'visible' });
         await page.tap('#mazeExitBtn');
@@ -466,7 +484,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const after = await page.$$eval('.level-node', els => els.map(e => ({ cleared: e.classList.contains('is-cleared'), next: e.classList.contains('is-next'), locked: e.disabled })));
         check(after[0].cleared, 'after a reload, level 1 shows as cleared');
         check(after[1].next && !after[1].locked, 'after a reload, level 2 is unlocked and next');
-        check((await page.textContent('#mazeWallet')).trim() === '181', `after a reload, the wallet still holds 181, shows ${await page.textContent('#mazeWallet')}`);
+        check((await page.textContent('#mazeWallet')).trim() === '206', `after a reload, the wallet still holds 206 (181 played + First Roll's 25), shows ${await page.textContent('#mazeWallet')}`);
 
         // --- the store and profile ----------------------------------------
         // A fresh page with a seeded save: enough coins to shop.
@@ -939,19 +957,19 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // with an ad -- once.
         await ad.tap('#mazeExitBtn');
         await ad.waitForSelector('#homeView', { state: 'visible', timeout: 10000 });
-        await ad.tap('#homeDailyBtn');
+        await ad.tap('#homeRewardsBtn');
         await ad.waitForSelector('#dailyPanel', { state: 'visible' });
         check(await ad.isHidden('#dailyDoubleBtn'), 'no ×2 before claiming');
         const dw0 = (await adbg('progress')).wallet;
         await ad.tap('#dailyClaimBtn');
         const dw1 = (await adbg('progress')).wallet;
-        check(dw1 === dw0 + 50 && await ad.isDisabled('#dailyClaimBtn') && await ad.isHidden('#homeDailyBadge'), `claiming day 1 pays 50 once (${dw0} -> ${dw1})`);
+        check(dw1 === dw0 + 50 && await ad.isDisabled('#dailyClaimBtn') && await ad.isHidden('#rewardsBadge_daily'), `claiming day 1 pays 50 once (${dw0} -> ${dw1})`);
         check(await ad.isVisible('#dailyDoubleBtn'), 'then offers ×2 for an ad');
         await ad.tap('#dailyDoubleBtn');
         await ad.waitForFunction((w) => window.__mazeDebug.progress().wallet > w, dw1, { timeout: 5000 }).catch(() => {});
         check((await adbg('progress')).wallet === dw1 + 50 && await ad.isHidden('#dailyDoubleBtn'), 'a finished ad pays day 1 again, and the offer goes');
-        await ad.tap('#dailyCloseBtn');
-        check(await ad.isHidden('#dailyPanel'), 'the calendar closes');
+        await ad.tap('#rewardsCloseBtn');
+        check(await ad.isHidden('#rewardsPanel'), 'the rewards card closes');
         await adCtx.close();
 
         check(!errors.length, 'no page errors:\n   ' + errors.join('\n   '));

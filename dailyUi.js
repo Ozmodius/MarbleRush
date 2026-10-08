@@ -3,9 +3,9 @@ import { rewardFor } from './playerLevel.js';
 import { adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { sfx } from './sfx.js';
 
-// THE HOME PANELS: the 7-day reward calendar and the day's three missions,
-// each a card over the home screen opened from the side rail, and the player
-// level card (a level-up, or what the next levels bring).
+// THE HOME PANELS: REWARDS -- one card from the side rail with a tab each for
+// the 7-day calendar, the day's three missions and the achievements -- and
+// the player level card (a level-up, or what the next levels bring).
 // The rules are daily.js's, reached through the progress store; this module
 // only draws them and turns taps into store calls.
 //
@@ -84,6 +84,7 @@ function claimDaily() {
     if (!out.ok) return;
     try { sfx.coin(); } catch (_) { /* ignore */ }
     renderDaily(`Day ${out.day}: ${rewardWords(out.reward)}!`);
+    renderTabBadges();
     ctx.onChange();
 }
 
@@ -140,6 +141,53 @@ function claimMission(id) {
     if (!out.ok) return;
     try { sfx.coin(); } catch (_) { /* ignore */ }
     renderMissions(out.bonus ? `+${fmt(out.reward)} coins, and +${fmt(out.bonus)} for finishing them all!` : `+${fmt(out.reward)} coins!`);
+    renderTabBadges();
+    ctx.onChange();
+}
+
+// --- achievements (achievements.js) ----------------------------------------------
+function renderAchievements(message) {
+    const list = ctx.store.achievements();
+    const box = $('achievementsList');
+    box.innerHTML = '';
+    for (const a of list) {
+        const row = h('div', 'mission achievement' + (a.claimed ? ' is-claimed' : a.done ? ' is-done' : ''));
+        const body = h('div', 'mission-body');
+        body.append(h('p', 'achievement-name', a.name), h('p', 'mission-text', a.text));
+        if (a.goal > 1) {
+            const bar = h('div', 'mission-track');
+            const fill = h('span', 'mission-fill');
+            fill.style.width = (100 * a.count / a.goal).toFixed(0) + '%';
+            bar.append(fill);
+            body.append(bar, h('p', 'mission-count', `${fmt(a.count)} / ${fmt(a.goal)}`));
+        }
+        row.append(body);
+        let side;
+        if (a.claimed) side = h('span', 'mission-check', '✓');
+        else if (a.done) {
+            side = h('button', 'maze-btn maze-btn-big mission-claim');
+            side.type = 'button';
+            side.dataset.achievement = a.id;
+            side.append(h('span', 'coin-icon reward-coin'), document.createTextNode(fmt(a.coins)));
+            side.addEventListener('click', (e) => { e.preventDefault(); claimAchievementRow(a.id); });
+        } else {
+            side = h('span', 'mission-reward');
+            side.append(h('span', 'coin-icon reward-coin'), document.createTextNode(fmt(a.coins)));
+        }
+        row.append(side);
+        box.append(row);
+    }
+    const got = list.filter(a => a.claimed).length;
+    $('achievementsNote').textContent = message || `${got} of ${list.length} unlocked`;
+}
+
+function claimAchievementRow(id) {
+    const out = ctx.store.claimAchievement(id);
+    if (!out.ok) return;
+    try { sfx.coin(); } catch (_) { /* ignore */ }
+    const a = ctx.store.achievements().find(x => x.id === id);
+    renderAchievements(`${a ? a.name : 'Achievement'}: +${fmt(out.coins)} coins!`);
+    renderTabBadges();
     ctx.onChange();
 }
 
@@ -208,12 +256,39 @@ export function showLevelUps() {
 }
 
 // --- open, close, badges --------------------------------------------------------
-const PANELS = ['dailyPanel', 'missionsPanel', 'levelPanel'];
-function open(id, gained = []) {
+const PANELS = ['rewardsPanel', 'levelPanel'];
+const TABS = {
+    daily: { pane: 'dailyPanel', render: () => renderDaily(), ready: () => (ctx.store.dailyStatus().canClaim ? 1 : 0) },
+    missions: { pane: 'missionsPanel', render: () => renderMissions(), ready: () => ctx.store.missionsReady() },
+    achievements: { pane: 'achievementsPanel', render: () => renderAchievements(), ready: () => ctx.store.achievementsReady() }
+};
+let tabNow = 'daily';
+
+function showTab(tab) {
+    tabNow = TABS[tab] ? tab : 'daily';
+    for (const [t, def] of Object.entries(TABS)) {
+        const on = t === tabNow;
+        const b = $('rewardsTab_' + t);
+        if (b) { b.classList.toggle('is-active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); }
+        $(def.pane).hidden = !on;
+    }
+    TABS[tabNow].render();
+    renderTabBadges();
+}
+
+// The rewards card opens on `tab`, or else on the first tab with something
+// to claim (the calendar when nothing waits).
+function openRewards(tab) {
     closeDailyPanels();
-    if (id === 'dailyPanel') renderDaily();
-    else if (id === 'missionsPanel') renderMissions();
-    else renderLevel(gained);
+    const pick = tab || Object.keys(TABS).find(t => TABS[t].ready() > 0) || 'daily';
+    $('rewardsPanel').hidden = false;
+    showTab(pick);
+}
+
+function open(id, gained = []) {
+    if (id === 'rewardsPanel') { openRewards('daily'); return; }
+    closeDailyPanels();
+    renderLevel(gained);
     $(id).hidden = false;
 }
 export function closeDailyPanels() {
@@ -221,7 +296,15 @@ export function closeDailyPanels() {
     renderDailyButtons();
 }
 
-// The side rail's red badges: a reward to claim, missions to cash in.
+// A dot on each tab with something to claim.
+function renderTabBadges() {
+    for (const [t, def] of Object.entries(TABS)) {
+        const d = $('rewardsBadge_' + t);
+        if (d) d.hidden = def.ready() === 0;
+    }
+}
+
+// The side rail's badge: everything waiting to be claimed, across the tabs.
 export function renderDailyButtons() {
     if (!ctx) return;
     // The level bar under the HUD chips.
@@ -232,13 +315,11 @@ export function renderDailyButtons() {
         $('homeXpFill').style.width = (100 * info.into / info.need).toFixed(1) + '%';
         $('homeXpText').textContent = `${fmt(info.into)} / ${fmt(info.need)} XP`;
     }
-    const d = $('homeDailyBadge');
-    if (d) d.hidden = !ctx.store.dailyStatus().canClaim;
-    const m = $('homeMissionsBadge');
-    if (m) {
-        const n = ctx.store.missionsReady();
-        m.hidden = n === 0;
-        m.textContent = String(n);
+    const b = $('homeRewardsBadge');
+    if (b) {
+        const n = Object.values(TABS).reduce((sum, def) => sum + def.ready(), 0);
+        b.hidden = n === 0;
+        b.textContent = String(n);
     }
 }
 
@@ -247,18 +328,17 @@ export function renderDailyButtons() {
 export function maybeAutoOpenDaily() {
     if (!ctx || autoShown) return;
     autoShown = true;
-    if (ctx.store.dailyStatus().canClaim) open('dailyPanel');
+    if (ctx.store.dailyStatus().canClaim) openRewards('daily');
 }
 
 export function initDailyUi({ store, onChange }) {
     ctx = { store, onChange: onChange || (() => {}) };
     const tap = (id, fn) => { const b = $(id); if (b) b.addEventListener('click', (e) => { e.preventDefault(); fn(); }); };
-    tap('homeDailyBtn', () => open('dailyPanel'));
-    tap('homeMissionsBtn', () => open('missionsPanel'));
+    tap('homeRewardsBtn', () => openRewards());
+    for (const t of Object.keys(TABS)) tap('rewardsTab_' + t, () => showTab(t));
     tap('dailyClaimBtn', claimDaily);
     tap('dailyDoubleBtn', doubleDaily);
-    tap('dailyCloseBtn', closeDailyPanels);
-    tap('missionsCloseBtn', closeDailyPanels);
+    tap('rewardsCloseBtn', closeDailyPanels);
     tap('homeLevelBar', () => open('levelPanel'));
     // Closing a level-up goes on to the day's calendar if it is still waiting.
     const closeLevel = () => { closeDailyPanels(); maybeAutoOpenDaily(); };

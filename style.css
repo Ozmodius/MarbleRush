@@ -647,7 +647,6 @@ html, body {
 .side-maze.is-done .side-label { color: #5fe08e; }
 .side-maze .side-badge { right: auto; left: -8px; padding: 0 6px; font-size: 0.62rem; letter-spacing: 0.06em; }
 .side-daily .side-icon { background: linear-gradient(#ffd66e, #e69a22); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5), 0 4px 0 #a8650e, 0 8px 14px rgba(0, 0, 0, 0.45); }
-.side-missions .side-icon { background: linear-gradient(#6fc3ff, #2f74d0); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 4px 0 #1d4a8a, 0 8px 14px rgba(0, 0, 0, 0.45); }
 .side-badge {
   position: absolute;
   top: -6px;
@@ -1183,3 +1182,31 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
 .board-ms { font-weight: 800; font-variant-numeric: tabular-nums; }
 .board-empty { text-align: center; color: var(--ink-dim); padding: 12px; }
 .board-you { margin: 12px 0 0; text-align: center; font-size: 0.85rem; color: var(--ink-dim); min-height: 1.2em; }
+
+/* --- rewards card: daily / missions / achievements tabs ---------------------- */
+.rewards-card { width: min(100%, 420px); }
+.rewards-tabs { display: flex; gap: 4px; margin: 12px 0 2px; padding: 4px; border-radius: 14px; background: rgba(0, 0, 0, 0.35); }
+.rewards-tab {
+  position: relative;
+  /* Sized by their labels, so ACHIEVEMENTS gets the room it needs. */
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rewards-tab.is-active { background: linear-gradient(#ffd66e, #e69a22); color: #2a1a08; box-shadow: 0 2px 0 #a8650e; }
+.tab-dot { position: absolute; top: 4px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: #e8413c; box-shadow: 0 0 0 2px #1a130e; }
+.rewards-pane .modal-note { margin-top: 10px; }
+.rewards-pane .missions-list { max-height: min(56vh, 460px); overflow-y: auto; padding-right: 2px; }
+.achievement-name { margin: 0 0 2px; font-weight: 900; letter-spacing: 0.04em; color: #ffd66e; font-size: 0.95rem; }
+.achievement .mission-text { color: var(--ink-dim); font-size: 0.82rem; }
+.achievement.is-claimed .achievement-name { color: var(--ink); }
