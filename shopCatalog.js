@@ -63,7 +63,8 @@ export const SKINS = {
     eight:   { name: 'Eight Ball', price: 800, blurb: 'Black, with the number on the side.' },
     earth:   { name: 'Little Earth', price: 1000, blurb: 'Oceans, land and ice caps.' },
     galaxy:  { name: 'Galaxy', level: 8, blurb: 'Nebulae and a thousand stars.' },
-    ember:   { name: 'Ember', level: 15, blurb: 'Black rock with fire in the cracks.' }
+    ember:   { name: 'Ember', level: 15, blurb: 'Black rock with fire in the cracks.' },
+    prism:   { name: 'Prism', level: 19, blurb: 'Cut glass that throws every colour.' }
 };
 export const SKIN_IDS = Object.keys(SKINS);
 export const TRAILS = {
@@ -72,7 +73,8 @@ export const TRAILS = {
     mint:    { name: 'Mint', price: 400, blurb: 'Fresh green, fading to teal.' },
     flame:   { name: 'Flame', price: 750, blurb: 'Yellow to red, like you are on fire.' },
     rainbow: { name: 'Rainbow', level: 5, blurb: 'Every colour, always moving.' },
-    gold:    { name: 'Gold Dust', level: 12, blurb: 'A glittering wake of gold.' }
+    gold:    { name: 'Gold Dust', level: 12, blurb: 'A glittering wake of gold.' },
+    aurora:  { name: 'Aurora', level: 17, blurb: 'Northern lights, green to violet, rippling.' }
 };
 export const TRAIL_IDS = Object.keys(TRAILS);
 // The catalogs by save field: progress[owned] lists what is owned,
@@ -110,6 +112,12 @@ export const LEVEL_REWARDS = {
     10: { charges: { shield: 1, slowmo: 1, magnet: 1 }, coins: 300 },
     12: { look: ['trail', 'gold'] },
     15: { look: ['skin', 'ember'] },
+    // After 15 the climb is long (playerLevel.js), so every level brings
+    // something besides coins.
+    16: { charges: { shield: 1, slowmo: 1 } },
+    17: { look: ['trail', 'aurora'] },
+    18: { charges: { shield: 1, slowmo: 1, magnet: 1 }, coins: 300 },
+    19: { look: ['skin', 'prism'] },
     20: { coins: 1000 }
 };
 

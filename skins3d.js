@@ -116,6 +116,29 @@ const PAINT = {
             g.fillRect(rand() * W, rand() * H, s, s);
         }
     },
+    prism(g) {
+        // Cut glass: rows of triangles, each a pale facet of one hue, the hues
+        // sweeping round the marble so every turn shows a new colour; a bright
+        // edge where facets meet.
+        const rand = rng(31);
+        const nx = 16, ny = 6, cw = W / nx, ch = H / ny;
+        g.lineWidth = 1.5;
+        g.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        g.lineJoin = 'round';
+        for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) for (const up of [true, false]) {
+            const hue = Math.round(((i + (up ? 0 : 0.5)) / nx) * 360 + rand() * 30) % 360;
+            g.fillStyle = `hsl(${hue}, 85%, ${Math.round(62 + rand() * 22)}%)`;
+            const x = i * cw, y = j * ch;
+            const tri = up ? [[x, y + ch], [x + cw / 2, y], [x + cw, y + ch]] : [[x + cw / 2, y], [x + cw * 1.5, y], [x + cw, y + ch]];
+            wrap(0, dx => {
+                g.beginPath();
+                tri.forEach(([px, py], k) => (k ? g.lineTo(px + dx, py) : g.moveTo(px + dx, py)));
+                g.closePath();
+                g.fill();
+                g.stroke();
+            });
+        }
+    },
     ember(g) {
         const rand = rng(23);
         g.fillStyle = '#17110f';

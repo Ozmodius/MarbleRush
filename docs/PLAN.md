@@ -148,6 +148,9 @@ even though later worlds pay more XP -- 1-2 clears a level at first, 5-7 by
 level 15, which is about where the 50 launch levels end (was 18). A level's
 reward is paid once ever (`levelPaid`, merged as a max): saves from the old
 curve show a lower level now but are not paid again climbing back.
+Levels 16-19 each bring more than coins now, since the climb past 15 is
+long: 16 a Shield and Slow-mo, 17 the Aurora trail, 18 one of each power-up
+and 300 coins, 19 the Prism skin (both new, reward-only looks).
 
 REWARDS and achievements (2026-10-07, Oz's call):
 - The home rail's DAILY and MISSIONS buttons became one REWARDS button; its

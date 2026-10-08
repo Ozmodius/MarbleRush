@@ -23,7 +23,9 @@ const STYLES = {
     mint:    { color: (t) => new THREE.Color().setHSL(0.42 + 0.06 * t, 0.8, 0.55 - 0.15 * t), alpha: 0.9 },
     flame:   { color: (t) => new THREE.Color().setHSL(0.13 - 0.12 * t, 1, 0.56 - 0.1 * t), alpha: 0.95 },
     rainbow: { color: (t, time) => new THREE.Color().setHSL((t * 0.9 + time * 0.0004) % 1, 0.95, 0.55), alpha: 0.9 },
-    gold:    { color: (t, time, i) => new THREE.Color().setHSL(0.12, 0.9, 0.55 + 0.25 * (0.5 + 0.5 * Math.sin(i * 2.7 + time * 0.03))), alpha: 0.9 }
+    gold:    { color: (t, time, i) => new THREE.Color().setHSL(0.12, 0.9, 0.55 + 0.25 * (0.5 + 0.5 * Math.sin(i * 2.7 + time * 0.03))), alpha: 0.9 },
+    // Green at the ball to violet at the tail, rippling along its length.
+    aurora:  { color: (t, time) => new THREE.Color().setHSL(0.36 + 0.42 * t + 0.04 * Math.sin(t * 9 - time * 0.006), 0.85, 0.58 - 0.12 * t), alpha: 0.85 }
 };
 
 export const TRAIL_STYLE_IDS = Object.keys(STYLES);
