@@ -217,8 +217,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
             && /60 coins/.test(await page.textContent('#levelRewards')), 'home shows the level-up and what it paid');
         await page.tap('#levelOkBtn');
         check(await page.isHidden('#levelPanel') && await page.isHidden('#dailyPanel'), 'NICE! closes it (the calendar was already seen this session)');
-        check((await page.textContent('#homePlayerLevel')).trim() === '2' && /^20 \/ 150 XP$/.test((await page.textContent('#homeXpText')).trim()),
-            `the level bar shows level 2, 20 of 150 XP: ${await page.textContent('#homeXpText')}`);
+        check((await page.textContent('#homePlayerLevel')).trim() === '2' && /^20 \/ 136 XP$/.test((await page.textContent('#homeXpText')).trim()),
+            `the level bar shows level 2, 20 of 136 XP: ${await page.textContent('#homeXpText')}`);
         await page.tap('#homeLevelBar');
         check(await page.isVisible('#levelPanel') && (await page.textContent('#levelTitle')).trim() === 'PLAYER LEVEL' && /LV 3/.test(await page.textContent('#levelNext')),
             'the level bar opens what the next levels bring');

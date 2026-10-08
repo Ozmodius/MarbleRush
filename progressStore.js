@@ -61,8 +61,9 @@ export function freshProgress() {
         daily: { streak: 0, last: '', doubled: '' }, missions: null,
         // Skins and trails (shopCatalog.js LOOKS): owned, and worn.
         skins: ['plain'], skin: 'plain', trails: ['none'], trail: 'none',
-        // Player level (playerLevel.js): total XP.
-        xp: 0,
+        // Player level (playerLevel.js): total XP, and the highest level
+        // whose reward has been paid (so no level pays twice).
+        xp: 0, levelPaid: 1,
         // Today's daily maze: { date, id, best, paid, gold } (daily.js).
         dailyMaze: null,
         // Ball cam (mazeGame.js): the closer camera that follows the ball.
@@ -117,6 +118,9 @@ export function parseProgress(text) {
     // A save from before player levels has no xp at all: null marks it, and
     // the store works it out from what was already cleared (backfillXp).
     p.xp = raw.xp === undefined || raw.xp === null ? null : Math.max(0, Math.floor(Number(raw.xp) || 0));
+    // A save from before levelPaid was paid up to its level on the old curve.
+    p.levelPaid = Number.isFinite(raw.levelPaid) ? Math.max(1, Math.floor(raw.levelPaid))
+        : p.xp === null ? 1 : levelUp.legacyLevelForXp(p.xp);
     p.daily = daily.parseDaily(raw.daily);
     p.dailyMaze = daily.parseDailyMaze(raw.dailyMaze);
     p.ballCam = raw.ballCam === true;
@@ -339,6 +343,7 @@ export function mergeProgress(a, b) {
     // A prize only the older save has earned brings its uses with it.
     for (const id of older.prizes) if (!newer.prizes.includes(id) && older.prizeUses[id]) p.prizeUses[id] = older.prizeUses[id];
     p.xp = A.xp === null && B.xp === null ? null : Math.max(A.xp || 0, B.xp || 0);
+    p.levelPaid = Math.max(A.levelPaid, B.levelPaid);
     p.adCoinsAt = Math.max(A.adCoinsAt, B.adCoinsAt);
     p.adUpgradeAt = Math.max(A.adUpgradeAt, B.adUpgradeAt);
     // Daily things: the later day wins; the same day combines.

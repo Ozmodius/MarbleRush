@@ -84,9 +84,10 @@ export const LOOKS = {
 
 // --- player level (playerLevel.js) -------------------------------------------
 // XP for what a player does; levels from total XP. Going from level k to k+1
-// takes 100 + 50(k-1) XP, so level 5 is 700 XP, level 10 is 2,700 and level
-// 15 is 5,950 -- a player who clears all 50 launch levels, with some golds
-// and a few weeks of missions, lands in the high teens.
+// takes 100 + 30(k-1) + 6(k-1)^2 XP (playerLevel.js), so level 5 is 664 XP,
+// level 10 is 3,204 and level 15 is 9,044 -- a player who clears all 50
+// launch levels with gold on half reaches about level 15; missions, dailies
+// and replays carry them on toward 20.
 export const XP = {
     firstClear: 100,      // + perWorld * world: later worlds are worth more
     perWorld: 20,

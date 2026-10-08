@@ -142,6 +142,13 @@ Phase 2 as built (2026-10-06), on Oz's call to go ahead before Basic Launch:
   Its gate ("gets real play") needs usage numbers this build cannot see
   -- CrazyGames' dashboard or an analytics call would be the way to judge it.
 
+A steeper player level (2026-10-08, Oz's call): each level's XP step is
+100 + 30(k-1) + 6(k-1)^2 (was 100 + 50(k-1)), so levels keep getting harder
+even though later worlds pay more XP -- 1-2 clears a level at first, 5-7 by
+level 15, which is about where the 50 launch levels end (was 18). A level's
+reward is paid once ever (`levelPaid`, merged as a max): saves from the old
+curve show a lower level now but are not paid again climbing back.
+
 REWARDS and achievements (2026-10-07, Oz's call):
 - The home rail's DAILY and MISSIONS buttons became one REWARDS button; its
   card has DAILY (the 7-day calendar), MISSIONS (the day's three) and

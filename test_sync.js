@@ -37,6 +37,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(['classic', 'steel', 'rubber'].every(x => m.marbles.includes(x)) && m.skins.includes('stripe') && m.skins.includes('galaxy'), 'things owned on either side are owned');
     check(m.upgrades.grip === 2 && m.upgrades.brakes === 1, 'upgrade tiers take the higher');
     check(m.xp === 600, 'XP takes the higher');
+    check(S.mergeProgress({ ...a, levelPaid: 7 }, { ...b, levelPaid: 4 }).levelPaid === 7, 'the highest level paid takes the higher (no reward twice)');
     check(m.achievements.length === 2 && m.achievements.includes('clear1') && m.achievements.includes('gold1'), `achievements claimed on either side stay claimed (never paid twice): ${m.achievements}`);
     check(m.walks.w1_01.bestMs === 11000 && m.walks.w1_01.coins === 1 && m.walks.w1_01.gold, 'walk records combine');
 

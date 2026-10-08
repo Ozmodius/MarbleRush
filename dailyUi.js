@@ -226,7 +226,7 @@ function renderLevel(gained) {
         coins += g.reward.coins;
         lines.push(...rewardLines({ ...g.reward, coins: 0 }).filter(x => !/^0 coins$/.test(x.text)));
     }
-    lines.push({ cls: 'coin-icon reward-coin', text: `${fmt(coins)} coins` });
+    if (coins) lines.push({ cls: 'coin-icon reward-coin', text: `${fmt(coins)} coins` });
     for (const line of lines) {
         const row = h('div', 'level-reward');
         row.append(h('span', line.cls === 'is-look' ? 'level-lookicon' : line.cls), h('span', '', line.text));
