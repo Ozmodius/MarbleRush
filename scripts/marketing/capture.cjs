@@ -5,6 +5,7 @@
 //
 //   node scripts/marketing/capture.cjs covers   -> marketing/cover-*.png
 //   node scripts/marketing/capture.cjs video    -> marketing/video-*.mp4
+//   node scripts/marketing/capture.cjs landing  -> landing/*.jpg (the web site)
 //
 // How it works: the game runs in headless Chromium on a FROZEN clock (the
 // page's own frame loop never fires), and this script advances the
@@ -309,6 +310,76 @@ async function covers(browser, base) {
     for (const j of jobs) if (!only || j.name.includes(only)) await cover(browser, base, j);
 }
 
+// --- the landing site (landing/, index.html's LANDING) ----------------------------------
+// The promotional site's pictures: each world at its level 10, a hero, an
+// Explore shot from inside a maze, and phone shots of the menus. JPEGs sized
+// for the web (the site is the first thing a new player downloads).
+const LANDING = path.join(ROOT, 'landing');
+async function landingScene(browser, base, { name, width, height, level, skin, trail, at, cam }) {
+    const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor({ skin, trail }) });
+    let state = null;
+    await runLevel(page, dbg, level, at, async (i, s) => { state = s; }, {});
+    await dbg('cameraOverride', cam(state.pos, state.vel));
+    const url = await dbg('snapshot', 'image/jpeg', 0.82);
+    fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
+    await page.close();
+    console.log('wrote', `landing/${name}.jpg`);
+}
+async function landingExplore(browser, base, { name, width, height, level }) {
+    const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor({ skin: 'earth', trail: 'mint' }) });
+    await dbg('walkLevel', level);
+    await page.evaluate(() => document.getElementById('mazeStartBtn').click());
+    for (let k = 0; k < 40 && (await dbg('phase')) !== 'running'; k++) await page.clock.runFor(50);
+    await dbg('walkMove', { fwd: 1 });
+    await dbg('advanceFrames', 45, DT);
+    await dbg('walkMove', null);
+    await dbg('advanceFrames', 20, DT);
+    const url = await dbg('snapshot', 'image/jpeg', 0.82);
+    fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
+    await page.close();
+    console.log('wrote', `landing/${name}.jpg`);
+}
+// Phone screenshots of the menus, on a real clock (the HTML is what matters).
+async function landingPhone(browser, base, { name, setup }) {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    page.on('pageerror', e => console.error('[page]', e.message));
+    await page.addInitScript((s) => { localStorage.setItem('marbleRush.progress.v1', JSON.stringify(s)); }, saveFor({ skin: 'galaxy', trail: 'rainbow' }));
+    await page.goto(base);
+    await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+    for (const id of ['#levelOkBtn', '#rewardsCloseBtn']) if (await page.isVisible(id)) await page.tap(id);
+    await setup(page);
+    await page.waitForTimeout(900);
+    await page.screenshot({ path: path.join(LANDING, name + '.jpg'), type: 'jpeg', quality: 80 });
+    await page.close();
+    console.log('wrote', `landing/${name}.jpg`);
+}
+async function landing(browser, base) {
+    fs.mkdirSync(LANDING, { recursive: true });
+    const raking = (dist, height, side) => (pos, vel) => {
+        const sp = Math.hypot(vel.x, vel.z) || 1;
+        const dx = vel.x / sp, dz = vel.z / sp;
+        return { px: pos.x - dx * dist + dz * side, py: pos.y + height, pz: pos.z - dz * dist - dx * side, lx: pos.x + dx * 0.9, ly: 0, lz: pos.z + dz * 0.9 };
+    };
+    const only = process.argv[3];
+    const scenes = [
+        { name: 'hero', width: 1600, height: 900, level: 'w3_10', skin: 'ember', trail: 'flame', at: 3.0, cam: raking(2.4, 4.0, 1.4) },
+        { name: 'world-1', width: 960, height: 640, level: 'w1_10', skin: 'stripe', trail: 'comet', at: 3.4, cam: raking(2.2, 4.0, 1.0) },
+        { name: 'world-2', width: 960, height: 640, level: 'w2_10', skin: 'earth', trail: 'mint', at: 3.4, cam: raking(2.2, 4.0, 1.0) },
+        { name: 'world-3', width: 960, height: 640, level: 'w3_10', skin: 'ember', trail: 'flame', at: 4.2, cam: raking(2.2, 4.0, -1.0) },
+        { name: 'world-4', width: 960, height: 640, level: 'w4_10', skin: 'galaxy', trail: 'rainbow', at: 3.4, cam: raking(2.2, 4.0, 1.0) },
+        { name: 'world-5', width: 960, height: 640, level: 'w5_10', skin: 'checker', trail: 'gold', at: 3.4, cam: raking(2.2, 4.0, 1.0) }
+    ];
+    for (const j of scenes) if (!only || j.name === only) await landingScene(browser, base, j);
+    if (!only || only === 'explore') await landingExplore(browser, base, { name: 'explore', width: 960, height: 640, level: 'w2_04' });
+    const phones = [
+        { name: 'phone-home', setup: async () => {} },
+        { name: 'phone-gear', setup: async (p) => { await p.tap('#tab_gear'); await p.waitForSelector('#profileView', { state: 'visible' }); } },
+        { name: 'phone-rewards', setup: async (p) => { await p.tap('#homeRewardsBtn'); await p.tap('#rewardsTab_achievements'); } },
+        { name: 'phone-worlds', setup: async (p) => { await p.tap('#tab_worlds'); await p.waitForSelector('#mazeSelect', { state: 'visible' }); } }
+    ];
+    for (const j of phones) if (!only || j.name === only) await landingPhone(browser, base, j);
+}
+
 // --- videos -------------------------------------------------------------------------
 async function video(browser, base, { name, width, height, cinematic }) {
     // CAPTURE_TINY=1: render at a fifth of the size, to check motion quickly.
@@ -380,6 +451,7 @@ async function video(browser, base, { name, width, height, cinematic }) {
     const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
     try {
         if (what === 'covers') await covers(browser, base);
+        if (what === 'landing') await landing(browser, base);
         if (what === 'video' || what === 'video-landscape') await video(browser, base, { name: 'video-landscape-1920x1080', width: 1920, height: 1080, cinematic: true });
         if (what === 'video' || what === 'video-portrait') await video(browser, base, { name: 'video-portrait-1080x1920', width: 1080, height: 1920, cinematic: true });
     } finally {

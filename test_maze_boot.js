@@ -745,19 +745,20 @@ const check = (c, m) => { if (!c) failures.push(m); };
             // creating an account or signing in. CrazyGames plays at once.
             const crazyBuild = /crazygames/.test(ROOT);
             const passGate = async (pg, auth) => {
-                await pg.waitForSelector('#accountPanel.is-gate', { state: 'visible', timeout: 30000 });
+                await pg.waitForSelector('#landing', { state: 'visible', timeout: 30000 });
                 if (auth.register) {
+                    await pg.tap('.lp-nav [data-lp="register"]');
                     await pg.fill('#regUsername', auth.register.username);
                     await pg.fill('#regEmail', auth.register.email);
                     await pg.fill('#regPassword', auth.register.password);
                     await pg.tap('#acctView_register button[type=submit]');
                 } else {
-                    await pg.tap('#acctView_register [data-go="signin"]');
+                    await pg.tap('.lp-nav [data-lp="signin"]');
                     await pg.fill('#acctLogin', auth.login.login);
                     await pg.fill('#acctPassword', auth.login.password);
                     await pg.tap('#acctView_signin button[type=submit]');
                 }
-                await pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 10000 });
+                await pg.waitForSelector('#landing', { state: 'hidden', timeout: 10000 });
             };
             const cloudDevice = async (seed, auth) => {
                 const c = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
@@ -782,11 +783,26 @@ const check = (c, m) => { if (!c) failures.push(m); };
             // Device 1 has played (a guest save from before accounts) and makes an
             // account at the gate; its progress becomes the account's.
             const d1 = await cloudDevice(d1seed, { before: async (pg) => {
-                await pg.waitForSelector('#accountPanel.is-gate', { state: 'visible', timeout: 30000 });
-                check(await pg.isHidden('#acctCloseBtn') && await pg.isVisible('#acctGateNote') && await pg.isVisible('#acctView_register'),
-                    'the web opens on CREATE ACCOUNT with no way to close it');
-                await pg.mouse.click(5, 5);
-                check(await pg.isVisible('#accountPanel'), 'tapping outside does not get past it');
+                // The landing site: the front door for a new player.
+                await pg.waitForSelector('#landing', { state: 'visible', timeout: 30000 });
+                check(await pg.isHidden('#accountPanel') && await pg.isVisible('.lp-nav [data-lp="signin"]') && await pg.isVisible('.lp-nav [data-lp="register"]'),
+                    'the web opens on the landing site, SIGN IN and CREATE ACCOUNT on its top bar');
+                const sections = await pg.$$eval('#landing .lp-section', els => els.map(e => !!e.querySelector('[data-lp="register"]')));
+                check(sections.length >= 6 && sections.every(Boolean), `every highlight offers CREATE ACCOUNT (${sections.length} sections: ${sections})`);
+                await pg.$eval('#landing', el => { el.style.scrollBehavior = 'auto'; el.scrollTop = el.scrollHeight / 2; });
+                const navTop = await pg.$eval('.lp-nav', el => el.getBoundingClientRect().top);
+                check(Math.abs(navTop) < 1 && await pg.isVisible('.lp-nav [data-lp="register"]'), `the top bar stays at the top while scrolling (top ${navTop})`);
+                await pg.$eval('#landing', el => { el.scrollTop = el.scrollHeight; });
+                const imgs = await pg.$$eval('#landing img', els => Promise.all(els.map(i => (i.complete && i.naturalWidth) ? i.naturalWidth : new Promise(r => { i.loading = 'eager'; i.onload = () => r(i.naturalWidth); i.onerror = () => r(0); setTimeout(() => r(i.naturalWidth), 8000); }))));
+                check(imgs.length >= 10 && imgs.every(w => w > 0), `the site's pictures load (${imgs})`);
+                // A highlight's CREATE ACCOUNT opens the panel over the site; closing
+                // it goes back to the site, which stays until there is an account.
+                await pg.locator('#lp-explore [data-lp="register"]').tap();
+                await pg.waitForSelector('#acctView_register', { state: 'visible' });
+                check(await pg.isVisible('#acctCloseBtn'), 'over the site, the account panel can be closed');
+                await pg.tap('#acctCloseBtn');
+                check(await pg.isHidden('#accountPanel') && await pg.isVisible('#landing'), 'closing it returns to the site, not the game');
+                await pg.tap('.lp-nav [data-lp="register"]');
                 await pg.fill('#regUsername', 'x');
                 await pg.fill('#regEmail', 'tilt@example.com');
                 await pg.fill('#regPassword', 'marbles-rule');
@@ -796,13 +812,14 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 await pg.fill('#regUsername', 'TiltTester');
                 await pg.tap('#acctView_register button[type=submit]');
                 await pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 10000 });
+                check(await pg.isHidden('#landing'), 'creating an account opens the game');
             } });
             await d1.pg.tap('#tab_gear');
             check(await d1.pg.locator('#cloudStatus, #cloudLinkBtn, #cloudClaimForm').count() === 0, 'no cloud status or device codes on the card: saving just happens');
             if (crazyBuild) {
                 // No own accounts on CrazyGames, and no CrazyGames sign-in in
                 // this test: nothing to offer, so no card, and no gate.
-                check(await d1.pg.isHidden('#cloudSection') && await d1.pg.isHidden('#acctOwnButtons') && await d1.pg.isHidden('#accountPanel'),
+                check(await d1.pg.isHidden('#cloudSection') && await d1.pg.isHidden('#acctOwnButtons') && await d1.pg.isHidden('#accountPanel') && await d1.pg.locator('#landing').count() === 0,
                     'on CrazyGames there is no sign-in gate or own-account sign-in (CrazyGames\' is the way)');
             } else {
                 check(/^Signed in as TiltTester/.test(await d1.pg.textContent('#acctWho')) && await d1.pg.isHidden('#acctGuest'), 'the account shows on the Gear card');
@@ -841,8 +858,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
             // account's progress; signing out returns to the gate; signing in by
             // username brings the progress back.
             const d2 = await cloudDevice(null, crazyBuild ? null : { before: async (pg) => {
-                await pg.waitForSelector('#accountPanel.is-gate', { state: 'visible', timeout: 30000 });
-                await pg.tap('#acctView_register [data-go="signin"]');
+                await pg.waitForSelector('#landing', { state: 'visible', timeout: 30000 });
+                await pg.tap('.lp-nav [data-lp="signin"]');
                 await pg.fill('#acctLogin', 'tilt@example.com');
                 await pg.fill('#acctPassword', 'wrong-password');
                 await pg.tap('#acctView_signin button[type=submit]');
@@ -850,7 +867,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 check(/Wrong username/.test(await pg.textContent('#acctMsg')) && await pg.isVisible('#accountPanel'), 'a wrong password says so, and the gate stays');
                 await pg.fill('#acctPassword', 'marbles-rule');
                 await pg.tap('#acctView_signin button[type=submit]');
-                await pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 10000 });
+                await pg.waitForSelector('#landing', { state: 'hidden', timeout: 10000 });
             } });
             if (!crazyBuild) {
                 const d2prog = await d2.dbg('progress');
@@ -859,8 +876,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
                     `signing in on device 2 brings the account's clears and coins: ${JSON.stringify({ w: d2prog.wallet, w1: d1prog.wallet })}`);
                 check((await d2.pg.textContent('#profileWallet')).replace(/,/g, '').trim() === String(d1prog.wallet), 'the Gear page shows the account\'s coins');
                 await d2.pg.tap('#acctSignOutBtn');
-                await d2.pg.waitForSelector('#accountPanel.is-gate', { state: 'visible', timeout: 30000 });
-                check(!(await d2.dbg('progress')).cleared.w1_01, 'signing out returns to the sign-in screen, with nothing of the account left on the device');
+                await d2.pg.waitForSelector('#landing', { state: 'visible', timeout: 30000 });
+                check(!(await d2.dbg('progress')).cleared.w1_01, 'signing out returns to the landing site, with nothing of the account left on the device');
                 await passGate(d2.pg, { login: { login: 'TiltTester', password: 'marbles-rule' } });
                 await d2.pg.waitForFunction(() => window.__cloudSync.status() === 'synced', null, { timeout: 15000 });
                 check((await d2.dbg('progress')).cleared.w1_01, 'signing in by username brings it back');

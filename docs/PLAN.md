@@ -155,7 +155,16 @@ Accounts and play tracking (2026-10-08, Oz's call):
   usual. Never on CrazyGames, whose rules require one-click play with no
   account (3dBallSmack's PLAY NOW exists for the same reason). Expect it to
   cost first-session players on the web: the funnel's first step on /admin
-  is where that shows. A guest who creates an account becomes
+  is where that shows.
+- *A landing site is the web's front door* (Oz's call, same day): a new
+  player first sees a scrolling page about the game -- the hero, the five
+  worlds and their traps, how tilting plays, Explore mode, marbles and looks,
+  daily rewards and achievements, medals and leaderboards, progress on every
+  device -- with SIGN IN and CREATE ACCOUNT on a top bar that never scrolls
+  away and CREATE ACCOUNT after every highlight. The account panel opens over
+  it and closes back to it. Pictures are real renders
+  (`capture.cjs landing` -> `landing/`); the CrazyGames build strips it all.
+  /admin counts `landing:shown`, `landing:register` and `landing:signin`. A guest who creates an account becomes
   it; signing in elsewhere adds that device's progress to the account.
 - *Play tracking*: per level and mode, daily counts of starts, clears (and
   their times), falls and quits, plus each player's furthest level from

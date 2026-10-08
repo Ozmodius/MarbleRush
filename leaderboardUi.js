@@ -79,9 +79,13 @@ function acctView(view, message, ok) {
     const first = form.querySelector('input');
     if (first && !first.value) setTimeout(() => { try { first.focus(); } catch (_) { /* ignore */ } }, 50);
 }
-// THE SIGN-IN GATE (features.requireLogin, the web): the same panel, opened
-// over everything with no way to close it until there is an account.
+// THE SIGN-IN GATE (features.requireLogin, the web). Its front door is the
+// landing site (index.html's LANDING): what the game is, with CREATE ACCOUNT
+// after every highlight and SIGN IN / CREATE ACCOUNT on its top bar, each
+// opening this panel OVER the site -- closable, back to the site. Without the
+// site (a build that strips it) the panel itself is the gate, unclosable.
 let gate = false;
+const landing = () => $('landing');
 const needsAccount = () => {
     const me = sync && sync.player();
     return !!(features.requireLogin && sync && sync.enabled && !(me && me.kind === 'account'));
@@ -89,16 +93,31 @@ const needsAccount = () => {
 function openGate() {
     if (gate) return;
     gate = true;
+    if (landing()) {
+        landing().hidden = false;
+        landing().scrollTop = 0;
+        $('accountPanel').classList.add('over-landing');
+        $('accountPanel').hidden = true;
+        sync.track({ type: 'act', name: 'landing:shown' });
+        return;
+    }
     $('accountPanel').classList.add('is-gate');
     $('acctGateNote').hidden = false;
     acctView('register');
 }
 function closeGate() {
     gate = false;
-    $('accountPanel').classList.remove('is-gate');
+    if (landing()) landing().hidden = true;
+    $('accountPanel').classList.remove('is-gate', 'over-landing');
     $('acctGateNote').hidden = true;
 }
-const closeAcct = () => { if (gate) return; $('accountPanel').hidden = true; $('acctMsg').textContent = ''; };
+// Over the landing site the panel closes back to the site; as the bare gate
+// it does not close at all.
+const closeAcct = () => {
+    if (gate && !landing()) return;
+    $('accountPanel').hidden = true;
+    $('acctMsg').textContent = '';
+};
 const val = id => $(id).value.trim();
 
 // While a call is out, its form's buttons wait.
@@ -117,7 +136,28 @@ function signedInDone(r, words) {
 
 function updateDeleteBtn() { $('deleteGoBtn').disabled = $('deleteConfirm').value.trim().toUpperCase() !== 'DELETE'; }
 
+function wireLanding() {
+    const site = landing();
+    if (!site) return;
+    // Every CREATE ACCOUNT and SIGN IN on the site, the top bar's included.
+    site.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-lp]');
+        if (!b) return;
+        e.preventDefault();
+        sync.track({ type: 'act', name: 'landing:' + b.dataset.lp });
+        acctView(b.dataset.lp);
+    });
+    // The section links scroll the site, not the page behind it.
+    for (const a of site.querySelectorAll('a[href^="#lp-"]')) a.addEventListener('click', (e) => {
+        const t = document.getElementById(a.getAttribute('href').slice(1));
+        if (!t) return;
+        e.preventDefault();
+        site.scrollTo({ top: a.getAttribute('href') === '#lp-top' ? 0 : t.offsetTop - 64, behavior: 'smooth' });
+    });
+}
+
 function wireAccountPanel(reload) {
+    wireLanding();
     const on = (id, fn) => $(id).addEventListener('submit', (e) => { e.preventDefault(); fn(e.currentTarget); });
     for (const b of document.querySelectorAll('#accountPanel [data-go]')) b.addEventListener('click', (e) => { e.preventDefault(); acctView(b.dataset.go); });
     $('acctCloseBtn').addEventListener('click', (e) => { e.preventDefault(); closeAcct(); });
