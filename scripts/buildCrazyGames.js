@@ -58,6 +58,9 @@ function page() {
     swap(/<!-- BUILD:PLATFORM -->/, PLATFORM_TAGS, 'the BUILD:PLATFORM marker');
     swap(/<script type="importmap">[\s\S]*?<\/script>\n/, '', 'the importmap');
     swap(/<script type="module" src="main.js"><\/script>/, '<script src="game.js"></script>', 'the main.js module script');
+    // The landing site is the web's front door; CrazyGames players play at
+    // once (features.requireLogin), so its build carries none of it.
+    if (!WEB) swap(/<!-- LANDING:BEGIN[\s\S]*?<!-- LANDING:END -->\n/, '', 'the LANDING block');
     return html;
 }
 
@@ -79,11 +82,14 @@ async function build() {
     });
     fs.writeFileSync(path.join(OUT, 'index.html'), page());
     for (const f of ['style.css', 'mazeLevels.json', 'dailyLevels.json']) fs.copyFileSync(path.join(ROOT, f), path.join(OUT, f));
+    // The web build's landing site pictures (GitHub Pages keeps folders).
+    if (WEB) fs.cpSync(path.join(ROOT, 'landing'), path.join(OUT, 'landing'), { recursive: true });
 
     // Flatness, checked rather than assumed.
     const entries = fs.readdirSync(OUT, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory());
-    if (dirs.length) throw new Error('bundle is not flat: ' + dirs.map(d => d.name).join(', '));
+    if (!WEB && dirs.length) throw new Error('bundle is not flat: ' + dirs.map(d => d.name).join(', '));
+    if (!WEB && /LANDING|landing\//.test(fs.readFileSync(path.join(OUT, 'index.html'), 'utf8'))) throw new Error('the CrazyGames page still carries the landing site');
 
     const kb = f => (fs.statSync(path.join(OUT, f)).size / 1024).toFixed(0) + ' KB';
     if (ZIP) {
@@ -94,7 +100,8 @@ async function build() {
     } else {
         console.log('Built ' + path.relative(ROOT, OUT) + '/ (web, no SDK):');
     }
-    for (const e of entries) console.log('  ' + e.name.padEnd(18) + kb(e.name));
+    for (const e of entries) if (!e.isDirectory()) console.log('  ' + e.name.padEnd(18) + kb(e.name));
+    if (WEB) console.log('  landing/          ' + fs.readdirSync(path.join(OUT, 'landing')).length + ' pictures');
     console.log(API ? 'Cloud save + leaderboards: ' + API : 'No PLANETILT_API_URL: built without the cloud server.');
 }
 

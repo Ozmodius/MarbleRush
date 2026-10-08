@@ -26,6 +26,7 @@ node scripts/marketing/capture.cjs covers            # all three covers
 node scripts/marketing/capture.cjs covers portrait   # just one
 node scripts/marketing/capture.cjs video             # both videos (slow: renders every frame)
 node scripts/marketing/capture.cjs route w4_08       # check a level's autopilot route
+node scripts/marketing/capture.cjs landing           # the web landing site's pictures (landing/*.jpg)
 npm run build:crazygames                             # the zip
 ```
 
