@@ -761,10 +761,15 @@ const check = (c, m) => { if (!c) failures.push(m); };
             const d1 = await cloudDevice({ v: 1, wallet: 777, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: dayKeyNow } });
             const crazyBuild = /crazygames/.test(ROOT);
             await d1.pg.tap('#tab_gear');
-            await d1.pg.waitForSelector('#cloudSection', { state: 'visible' });
             check(await d1.pg.locator('#cloudStatus, #cloudLinkBtn, #cloudClaimForm').count() === 0, 'no cloud status or device codes on the card: saving just happens');
-            check(crazyBuild ? await d1.pg.isHidden('#acctOwnButtons') : await d1.pg.isVisible('#acctCreateBtn') && await d1.pg.isVisible('#acctSignInBtn'),
-                crazyBuild ? 'on CrazyGames there is no own-account sign-in (CrazyGames\' is the way)' : 'a guest is offered CREATE ACCOUNT and SIGN IN');
+            if (crazyBuild) {
+                // No own accounts on CrazyGames, and no CrazyGames sign-in in
+                // this test: nothing to offer, so no card.
+                check(await d1.pg.isHidden('#cloudSection') && await d1.pg.isHidden('#acctOwnButtons'), 'on CrazyGames there is no own-account sign-in (CrazyGames\' is the way)');
+            } else {
+                await d1.pg.waitForSelector('#cloudSection', { state: 'visible' });
+                check(await d1.pg.isVisible('#acctCreateBtn') && await d1.pg.isVisible('#acctSignInBtn'), 'a guest is offered CREATE ACCOUNT and SIGN IN');
+            }
             // Clear level 1: ranked on the CLEARED panel, and on the board.
             await d1.pg.tap('#tab_worlds');
             await d1.pg.waitForSelector('#mazeSelect', { state: 'visible' });
