@@ -16,6 +16,9 @@ import { ICE_SURFACE, rollMix, impactStrength, impactPartials, marbleVoice, WALL
 // itself, so nothing needs tearing down but the loops.
 
 const TAU = Math.PI * 2;
+// The roll's level against everything else (about +3 dB on the first cut,
+// which the user heard as a little quiet).
+const ROLL_LEVEL = 0.78;
 
 export function createSoundEngine(ctx) {
     const now = (t) => (t === undefined || t === null ? ctx.currentTime : t);
@@ -213,7 +216,7 @@ export function createSoundEngine(ctx) {
         // Out-of-round wobble: a few percent of level, once per revolution.
         wobPhase = (wobPhase + mix.wobbleHz * dt * TAU) % TAU;
         const wob = 1 - 0.14 * (0.5 + 0.5 * Math.sin(wobPhase));
-        const g = mix.gain * wob * 0.55;
+        const g = mix.gain * wob * ROLL_LEVEL;
         const tc = mix.gain > lastRoll.gain ? 0.025 : 0.06;   // speed up fast, die away softly
         roll.level.gain.setTargetAtTime(g, t, tc);
         roll.rumble.g.gain.setTargetAtTime(s.rumble.g * marble.weight, t, 0.05);
@@ -232,7 +235,7 @@ export function createSoundEngine(ctx) {
         let n = 0;
         while (grainDebt >= 1 && n < 16) {
             grainDebt -= 1; n++;
-            grain({ f: s.grain.f * rnd(0.75, 1.3), q: s.grain.q, gain: s.grain.g * Math.sqrt(mix.gain) * rnd(0.35, 1) * marble.roll, pan, t: t + 0.02 + Math.random() * dt, rate: rnd(0.8, 1.3) });
+            grain({ f: s.grain.f * rnd(0.75, 1.3), q: s.grain.q, gain: s.grain.g * Math.sqrt(mix.gain) * rnd(0.35, 1) * marble.roll * ROLL_LEVEL / 0.55, pan, t: t + 0.02 + Math.random() * dt, rate: rnd(0.8, 1.3) });
         }
         if (grainDebt > 4) grainDebt = 0;
         // Tread plate: a tick per bump crossed, evenly spaced.
@@ -242,7 +245,7 @@ export function createSoundEngine(ctx) {
             const count = Math.floor(tickDebt);
             while (tickDebt >= 1 && k < 8) {
                 tickDebt -= 1;
-                grain({ f: 2600 * rnd(0.95, 1.05), q: 2.5, gain: 0.22 * Math.sqrt(mix.gain) * marble.roll, pan, t: t + 0.02 + (k / Math.max(1, count)) * dt, rate: 0.7 });
+                grain({ f: 2600 * rnd(0.95, 1.05), q: 2.5, gain: 0.22 * Math.sqrt(mix.gain) * marble.roll * ROLL_LEVEL / 0.55, pan, t: t + 0.02 + (k / Math.max(1, count)) * dt, rate: 0.7 });
                 k++;
             }
         } else tickDebt = 0;
