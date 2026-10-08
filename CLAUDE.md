@@ -85,6 +85,13 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   model when the build script is written.
 - **One codebase, two platforms**: only `platform.js` may know which platform
   it is on (it also holds the API URL, `apiBase()`).
+- **A level keeps the screen on** (`wakeLock.js`, the user's call,
+  2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
+  Screen Wake Lock first; where it is missing (older iPhones) or refused
+  (CrazyGames' iframe may not allow it), a muted, invisible, looping 2-second
+  clip, inlined as base64 because the bundle is flat. Held from entering a
+  level to returning to the menus, never in the menus. `test_wake_lock.js`
+  covers both paths with a stubbed `navigator.wakeLock`.
 
 ## Visual changes
 

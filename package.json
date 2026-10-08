@@ -7,7 +7,7 @@
   "scripts": {
     "test": "node test_maze_levels.js && node test_maze_hazards.js && node test_maze_tilt.js && node test_maze_walls.js && node test_maze_pickups.js && node test_progress_store.js && node test_daily.js && node test_player_level.js && node test_walk.js && node test_sync.js && node test_achievements.js && node test_shop.js && node test_forest.js && node test_sound.js && npm test --prefix server",
     "levels": "node scripts/generateMazeLevels.js",
-    "test:browser": "node test_maze_boot.js",
+    "test:browser": "node test_wake_lock.js && node test_maze_boot.js",
     "build:crazygames": "node scripts/buildCrazyGames.js",
     "test:browser:bundle": "npm run build:crazygames && MAZE_ROOT=dist/crazygames node test_maze_boot.js",
     "build:web": "node scripts/buildCrazyGames.js --web",

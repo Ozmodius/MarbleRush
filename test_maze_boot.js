@@ -83,6 +83,42 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await page.isHidden('#bootMsg'), 'the boot message must clear once the game is up');
         check(await page.isVisible('#tabBar'), 'the tab bar shows on the home screen');
         check(await page.evaluate(() => window.__mazeDebug.menuPhase()), 'the home planet is built behind the home screen');
+        // Home's worlds: a swipe across the planet (or the arrows) moves
+        // between them, a sun burns in the distance, and a locked world's
+        // PLAY is greyed out and starts nothing.
+        check(await page.evaluate(() => window.__mazeDebug.hasSun()), 'a sun burns behind the home planet');
+        check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 1 && (await page.textContent('#homeWorldName')).trim() === 'SAWTURN' && (await page.textContent('#homeWorldPlace')).trim() === levels[0].name.toUpperCase()
+            && await page.isDisabled('#homePrevWorld'), 'home opens on the first planet, at its first level\'s place, with nothing to its left');
+        {
+            const cdp = await ctx.newCDPSession(page);
+            const swipe = async (x0, x1) => {
+                await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: 420 }] });
+                for (let k = 1; k <= 6; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0 + (x1 - x0) * k / 6, y: 420 }] });
+                await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+            };
+            await swipe(300, 90);
+            const h2 = await page.evaluate(() => window.__mazeDebug.homeLevel());
+            check(h2 && h2.world === 2 && h2.locked, `a swipe left brings in world 2, locked for a new player: ${JSON.stringify(h2)}`);
+            check(await page.evaluate(() => window.__mazeDebug.planetX()) > 0, 'the new planet slides in from the right');
+            check(!/WORLD/.test(await page.textContent('.home-play')), 'home never says "World n"');
+            check(await page.isDisabled('#homePlayBtn') && (await page.textContent('#homePlayLabel')).trim() === 'LOCKED'
+                && /Finish Sawturn/.test(await page.textContent('#homeGoal')), 'a locked world greys PLAY out and says what opens it');
+            await page.tap('#homePlayBtn', { force: true });
+            check(await page.isVisible('#homeView') && await page.evaluate(() => window.__mazeDebug.menuPhase()), 'and its PLAY starts nothing');
+            await swipe(200, 180);
+            check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 2, 'a small drag is not a swipe');
+            await swipe(90, 300);
+            check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 1 && !(await page.isDisabled('#homePlayBtn')), 'a swipe right goes back to world 1, PLAY lit again');
+            await page.tap('#homeNextWorld');
+            await page.tap('#homeNextWorld');
+            check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 3, 'the arrows step through the worlds too');
+            for (let i = 0; i < 4; i++) if (!(await page.isDisabled('#homeNextWorld'))) await page.tap('#homeNextWorld');
+            check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 5 && await page.isDisabled('#homeNextWorld'), 'and stop at the last world');
+            await page.keyboard.press('ArrowLeft');
+            check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 4, 'the arrow keys step on a computer');
+            while (await page.evaluate(() => window.__mazeDebug.homeWorld()) > 1) await page.tap('#homePrevWorld');
+            check((await page.textContent('#homePlayLevel')).trim() === 'LEVEL 1', 'back on world 1, PLAY is level 1');
+        }
         check(!(await page.$('#homeLevelNum')) && !(await page.$('#homeWorld')), 'the home HUD carries no level info');
         const homeLabels = await page.$$eval('.home-statlabel', els => els.map(e => e.textContent.trim()));
         check(['GOLD', 'MEDALS', 'POWER-UPS'].every(l => homeLabels.includes(l)), `the home HUD labels gold, medals and power-ups, shows ${homeLabels}`);
@@ -98,10 +134,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.waitForSelector('#mazeSelect', { state: 'visible' });
         check(await page.isHidden('#homeView'), 'one tab at a time');
         check(await page.evaluate(() => window.__mazeDebug.backdrop()) === 'system', 'the worlds tab shows the solar system');
-        check((await page.textContent('#worldSheetName')).trim() === 'Workshop', 'the sheet opens on the world of the next level');
+        check((await page.textContent('#worldSheetName')).trim() === 'Sawturn', 'the sheet opens on the world of the next level');
         await page.locator('#worldLabel_2').click({ force: true });   // labels drift with their planets
-        check((await page.textContent('#worldSheetName')).trim() === 'Glacier' && await page.locator('.level-node').count() === levels.filter(l => l.world === 2).length
-            && /Clear World 1/.test(await page.textContent('#worldSheetNote')), 'a built but locked world shows its levels, locked, and says what opens it');
+        check((await page.textContent('#worldSheetName')).trim() === 'Slipstonia' && await page.locator('.level-node').count() === levels.filter(l => l.world === 2).length
+            && /Finish Sawturn/.test(await page.textContent('#worldSheetNote')), 'a built but locked world shows its levels, locked, and says what opens it');
         // The first world not built yet: one past the last world in the data.
         const comingN = Math.max(...levels.map(l => l.world)) + 1;
         const W = await import('./worlds.js');
@@ -127,7 +163,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         }), null, { timeout: 15000 });
         const anchor = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
         await page.mouse.click(anchor.x, anchor.y - 30);
-        check((await page.textContent('#worldSheetName')).trim() === 'Toy Box', 'tapping a planet on the canvas selects its world');
+        check((await page.textContent('#worldSheetName')).trim() === 'Bouncelot', 'tapping a planet on the canvas selects its world');
         // A drag sideways spins the system; it is not a tap.
         const spin0 = await dbg('solarSpin');
         await page.mouse.move(80, 250);
@@ -136,7 +172,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.mouse.up();
         const spin1 = await dbg('solarSpin');
         check(spin1 < spin0 - 1, `dragging right spins the solar system (spin ${spin0.toFixed(2)} -> ${spin1.toFixed(2)})`);
-        check((await page.textContent('#worldSheetName')).trim() === 'Toy Box', 'a drag does not pick a world');
+        check((await page.textContent('#worldSheetName')).trim() === 'Bouncelot', 'a drag does not pick a world');
         const moved = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
         check(Math.hypot(moved.x - anchor.x, moved.y - anchor.y) > 30, 'and the planets (and their labels) go round with it');
         await page.locator('#worldLabel_1').click({ force: true });
@@ -256,9 +292,14 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await page.isHidden('#rewardsPanel'), 'REWARDS closes');
         await page.tap('#homePlayBtn');
         await page.waitForSelector('#mazeExitBtn', { state: 'visible' });
+        // A tilt game gets no taps: a level keeps the screen on (wakeLock.js),
+        // by the lock or the video, and the menus let it sleep again.
+        check(await page.evaluate(() => window.__wakeDebug.wanted()) && await page.waitForFunction(() => window.__wakeDebug.mode() !== 'none', null, { timeout: 5000 }).then(() => true, () => false),
+            `a level keeps the screen on (mode ${await page.evaluate(() => window.__wakeDebug.mode())})`);
         await page.tap('#mazeExitBtn');
         await page.waitForSelector('#homeView', { state: 'visible' });
         check(await page.evaluate(() => window.__mazeDebug.menuPhase()), 'the back button in a level returns home, planet and all');
+        check(await page.evaluate(() => !window.__wakeDebug.wanted() && window.__wakeDebug.mode() === 'none' && !window.__wakeDebug.videoPlaying()), 'home lets the screen sleep again');
 
         // --- conveyors move the ball on their own -------------------------
         const lv10 = levels.find(l => (l.conveyors || []).length);
