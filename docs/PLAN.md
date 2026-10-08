@@ -230,17 +230,17 @@ Prize = the reward for clearing the world; it helps against the trap named in
 the next world. Worlds 1-5 ship at launch.
 
 Each world is a planet with its own name, shown with its place (the user's
-call, 2026-10-08; `worlds.js`): Timbera · the Workshop, Frostara · the
-Glacier, Pyros · Magma Works, Jumbly · the Toy Box, Ferron · the Foundry.
+call, 2026-10-08; `worlds.js`): Sawturn · the Workshop, Slipstonia · the
+Glacier, Magmars · Magma Works, Bouncelot · the Toy Box, Gearth · the Foundry.
 Worlds 6-10 get planet names when they are built.
 
 | # | World | Trap on L1 | Trap on L4 | Trap on L10 | Prize |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Timbera: Workshop (wood) growing into a forest, level by level | holes | moving gates | conveyor belts | Rubber Coat: grips on ice |
-| 2 | Frostara: Glacier (snowy rock at the treeline turning to blue ice) | ice | wind fans | falling icicles | Heat Shield: survives one lava flare |
-| 3 | Pyros: Magma Works (`lava` theme) | flaring lava seams | molten gates | geysers | Obsidian Core: bumpers push half as hard |
-| 4 | Jumbly: Toy Box (foam play mat, plastic brick walls; pastel turning bright) | bumpers | spring pads | spinning arms | Plastic Ball: ignores magnets |
-| 5 | Ferron: Foundry (rusty tread plate and riveted steel, cleaned up level by level) | magnets | crushers | electric rails | Chrome Polish: slides through mud |
+| 1 | Sawturn: Workshop (wood) growing into a forest, level by level | holes | moving gates | conveyor belts | Rubber Coat: grips on ice |
+| 2 | Slipstonia: Glacier (snowy rock at the treeline turning to blue ice) | ice | wind fans | falling icicles | Heat Shield: survives one lava flare |
+| 3 | Magmars: Magma Works (`lava` theme) | flaring lava seams | molten gates | geysers | Obsidian Core: bumpers push half as hard |
+| 4 | Bouncelot: Toy Box (foam play mat, plastic brick walls; pastel turning bright) | bumpers | spring pads | spinning arms | Plastic Ball: ignores magnets |
+| 5 | Gearth: Foundry (rusty tread plate and riveted steel, cleaned up level by level) | magnets | crushers | electric rails | Chrome Polish: slides through mud |
 | 6 | Swamp | mud | fog | gas vents | Firefly Lantern: lights the dark |
 | 7 | Crypt | darkness | ghost walls | portals | Spirit Compass: shows where portals lead |
 | 8 | Desert Temple | sand slides | dart traps | sandstorm | Gyro Core: wind pushes less |

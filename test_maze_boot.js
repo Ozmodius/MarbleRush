@@ -87,7 +87,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // between them, a sun burns in the distance, and a locked world's
         // PLAY is greyed out and starts nothing.
         check(await page.evaluate(() => window.__mazeDebug.hasSun()), 'a sun burns behind the home planet');
-        check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 1 && (await page.textContent('#homeWorldName')).trim() === 'TIMBERA' && /WORLD 1 · THE WORKSHOP/.test(await page.textContent('#homeWorldPlace'))
+        check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 1 && (await page.textContent('#homeWorldName')).trim() === 'SAWTURN' && /WORLD 1 · THE WORKSHOP/.test(await page.textContent('#homeWorldPlace'))
             && await page.isDisabled('#homePrevWorld'), 'home opens on world 1, with nothing to its left');
         {
             const cdp = await ctx.newCDPSession(page);
@@ -101,7 +101,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
             check(h2 && h2.world === 2 && h2.locked, `a swipe left brings in world 2, locked for a new player: ${JSON.stringify(h2)}`);
             check(await page.evaluate(() => window.__mazeDebug.planetX()) > 0, 'the new planet slides in from the right');
             check(await page.isDisabled('#homePlayBtn') && (await page.textContent('#homePlayLabel')).trim() === 'LOCKED'
-                && /Finish Timbera/.test(await page.textContent('#homeGoal')), 'a locked world greys PLAY out and says what opens it');
+                && /Finish Sawturn/.test(await page.textContent('#homeGoal')), 'a locked world greys PLAY out and says what opens it');
             await page.tap('#homePlayBtn', { force: true });
             check(await page.isVisible('#homeView') && await page.evaluate(() => window.__mazeDebug.menuPhase()), 'and its PLAY starts nothing');
             await swipe(200, 180);
@@ -133,10 +133,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.waitForSelector('#mazeSelect', { state: 'visible' });
         check(await page.isHidden('#homeView'), 'one tab at a time');
         check(await page.evaluate(() => window.__mazeDebug.backdrop()) === 'system', 'the worlds tab shows the solar system');
-        check((await page.textContent('#worldSheetName')).trim() === 'Timbera', 'the sheet opens on the world of the next level');
+        check((await page.textContent('#worldSheetName')).trim() === 'Sawturn', 'the sheet opens on the world of the next level');
         check((await page.textContent('#worldSheetPlace')).trim() === 'the Workshop', 'under the planet\'s name, the place it is');
         await page.locator('#worldLabel_2').click({ force: true });   // labels drift with their planets
-        check((await page.textContent('#worldSheetName')).trim() === 'Frostara' && await page.locator('.level-node').count() === levels.filter(l => l.world === 2).length
+        check((await page.textContent('#worldSheetName')).trim() === 'Slipstonia' && await page.locator('.level-node').count() === levels.filter(l => l.world === 2).length
             && /Clear World 1/.test(await page.textContent('#worldSheetNote')), 'a built but locked world shows its levels, locked, and says what opens it');
         // The first world not built yet: one past the last world in the data.
         const comingN = Math.max(...levels.map(l => l.world)) + 1;
@@ -163,7 +163,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         }), null, { timeout: 15000 });
         const anchor = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
         await page.mouse.click(anchor.x, anchor.y - 30);
-        check((await page.textContent('#worldSheetName')).trim() === 'Jumbly', 'tapping a planet on the canvas selects its world');
+        check((await page.textContent('#worldSheetName')).trim() === 'Bouncelot', 'tapping a planet on the canvas selects its world');
         // A drag sideways spins the system; it is not a tap.
         const spin0 = await dbg('solarSpin');
         await page.mouse.move(80, 250);
@@ -172,7 +172,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.mouse.up();
         const spin1 = await dbg('solarSpin');
         check(spin1 < spin0 - 1, `dragging right spins the solar system (spin ${spin0.toFixed(2)} -> ${spin1.toFixed(2)})`);
-        check((await page.textContent('#worldSheetName')).trim() === 'Jumbly', 'a drag does not pick a world');
+        check((await page.textContent('#worldSheetName')).trim() === 'Bouncelot', 'a drag does not pick a world');
         const moved = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
         check(Math.hypot(moved.x - anchor.x, moved.y - anchor.y) > 30, 'and the planets (and their labels) go round with it');
         await page.locator('#worldLabel_1').click({ force: true });
