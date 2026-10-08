@@ -3,3 +3,4 @@ dist/
 *.zip
 .env
 .DS_Store
+sound-demo.wav

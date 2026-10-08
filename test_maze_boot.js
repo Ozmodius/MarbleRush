@@ -161,12 +161,24 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const p1 = await dbg('advanceFrames', 30);
         await page.keyboard.up('ArrowDown');
         check(p1.z > p0.z + 0.2, `ArrowDown must roll the ball down the screen (+z): z ${p0.z.toFixed(2)} -> ${p1.z.toFixed(2)}`);
+        // Sound (sound.js, mazeAudio.js): the taps made the engine, and a
+        // rolling marble is heard -- measured as the roll's level, so no one
+        // has to listen.
+        const snd = await page.evaluate(() => ({ ready: window.__soundDebug.ready(), roll: window.__soundDebug.rollLevel(), silent: window.__soundDebug.silent() }));
+        check(snd.ready && !snd.silent, `the first tap starts the sound, audible: ${JSON.stringify(snd)}`);
+        check(snd.roll > 0.05, `a rolling marble makes a rolling sound: level ${snd.roll}`);
         await dbg('advanceFrames', 30);   // let it settle against whatever it hit
         const p2 = await dbg('ballPos');
         await page.keyboard.down('ArrowRight');
         const p3 = await dbg('advanceFrames', 30);
         await page.keyboard.up('ArrowRight');
         check(p3.x > p2.x + 0.05, `ArrowRight must roll the ball right (+x): x ${p2.x.toFixed(2)} -> ${p3.x.toFixed(2)}`);
+        check((await page.evaluate(() => window.__soundDebug.counts())).impact > 0, 'rolling into a wall is heard as a hit');
+        // The HUD's sound switch mutes and unmutes, and the choice is the device's.
+        await page.tap('#mazeSoundBtn');
+        check(await page.evaluate(() => window.__soundDebug.silent()) && await page.getAttribute('#mazeSoundBtn', 'aria-pressed') === 'true', 'the sound button mutes');
+        await page.tap('#mazeSoundBtn');
+        check(!(await page.evaluate(() => window.__soundDebug.silent())), 'and unmutes');
 
         // A coin: put the ball on one and step.
         const lv1 = levels[0];
@@ -179,6 +191,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await dbg('placeBall', lv1.holes[0].x, lv1.holes[0].z);
         await dbg('advanceFrames', 2);
         check(await dbg('phase') === 'falling', `a ball over a hole falls (phase ${await dbg('phase')})`);
+        check((await page.evaluate(() => window.__soundDebug.counts())).coin === 1, 'the coin is heard');
+        check((await page.evaluate(() => window.__soundDebug.counts())).holeDrop === 1, 'the fall is heard going down the hole');
         await dbg('advanceFrames', 3);
         await page.evaluate(() => new Promise(r => setTimeout(r, 900)));   // FALL_RESTART_MS is wall clock
         await dbg('advanceFrames', 1);
@@ -191,6 +205,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await dbg('advanceFrames', 1);
         await dbg('ageRun', lv1.goldMs + 5000);   // a silver time, comfortably over minMs
         check(await dbg('warpToGoal'), 'reaching the goal wins the run');
+        check((await page.evaluate(() => window.__soundDebug.counts())).goal === 1, 'the clear is heard');
         const prog = await dbg('progress');
         check(prog.cleared[lv1.id] && prog.highestIndex === 1, `the clear is recorded: ${JSON.stringify(prog.cleared)}`);
         // 120 + 1 coin, and its 120 XP reaches player level 2, which pays 60.

@@ -91,3 +91,24 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
 For anything judged by eye (colours, camera framing, material look), check in
 with the user with a screenshot before iterating further. Tilt feel can only be
 judged on a real phone; the sandbox has no accelerometer.
+
+## Sound
+
+Every sound is **synthesised from the physics**, never a recorded file: the
+roll follows the ball's speed and the surface under it, hits follow the speed
+along the contact normal, hazards are heard from the same run clock that moves
+them. That keeps the CrazyGames bundle free of audio files, and a marble that
+speeds up, hits ice and clacks off a wall in one second sounds like it.
+
+- `soundModel.js` is the numbers (surfaces, wall materials, marble voices,
+  stereo), pure and tested in Node (`test_sound.js`). `soundEngine.js` makes
+  them audible on ANY AudioContext. `sound.js` owns the page's one live
+  context and every mute: the HUD's sound button (a device preference in
+  localStorage, never the save), CrazyGames' mute, ads, a hidden tab.
+  `mazeAudio.js` is the run's controller; `sfx.js` is the menus'.
+- **Sound never changes the game** and never waits on anything. A failure is
+  silent.
+- **Sound is judged by ear**, like visuals by eye: `node scripts/renderSoundDemo.js`
+  renders a tour of every sound to a WAV, and the user hears it before tuning
+  goes further. The sandbox has no speakers; numbers (levels, counts) only
+  prove nothing is silent or clipping.

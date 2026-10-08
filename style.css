@@ -172,6 +172,10 @@ html, body {
 }
 .maze-cambtn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; display: block; margin: 0 auto; }
 .maze-cambtn.is-on { color: #3a2408; background: linear-gradient(#ffd66e, #e69a22); border-color: transparent; }
+.maze-soundbtn .sound-off { display: none; }
+.maze-soundbtn.is-muted .sound-on { display: none; }
+.maze-soundbtn.is-muted .sound-off { display: inline; }
+.maze-soundbtn.is-muted { opacity: 0.75; }
 .maze-levelname {
   flex: 1;
   text-align: center;

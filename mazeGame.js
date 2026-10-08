@@ -17,6 +17,9 @@ import { ARM_Y0, ARM_Y1 } from './toyProps3d.js';
 import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from './mazePickups.js';
 import { buildLevelProps } from './mazeProps3d.js';
 import { sfx as uiSfx } from './sfx.js';
+import { createMazeAudio } from './mazeAudio.js';
+import { wallForLevel, floorForLevel } from './soundModel.js';
+import { setSoundOn, isSoundOn, unlockSound } from './sound.js';
 import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
 import { ballSetup, PRIZES, AD_REWARDS, MARBLES, WALK } from './shopCatalog.js';
 const marbleName = id => (MARBLES[id] ? MARBLES[id].name.toUpperCase() : String(id));
@@ -144,6 +147,16 @@ function setBallCam(on) {
     if (store && store.setBallCam) store.setBallCam(ballCamOn);
     const b = el('mazeCamBtn');
     if (b) { b.setAttribute('aria-pressed', String(ballCamOn)); b.classList.toggle('is-on', ballCamOn); }
+}
+
+// The HUD's sound button: on by default, a device preference (sound.js).
+function syncSoundBtn() {
+    const b = el('mazeSoundBtn');
+    if (!b) return;
+    const on = isSoundOn();
+    b.setAttribute('aria-pressed', String(!on));
+    b.setAttribute('aria-label', on ? 'Sound on: tap to mute' : 'Sound off: tap to unmute');
+    b.classList.toggle('is-muted', !on);
 }
 
 // BALL CAM (docs/PLAN.md phase 2; the HUD's camera button, saved). The same
@@ -324,6 +337,11 @@ let pickupState = null;          // this attempt's coins and power-ups (mazePick
 // (shopCatalog.js ballSetup), read from the progress store when the level is
 // built. Bought power-ups live in the store's inventory and are spent there.
 let ballSpec = ballSetup('classic', {});
+let ballMarbleId = 'classic';
+// The run's sound (mazeAudio.js), and what each physics body sounds like when
+// the marble hits it: 'floor', or a soundModel.js WALLS key.
+let audio = null;
+const bodySound = new Map();
 // The world prize answering a trap in this level (shopCatalog.js PRIZES), and
 // whether one use of it has been spent on this level visit. A use covers every
 // retry of the level, so it is reset when a level is built, not on restart.
@@ -740,6 +758,9 @@ function buildWorld(lv, wallSpecs) {
     floor.position.set(0, FLOOR_Y, 0);
     w.addBody(floor);
     floorBody = floor;
+    bodySound.clear();
+    const wallSound = wallForLevel(lv);
+    bodySound.set(floor, 'floor');
     solidMaterial = solidMat;
     iceMaterial = iceMat;
 
@@ -748,6 +769,7 @@ function buildWorld(lv, wallSpecs) {
         body.addShape(new CANNON.Box(new CANNON.Vec3(spec.w / 2, WALL_HEIGHT / 2, spec.d / 2)));
         body.position.set(spec.x, FLOOR_Y + WALL_HEIGHT / 2, spec.z);
         w.addBody(body);
+        bodySound.set(body, wallSound);
     }
 
     // Gates are KINEMATIC, not static-bodies-we-move. A mass-0 static body whose
@@ -762,6 +784,7 @@ function buildWorld(lv, wallSpecs) {
         const at = gateSpecAt(g.spec, 0);
         body.position.set(at.x, FLOOR_Y + WALL_HEIGHT / 2, at.z);
         w.addBody(body);
+        bodySound.set(body, g.spec.molten ? 'rock' : wallSound);
         g.body = body;
     }
 
@@ -774,6 +797,7 @@ function buildWorld(lv, wallSpecs) {
         body.addShape(new CANNON.Cylinder(r, r, WALL_HEIGHT, 16));
         body.position.set(x, FLOOR_Y + WALL_HEIGHT / 2, z);
         w.addBody(body);
+        bodySound.set(body, 'plastic');
     };
     (lv.bumpers || []).forEach(b => post(b.x, b.z, b.r));
     armBodies = (lv.arms || []).map(a => {
@@ -782,6 +806,7 @@ function buildWorld(lv, wallSpecs) {
         body.addShape(new CANNON.Box(new CANNON.Vec3(a.len, (ARM_Y1 - ARM_Y0) / 2, ARM_HALF_T)));
         body.position.set(a.x, FLOOR_Y + (ARM_Y0 + ARM_Y1) / 2, a.z);
         w.addBody(body);
+        bodySound.set(body, 'plastic');
         return { a, body };
     });
 
@@ -793,6 +818,7 @@ function buildWorld(lv, wallSpecs) {
         body.addShape(new CANNON.Box(new CANNON.Vec3(c.w / 2, CRUSH_HEAD_H / 2, c.d / 2)));
         body.position.set(c.x, FLOOR_Y + crusherBottom(c, 0) + CRUSH_HEAD_H / 2, c.z);
         w.addBody(body);
+        bodySound.set(body, 'steel');
         return { c, body };
     });
 
@@ -805,6 +831,18 @@ function buildWorld(lv, wallSpecs) {
     ball.linearDamping = ballSpec.damping;
     ball.angularDamping = ballSpec.spin;
     w.addBody(ball);
+    // Every new contact is a hit, as loud as the speed along its normal
+    // (mazeAudio.js decides whether that is loud enough to hear).
+    const floorSound = floorForLevel(lv);
+    ball.addEventListener('collide', (e) => {
+        if (!audio || ball !== ballBody || phase === 'falling') return;
+        const kind = bodySound.get(e.body);
+        if (!kind) return;
+        let v = 0;
+        try { v = Math.abs(e.contact.getImpactVelocityAlongNormal()); } catch (_) { return; }
+        const material = kind === 'floor' ? (ballOnIce ? 'ice' : floorSound) : kind;
+        audio.hit(e.body, material, v, ball.position.x, ball.position.z);
+    });
 
     world = w;
     ballBody = ball;
@@ -975,6 +1013,21 @@ function advance(elapsedMs) {
     // Leafy branches fade while the marble is under them (forest3d.js).
     if (forest) forest.tick(ballBody.position.x, ballBody.position.z, elapsedMs);
 
+    if (audio) {
+        const p = ballBody.position, v = ballBody.velocity;
+        audio.frame({
+            ball: { x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z },
+            radius: level.ballRadius,
+            onFloor: phase !== 'falling' && ballBody.collisionResponse && p.y - level.ballRadius - FLOOR_Y < 0.04,
+            onIce: ballOnIce,
+            tMs: runClockMs,
+            running: phase === 'running',
+            walk: walkMode, yaw: walkYaw,
+            dt: elapsedMs / 1000,
+            magnetsOff: !!prizeOn.plasticBall
+        });
+    }
+
     if (phase === 'running') checkOutcomes();
     else if (phase === 'falling' && performance.now() - fallStartedAt > FALL_RESTART_MS) {
         if (reviveOffered()) openFallOffer(); else restart();
@@ -1096,7 +1149,7 @@ function applyToys() {
         roll();
         bumperKicks++;
         if (props) props.hitBumper(i);
-        try { uiSfx.open(); } catch (e) { /* ignore */ }
+        if (audio) audio.event('bumper', { x: b.x, z: b.z });
     });
     if (level.springs) {
         const pad = springUnder(level.springs, runClockMs, p.x, p.z, R);
@@ -1106,8 +1159,7 @@ function applyToys() {
                 springShots[n] = shot;
                 const out = springLaunch(pad, v.x, v.z);
                 v.x = out.vx; v.z = out.vz;
-                roll();
-                try { uiSfx.open(); } catch (e) { /* ignore */ }
+                roll();   // the pad's own release is heard from its clock (mazeAudio.js)
             }
         }
     }
@@ -1185,8 +1237,8 @@ function checkOutcomes() {
     if (pickupState) {
         const events = stepPickups(pickupState, level, { x: p.x, z: p.z, r: level.ballRadius }, lastFrameMs);
         for (const e of events) {
-            if (e.type === 'coin') { props.takeCoin(e.index); uiSfx.coin(); }
-            else { props.takePickup(e.index); setStatus(e.kind.toUpperCase()); uiSfx.open(); }
+            if (e.type === 'coin') { props.takeCoin(e.index); if (audio) audio.event('coin'); }
+            else { props.takePickup(e.index); setStatus(e.kind.toUpperCase()); if (audio) audio.event('pickup'); }
         }
         if (events.length) renderCoins();
         renderPowerups();
@@ -1216,6 +1268,7 @@ function knockOut(message, holeIndex) {
         ballBody.velocity.setZero();
         ballBody.angularVelocity.setZero();
         setStatus('SHIELD SAVED YOU');
+        if (audio) audio.event('shield');
         emitRun('shield', { cause: FALL_CAUSE[message] || 'other' });
         renderPowerups();
         return;
@@ -1230,9 +1283,9 @@ function fall(message, why) {
     // Drop through the floor rather than teleporting: the player needs to see
     // WHY the run ended. collisionResponse=false keeps the body in the sim (so
     // gravity still applies) while it stops colliding with anything.
+    if (audio) audio.event('fall', { cause: (why && why.cause) || 'other', speed: Math.hypot(ballBody.velocity.x, ballBody.velocity.z) });
     ballBody.collisionResponse = false;
     renderPowerups();   // the run is over: hide the tap-to-fire buttons
-    try { uiSfx.close(); } catch (e) { /* ignore */ }
     setStatus(message || 'DOWN THE HOLE');
 }
 
@@ -1348,7 +1401,7 @@ function win() {
     // out of the goal it just reached while the CLEARED banner is still up.
     world.gravity.set(0, -GRAVITY, 0);
     mazeGroup.rotation.set(0, 0, 0);
-    try { uiSfx.open(); } catch (e) { /* ignore */ }
+    if (audio) audio.event('win', { x: level.goal.x, z: level.goal.z });
     // The leaderboards (cloudSync.js, via main.js) hear of every win: the
     // clear when it counted, null when it did not.
     if (clearListener) {
@@ -1715,7 +1768,8 @@ function startLevel(levelId, opts = {}) {
     // A trial binds to the first level started after it, and ends on any other.
     if (trialMarble && trialMarble.levelId === null) trialMarble.levelId = lv.id;
     if (trialMarble && trialMarble.levelId !== lv.id) trialMarble = null;
-    ballSpec = ballSetup(trialMarble ? trialMarble.id : prog.marble, prog.upgrades);
+    ballMarbleId = trialMarble ? trialMarble.id : prog.marble;
+    ballSpec = ballSetup(ballMarbleId, prog.upgrades);
     walkFeel = walkHandling(ballSpec);
     if (walkInput) walkInput.setResponse(walkFeel.response);
     ballOnIce = false;
@@ -1733,6 +1787,7 @@ function startLevel(levelId, opts = {}) {
     mazeGroup = built.group;
     scene.add(mazeGroup);
     buildWorld(lv, built.wallSpecs);
+    audio = createMazeAudio(lv, { marble: ballMarbleId });
     placeBallAtStart();
     // Walking: face down the open corridor, look a touch down, widen the view.
     walkStartYaw = openingYaw(lv);
@@ -1777,6 +1832,8 @@ function startLevel(levelId, opts = {}) {
 function teardownLevel() {
     if (attemptOpen) { attemptOpen = false; emitRun('quit'); }
     setGameplayActive(false);
+    if (audio) { audio.dispose(); audio = null; }
+    bodySound.clear();
     if (mazeGroup && scene) scene.remove(mazeGroup);
     disposeAll();
     if (trail) { trail.dispose(); trail = null; }
@@ -2225,6 +2282,8 @@ export function initMazeControls() {
     bindTap('mazeUse_slowmo', () => { useRunCharge('slowmo'); });
     bindTap('mazeUse_magnet', () => { useRunCharge('magnet'); });
     bindTap('mazeCamBtn', () => { setBallCam(!ballCamOn); });
+    syncSoundBtn();
+    bindTap('mazeSoundBtn', () => { setSoundOn(!isSoundOn()); unlockSound(); syncSoundBtn(); });
     bindTap('mazeComfortBtn', () => { if (store) openComfort(store, () => { if (walkMode) { setWalkFov(true); thirdEyeSet = false; syncWalkView(); } }); });
     // 1P / 3P: the walk view, saved with the comfort settings.
     bindTap('mazeViewBtn', () => {
