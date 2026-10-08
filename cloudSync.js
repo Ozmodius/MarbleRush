@@ -233,8 +233,18 @@ export function createCloudSync({
         } catch (_) { events.unshift(...batch.slice(0, 200 - events.length)); }
         if (events.length && !eventTimer) eventTimer = setTimer(() => { eventTimer = null; flushEvents(); }, 30e3);
     }
+    // Sessions: each stretch with the game on screen is one, reported with
+    // its length when the page is hidden (2 seconds or more; at most 3 hours).
+    let shownAt = Date.now();
+    const endSession = () => {
+        const ms = Date.now() - shownAt;
+        if (ms >= 2000) events.push({ type: 'session', ms: Math.min(ms, 3 * 3600e3) });
+    };
     if (base && typeof document !== 'undefined' && document.addEventListener) {
-        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushEvents(true); });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') { endSession(); flushEvents(true); }
+            else shownAt = Date.now();
+        });
     }
 
     return {
@@ -249,10 +259,16 @@ export function createCloudSync({
         player: () => me,
         onStatus(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
-        // One play event: { type: start|clear|fall|quit, level, mode, ms? }.
+        // One play event: a run's { type: start|clear|fall|quit|revive|shield,
+        // level, mode, ms?, tier?, coins?, coinsOf?, cause?, hole? }, an
+        // { type: 'act', name } (bought, claimed, ...), or a { type:
+        // 'session', ms } (sent by this module itself).
         track(ev) {
-            if (!base || !ev) return;
-            events.push({ type: ev.type, level: ev.level, mode: ev.mode, ...(Number.isFinite(ev.ms) ? { ms: Math.round(ev.ms) } : {}) });
+            if (!base || !ev || typeof ev.type !== 'string') return;
+            const e = { type: ev.type };
+            for (const k of ['level', 'mode', 'tier', 'cause', 'name']) if (typeof ev[k] === 'string') e[k] = ev[k];
+            for (const k of ['ms', 'coins', 'coinsOf', 'hole']) if (Number.isFinite(ev[k])) e[k] = Math.round(ev[k]);
+            events.push(e);
             if (events.length > 200) events.splice(0, events.length - 200);
             if (events.length >= 20) flushEvents();
             else if (!eventTimer) eventTimer = setTimer(() => { eventTimer = null; flushEvents(); }, 30e3);

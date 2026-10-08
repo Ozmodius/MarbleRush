@@ -107,6 +107,7 @@ function wireAccountPanel(reload) {
         const r = await sync.login({ login: val('acctLogin'), password: $('acctPassword').value });
         if (!r.ok) { $('acctMsg').textContent = errorText(r.error); return; }
         $('acctPassword').value = '';
+        sync.track({ type: 'act', name: 'account:signin' });
         signedInDone(r, `Signed in as ${r.player.name}. Your progress from this device was added.`);
     }));
     on('acctView_register', form => busy(form, async () => {
@@ -120,11 +121,13 @@ function wireAccountPanel(reload) {
             return;
         }
         $('regPassword').value = '';
+        sync.track({ type: 'act', name: 'account:create' });
         signedInDone(r, `Welcome, ${r.player.name}! Your progress is saved to your account.`);
     }));
     on('acctView_verify', form => busy(form, async () => {
         const r = await sync.verifyEmail({ email: pendingEmail, code: val('acctCode') });
         if (!r.ok) { $('acctMsg').textContent = errorText(r.error); return; }
+        sync.track({ type: 'act', name: 'account:create' });
         $('regPassword').value = '';
         signedInDone(r, `Welcome, ${r.player.name}! Your progress is saved to your account.`);
     }));
@@ -156,6 +159,8 @@ function wireAccountPanel(reload) {
         e.preventDefault();
         const btn = $('acctSignOutBtn');
         btn.disabled = true;
+        sync.track({ type: 'act', name: 'account:signout' });
+        await sync.flushEvents();
         const r = await sync.logout();
         btn.disabled = false;
         if (!r.ok) { $('cloudMsg').textContent = r.error === 'offline' ? 'Could not reach the server, so you are still signed in (nothing is lost).' : errorText(r.error); return; }
@@ -165,6 +170,7 @@ function wireAccountPanel(reload) {
 
 // --- the leaderboard modal ------------------------------------------------------
 async function openBoard(info) {
+    sync.track && sync.track({ type: 'act', name: 'open:leaderboard' });
     const panel = $('boardPanel'), list = $('boardList');
     $('boardTitle').textContent = info.daily ? 'DAILY MAZE' : 'LEADERBOARD';
     $('boardNote').textContent = (info.levelName || '') + (info.walk ? ' — EXPLORED' : '');

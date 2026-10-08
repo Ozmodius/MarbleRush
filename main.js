@@ -47,6 +47,7 @@ async function boot() {
     const sync = createCloudSync({ store, api: apiBase(), getCrazyToken: getPlatformUserToken, onRemoteChange: progressChanged });
     game.setClearListener(initCloudUi({ sync, login: { available: isPlatformLoginAvailable, show: showPlatformLogin } }));
     game.setRunListener(ev => sync.track(ev));
+    store.onAction(name => sync.track({ type: 'act', name }));
     onPlatformAuthChange(() => sync.reconnect());
     sync.start();
     if (typeof window !== 'undefined') window.__cloudSync = sync;   // tests look at it

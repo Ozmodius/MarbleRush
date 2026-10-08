@@ -788,6 +788,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
             const stats = await (await fetch(apiUrl + '/v1/admin/stats', { headers: { Authorization: 'Bearer test-admin' } })).json();
             const w101 = stats.levels.find(l => l.id === 'w1_01').roll;
             check(w101.starts === 1 && w101.clears === 1 && w101.avgClearMs >= l1.goldMs, `the run is tracked: a start and a clear on w1_01 (${JSON.stringify(w101)})`);
+            check(w101.medals && w101.medals.silver + w101.medals.bronze + w101.medals.gold === 1 && w101.coinsFound !== null, `the clear's medal and coins are tracked (${JSON.stringify({ m: w101.medals, c: w101.coinsFound })})`);
+            check(stats.actions.some(x => x.name === 'open:leaderboard') && stats.activity.byDay[stats.activity.byDay.length - 1].dau >= 1, `opening the leaderboard reached the action counts, and today has an active player (${JSON.stringify(stats.actions)})`);
             check(await d1.pg.isHidden('#boardPanel'), 'the leaderboard closes');
             await d1.pg.tap('#mazeLevelsBtn');
             await d1.pg.waitForFunction(() => window.__cloudSync.status() === 'synced');

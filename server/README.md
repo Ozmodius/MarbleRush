@@ -77,14 +77,26 @@ Mailgun, SendGrid's SMTP).
 ## Stats page (play tracking)
 
 Open `https://<your-service>.onrender.com/admin` and enter your `ADMIN_TOKEN`.
-It shows, per maze level: starts, clear rate, falls per attempt, quits, mean
-clear time against gold, and how many players **stopped there** (their
-furthest clear is the level before, and they have not played for 7 days, or
-whatever you pick). The row where most players stop is highlighted: that is
-the level to look at. Explore mode, daily mazes and the spread of player
-levels are shown too.
 
-Tracking is anonymous: the server keeps daily totals per level, plus each
+- **Retention:** players today (and how many are new), day-1 / day-7 /
+  day-30 return rates, and a table of them by the day players started.
+- **Activity:** players a day (new and returning), sessions and their
+  average length, play time per player.
+- **Funnel:** the share of players who have cleared 1, 2, 3, 5, 10 ... 50
+  levels -- where the curve drops is where players leave.
+- **Per maze level:** starts, clear rate, falls per attempt, quits, mean
+  clear time against gold, the medal split (few golds = gold time too
+  tight), coins found, what ends runs (holes, icicles, flares, molten gates,
+  rails, crushers) and the deadliest hole, ad revives, and how many players
+  **stopped there** (furthest clear is the level before, not seen for 7 days
+  or whatever you pick). The row where most players stop is highlighted.
+- **What players do:** purchases by item, power-ups and prizes used,
+  rewards claimed (daily, missions, achievements), rewarded ads watched,
+  level-ups, leaderboard opens, account sign-ups and sign-ins.
+- Explore mode, daily mazes and the spread of player levels.
+
+Tracking is anonymous: the server keeps daily totals (per level, and per
+action), which days each player played (for return rates), and each
 player's furthest level and player level (from their synced save). Nothing
 is sent when the game is built without a server.
 
@@ -99,7 +111,7 @@ is sent when the game is built without a server.
 | `POST /v1/scores {board, ms}` | `{ best, rank, total }` |
 | `POST /v1/scores/batch {scores}` | `{ accepted }`: best times already in a save, sent once |
 | `GET /v1/leaderboard?board=&limit=` | `{ top: [{rank, name, ms, you}], you, total }`; no token needed |
-| `POST /v1/events {events}` | `{ accepted }`: play tracking, `[{type: start/clear/fall/quit, level, mode: roll/explore/daily, ms?}]` |
+| `POST /v1/events {events}` | `{ accepted }`: play tracking -- runs `{type: start/clear/fall/quit/revive/shield, level, mode, ms?, tier?, coins?, coinsOf?, cause?, hole?}`, `{type: 'act', name}`, `{type: 'session', ms}` |
 | `GET /v1/admin/stats?days=&idle=` | the stats page's data; `Authorization: Bearer <ADMIN_TOKEN>` |
 | `GET /v1/account` | `{ player, account, email }` (email: whether codes can be sent) |
 | `POST /v1/account/register {username, email, password}` | a session, or `{ verify: true, email }` when a code was emailed |

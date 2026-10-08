@@ -29,7 +29,7 @@ const pgUrl = process.env.TEST_DATABASE_URL;
 async function freshStore() {
     if (!pgUrl) return createMemoryStore();
     const c = new pg.Client({ connectionString: pgUrl }); await c.connect();
-    await c.query('DROP TABLE IF EXISTS codes, accounts, level_stats, links, scores, saves, tokens, players'); await c.end();
+    await c.query('DROP TABLE IF EXISTS event_stats, player_days, codes, accounts, level_stats, links, scores, saves, tokens, players'); await c.end();
     return createPgStore(pgUrl);
 }
 const stores = [];

@@ -1,10 +1,13 @@
 // THE STATS PAGE (GET /admin): one self-contained page, no outside files. It
 // asks for the ADMIN_TOKEN (kept in this tab's sessionStorage only), reads
 // /v1/admin/stats from the same server, and draws:
-//   - players: how many synced, active lately, finished all levels;
+//   - retention: day-1/7/30 return rates, by the day players started;
+//   - activity: players a day, new players, sessions and their length;
+//   - the funnel: how many players clear 1, 3, 5, 10 ... levels;
 //   - per maze level: starts, clear rate, falls per attempt, quits, mean
-//     clear time against gold, and how many players STOPPED there (their
-//     furthest level is the one before, and they have not been back);
+//     clear time against gold, the medal split, coins found, what ends runs
+//     (and the deadliest hole), revives, and how many players STOPPED there;
+//   - actions: purchases, power-ups, rewards claimed, ads, level-ups;
 //   - the spread of player levels.
 // The level players stop at most, with a low clear rate, is the wall.
 
@@ -41,8 +44,18 @@ tr.world td { background: rgba(255, 214, 110, 0.08); color: var(--gold); font-we
 .wall { background: rgba(232, 99, 76, 0.18); }
 .muted { color: var(--dim); }
 .err { color: var(--bad); }
-.lv { display: grid; grid-template-columns: 4em 1fr 3em; gap: 6px; align-items: center; margin: 3px 0; }
+.lv { display: grid; grid-template-columns: 5.5em 1fr 3em; gap: 6px; align-items: center; margin: 3px 0; }
 .lv i { display: block; height: 10px; border-radius: 5px; background: #8c6cf0; }
+.chart { display: flex; align-items: flex-end; gap: 3px; height: 120px; padding: 10px 12px 0; background: var(--card); border-radius: 12px 12px 0 0; }
+.chart div { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; min-width: 4px; height: 100%; }
+.chart b { display: block; background: #4fa3e8; border-radius: 3px 3px 0 0; }
+.chart b.new { background: var(--gold); border-radius: 0; }
+.chart-x { display: flex; justify-content: space-between; padding: 4px 12px 10px; background: var(--card); border-radius: 0 0 12px 12px; color: var(--dim); font-size: 0.75rem; }
+.key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 12px; vertical-align: middle; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.medal { display: inline-flex; height: 8px; width: 60px; border-radius: 4px; overflow: hidden; vertical-align: middle; background: rgba(255,255,255,0.08); }
+.medal i { display: block; height: 100%; }
+td.left { text-align: left; }
 </style>
 </head>
 <body>
@@ -79,36 +92,81 @@ async function load(ev) {
   $('msg').textContent = '';
   render(r);
 }
+const pctOr = (x, dash = '–') => x === null || x === undefined ? dash : Math.round(x * 100) + '%';
+const mins = ms => ms === null ? '–' : ms >= 60000 ? (ms / 60000).toFixed(1) + ' min' : Math.round(ms / 1000) + 's';
+const CAUSE = { hole: 'Holes', icicle: 'Icicles', flare: 'Flares', molten: 'Molten gates', shock: 'Rails', crush: 'Crushers', other: 'Other' };
+const GROUPS = [['buy:', 'Purchases'], ['use:', 'Power-ups and prizes used'], ['claim:', 'Rewards claimed'], ['ad:', 'Rewarded ads watched'], ['levelup:', 'Player level-ups'], ['account:', 'Accounts'], ['', 'Other']];
 function render(r) {
   const maxStop = Math.max(1, ...r.levels.map(l => l.stopped));
+  const ret = r.retention || {}, act = r.activity || { byDay: [] };
+  const today = act.byDay.length ? act.byDay[act.byDay.length - 1] : { dau: 0, new: 0 };
   let h = '<div class="tiles">'
-    + '<div class="tile"><b>' + r.players.total + '</b><span>players synced</span></div>'
-    + '<div class="tile"><b>' + r.players.active + '</b><span>seen in the last ' + r.idle + ' days</span></div>'
-    + '<div class="tile"><b>' + (r.players.total - r.players.active) + '</b><span>gone ' + r.idle + '+ days</span></div>'
-    + '<div class="tile"><b>' + r.players.finished + '</b><span>of those, cleared every level</span></div>'
+    + '<div class="tile"><b>' + today.dau + '</b><span>players today (' + today.new + ' new)</span></div>'
+    + '<div class="tile"><b>' + pctOr(ret.d1) + '</b><span>come back the next day</span></div>'
+    + '<div class="tile"><b>' + pctOr(ret.d7) + '</b><span>come back after a week</span></div>'
+    + '<div class="tile"><b>' + pctOr(ret.d30) + '</b><span>come back after a month</span></div>'
+    + '<div class="tile"><b>' + mins(act.avgSessionMs) + '</b><span>average session (' + act.sessions + ' sessions)</span></div>'
+    + '<div class="tile"><b>' + r.players.total + '</b><span>players in all; ' + (r.players.total - r.players.active) + ' gone ' + r.idle + '+ days</span></div>'
     + '</div>';
+  // Activity chart: players a day, the new ones on top.
+  const maxDau = Math.max(1, ...act.byDay.map(d => d.dau));
+  h += '<h2>Players a day<span class="key" style="background:#4fa3e8"></span>returning<span class="key" style="background:var(--gold)"></span>new</h2><div class="chart">'
+    + act.byDay.map(d => '<div title="' + d.day + ': ' + d.dau + ' players, ' + d.new + ' new, ' + d.sessions + ' sessions, ' + mins(d.playMsPerDau) + ' a player"><b class="new" style="height:' + (d.new / maxDau * 100) + '%"></b><b style="height:' + (Math.max(0, d.dau - d.new) / maxDau * 100) + '%"></b></div>').join('')
+    + '</div><div class="chart-x"><span>' + (act.byDay[0] ? act.byDay[0].day : '') + '</span><span>' + (act.byDay.length ? act.byDay[act.byDay.length - 1].day : '') + '</span></div>';
+  // Retention by start day, and the funnel.
+  h += '<div class="grid2"><div><h2>Return rate by start day</h2><div class="scroll"><table><thead><tr><th>Started</th><th>Players</th><th>Day 1</th><th>Day 7</th><th>Day 30</th></tr></thead><tbody>'
+    + (ret.cohorts && ret.cohorts.length ? ret.cohorts.slice().reverse().map(c => '<tr><td>' + c.day + '</td><td>' + c.size + '</td><td>' + pctOr(c.d1, '…') + '</td><td>' + pctOr(c.d7, '…') + '</td><td>' + pctOr(c.d30, '…') + '</td></tr>').join('') : '<tr><td colspan="5" class="muted left">No new players yet.</td></tr>')
+    + '</tbody></table></div><p class="sub">… = not that many days ago yet.</p></div>';
+  h += '<div><h2>Funnel: players who cleared</h2><div class="tile">' + (r.funnel || []).map(f => '<div class="lv"><span>' + f.cleared + (f.cleared === 1 ? ' level' : ' levels') + '</span><i style="width:' + Math.max(1, Math.round((f.share || 0) * 100)) + '%;background:#4fd18b"></i><span>' + pctOr(f.share) + '</span></div>').join('') + '</div></div></div>';
+  // Levels.
   h += '<h2>Levels, last ' + r.days + ' days</h2><div class="scroll"><table><thead><tr>'
-    + '<th>Level</th><th>Name</th><th>Starts</th><th>Clear rate</th><th>Falls / start</th><th>Quits</th><th>Mean clear</th><th>Gold</th><th>Stopped here</th><th>Explore starts</th><th>Explore clears</th>'
+    + '<th>Level</th><th>Name</th><th>Starts</th><th>Clear rate</th><th>Falls / start</th><th>Quits</th><th>Mean clear</th><th>Gold</th><th>Medals G/S/B</th><th>Coins found</th><th>What ends runs</th><th>Deadliest hole</th><th>Revives</th><th>Stopped here</th><th>Explore starts</th><th>Explore clears</th>'
     + '</tr></thead><tbody>';
   let world = 0;
   for (const l of r.levels) {
-    if (l.world !== world) { world = l.world; h += '<tr class="world"><td colspan="11">World ' + world + '</td></tr>'; }
-    const rate = l.roll.clearRate;
-    const fallsPer = l.roll.starts ? (l.roll.falls / l.roll.starts).toFixed(2) : '–';
+    if (l.world !== world) { world = l.world; h += '<tr class="world"><td colspan="16">World ' + world + '</td></tr>'; }
+    const R = l.roll, rate = R.clearRate;
+    const fallsPer = R.starts ? (R.falls / R.starts).toFixed(2) : '–';
     const wall = l.stopped >= 3 && l.stopped === maxStop;
+    const m = R.medals;
+    const medals = m ? '<span class="medal" title="gold ' + pctOr(m.gold) + ', silver ' + pctOr(m.silver) + ', bronze ' + pctOr(m.bronze) + '"><i style="width:' + m.gold * 100 + '%;background:#f2c94c"></i><i style="width:' + m.silver * 100 + '%;background:#c9d1d9"></i><i style="width:' + m.bronze * 100 + '%;background:#c47f45"></i></span> ' + pctOr(m.gold) : '–';
+    const causes = Object.entries(R.causes || {}).sort((a, b) => b[1] - a[1]);
+    const totalFalls = causes.reduce((a, c) => a + c[1], 0);
+    const killer = causes.length ? esc(CAUSE[causes[0][0]] || causes[0][0]) + ' ' + pctOr(causes[0][1] / totalFalls) : '–';
+    const hole = R.worstHole ? '#' + (R.worstHole.index + 1) + ' (' + pctOr(R.worstHole.share) + ')' : '–';
     h += '<tr' + (wall ? ' class="wall"' : '') + '><td>' + esc(l.id) + '</td><td>' + esc(l.name) + '</td>'
-      + '<td>' + l.roll.starts + '</td>'
+      + '<td>' + R.starts + '</td>'
       + '<td>' + (rate === null ? '–' : '<span class="bar" style="width:' + Math.round(rate * 60) + 'px"></span><span' + (rate < 0.3 ? ' class="low"' : '') + '>' + pct(rate) + '</span>') + '</td>'
-      + '<td>' + fallsPer + '</td><td>' + l.roll.quits + '</td>'
-      + '<td>' + sec(l.roll.avgClearMs) + '</td><td class="muted">' + sec(l.goldMs) + '</td>'
+      + '<td>' + fallsPer + '</td><td>' + R.quits + '</td>'
+      + '<td>' + sec(R.avgClearMs) + '</td><td class="muted">' + sec(l.goldMs) + '</td>'
+      + '<td>' + medals + '</td><td>' + pctOr(R.coinsFound) + '</td>'
+      + '<td>' + killer + '</td><td>' + hole + '</td><td>' + (R.revives || 0) + '</td>'
       + '<td' + (wall ? ' class="low"' : '') + '>' + l.stopped + '</td>'
       + '<td>' + l.explore.starts + '</td><td>' + l.explore.clears + '</td></tr>';
   }
   h += '</tbody></table></div>';
+  h += '<p class="sub">Medals: the split of clears into gold, silver and bronze; few golds means the gold time may be too tight. What ends runs: the most common cause, with its share of falls. Deadliest hole: the hole that takes the most balls, numbered as in the level file.</p>';
   if (r.daily.length) {
     h += '<h2>Daily mazes played</h2><div class="scroll"><table><thead><tr><th>Maze</th><th>World</th><th>Starts</th><th>Clear rate</th><th>Falls</th><th>Mean clear</th></tr></thead><tbody>';
     for (const d of r.daily) h += '<tr><td>' + esc(d.id) + '</td><td>' + d.world + '</td><td>' + d.starts + '</td><td>' + pct(d.clearRate) + '</td><td>' + d.falls + '</td><td>' + sec(d.avgClearMs) + '</td></tr>';
     h += '</tbody></table></div>';
+  }
+  // Actions, grouped.
+  const acts = r.actions || [];
+  h += '<h2>What players do, last ' + r.days + ' days</h2>';
+  if (!acts.length) h += '<p class="muted">Nothing yet.</p>';
+  else {
+    h += '<div class="grid2">';
+    const used = new Set();
+    for (const [prefix, title] of GROUPS) {
+      const rows = acts.filter(a => !used.has(a.name) && a.name.startsWith(prefix));
+      rows.forEach(a => used.add(a.name));
+      if (!rows.length) continue;
+      h += '<div><div class="scroll"><table><thead><tr><th>' + title + '</th><th></th></tr></thead><tbody>'
+        + rows.slice(0, 25).map(a => '<tr><td>' + esc(a.name.slice(prefix.length)) + '</td><td>' + a.n + '</td></tr>').join('')
+        + '</tbody></table></div></div>';
+    }
+    h += '</div>';
   }
   const lv = Object.entries(r.playerLevels).map(([k, n]) => [Number(k), n]).sort((a, b) => a[0] - b[0]);
   const maxN = Math.max(1, ...lv.map(x => x[1]));

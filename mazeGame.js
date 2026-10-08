@@ -1165,9 +1165,10 @@ function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 function checkOutcomes() {
     const p = ballBody.position;
 
-    for (const h of level.holes) {
+    for (let i = 0; i < level.holes.length; i++) {
+        const h = level.holes[i];
         const dx = p.x - h.x, dz = p.z - h.z;
-        if (dx * dx + dz * dz <= h.r * h.r) { knockOut('DOWN THE HOLE'); return; }
+        if (dx * dx + dz * dz <= h.r * h.r) { knockOut('DOWN THE HOLE', i); return; }
     }
     // An icicle striking the spot the ball is on ends the run like a hole does.
     if (level.icicles && icicleHits(level.icicles, runClockMs, p.x, p.z)) { knockOut('HIT BY AN ICICLE'); return; }
@@ -1202,7 +1203,9 @@ function checkOutcomes() {
 // Something just ended the run -- a hole, an icicle. A shield spends itself
 // instead of the run: the ball is put back, stopped, on the last safe spot it
 // rolled over (mazePickups.js). Otherwise it falls.
-function knockOut(message) {
+// What ended a run, for the stats page (play tracking): by its message.
+const FALL_CAUSE = { 'DOWN THE HOLE': 'hole', 'HIT BY AN ICICLE': 'icicle', 'BURNED': 'flare', 'BURNED BY A MOLTEN GATE': 'molten', 'SHOCKED': 'shock', 'CRUSHED': 'crush' };
+function knockOut(message, holeIndex) {
     if (captureNoKnockOut) return;   // marketing captures only (scripts/marketing/)
     const back = absorbFall(pickupState);
     if (back) {
@@ -1213,15 +1216,16 @@ function knockOut(message) {
         ballBody.velocity.setZero();
         ballBody.angularVelocity.setZero();
         setStatus('SHIELD SAVED YOU');
+        emitRun('shield', { cause: FALL_CAUSE[message] || 'other' });
         renderPowerups();
         return;
     }
-    fall(message);
+    fall(message, { cause: FALL_CAUSE[message] || 'other', ...(Number.isInteger(holeIndex) ? { hole: holeIndex } : {}) });
 }
 
-function fall(message) {
+function fall(message, why) {
     phase = 'falling';
-    if (attemptOpen) { attemptOpen = false; emitRun('fall'); }
+    if (attemptOpen) { attemptOpen = false; emitRun('fall', why || { cause: 'other' }); }
     fallStartedAt = performance.now();
     // Drop through the floor rather than teleporting: the player needs to see
     // WHY the run ended. collisionResponse=false keeps the body in the sim (so
@@ -1266,6 +1270,7 @@ async function reviveFromAd() {
     const back = pickupState.safe;
     revivedThisAttempt = true;
     attemptOpen = true;          // the same attempt, carried on
+    emitRun('revive');
     ballBody.collisionResponse = true;
     ballBody.position.set(back.x, FLOOR_Y + level.ballRadius + 0.02, back.z);
     ballBody.velocity.setZero();
@@ -1354,7 +1359,7 @@ function win() {
         const info = counted ? { board, ms, levelName: level.name, walk: walkMode, daily: isDaily(level) } : null;
         try { clearListener(info); } catch (e) { console.warn('[maze] clear listener:', e && e.message); }
     }
-    emitRun('clear', { ms });
+    emitRun('clear', { ms, tier: (result && result.tier) || null, coins: coinsTaken, coinsOf: Array.isArray(level.coins) ? level.coins.length : 0 });
     showClearResult(result, ms);
     showNearMiss(result);
     lastClear = result && result.accepted && result.earned > 0 ? result : null;

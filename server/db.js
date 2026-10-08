@@ -54,6 +54,21 @@ CREATE TABLE IF NOT EXISTS level_stats (
 ALTER TABLE players ADD COLUMN IF NOT EXISTS last_seen BIGINT;
 ALTER TABLE players ADD COLUMN IF NOT EXISTS furthest INTEGER;
 ALTER TABLE players ADD COLUMN IF NOT EXISTS player_level INTEGER;
+-- Retention: the day a player was first seen, and each day they played.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS first_day TEXT;
+CREATE TABLE IF NOT EXISTS player_days (
+    player_id   TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    day         TEXT NOT NULL,
+    PRIMARY KEY (player_id, day)
+);
+-- Everything else counted per day: purchases, claims, ads, sessions
+-- ('sessions', 'session_ms'), ...
+CREATE TABLE IF NOT EXISTS event_stats (
+    day         TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    n           BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, name)
+);
 -- Player accounts (2026-10-08): a username and email with a password. The
 -- player row stays the identity (saves, scores, tokens hang off it);
 -- kind becomes 'account'.
@@ -153,9 +168,33 @@ export async function createPgStore(url) {
             const { rows } = await pool.query('SELECT level, mode, metric, SUM(n)::BIGINT AS n FROM level_stats WHERE day >= $1 GROUP BY level, mode, metric', [fromDay]);
             return rows.map(r => ({ level: r.level, mode: r.mode, metric: r.metric, n: Number(r.n) }));
         },
-        async touchPlayer(id, { lastSeen, furthest, playerLevel }) {
-            await pool.query('UPDATE players SET last_seen = $2, furthest = COALESCE($3, furthest), player_level = COALESCE($4, player_level) WHERE id = $1',
-                [id, lastSeen, furthest ?? null, playerLevel ?? null]);
+        async touchPlayer(id, { lastSeen, furthest, playerLevel, day }) {
+            await pool.query('UPDATE players SET last_seen = $2, furthest = COALESCE($3, furthest), player_level = COALESCE($4, player_level), first_day = COALESCE(first_day, $5) WHERE id = $1',
+                [id, lastSeen, furthest ?? null, playerLevel ?? null, day ?? null]);
+            if (day) await pool.query('INSERT INTO player_days (player_id, day) SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM players WHERE id = $1) ON CONFLICT DO NOTHING', [id, day]);
+        },
+        async addEvents(day, rows) {
+            for (const r of rows) {
+                await pool.query(`INSERT INTO event_stats (day, name, n) VALUES ($1, $2, $3)
+                    ON CONFLICT (day, name) DO UPDATE SET n = event_stats.n + EXCLUDED.n`, [day, r.name, r.n]);
+            }
+        },
+        // [{ day, name, n }] since fromDay, day by day.
+        async eventsSince(fromDay) {
+            const { rows } = await pool.query('SELECT day, name, n FROM event_stats WHERE day >= $1', [fromDay]);
+            return rows.map(r => ({ day: r.day, name: r.name, n: Number(r.n) }));
+        },
+        // Players active each day: [{ day, n }].
+        async activeByDay(fromDay) {
+            const { rows } = await pool.query('SELECT day, COUNT(*) AS n FROM player_days WHERE day >= $1 GROUP BY day', [fromDay]);
+            return rows.map(r => ({ day: r.day, n: Number(r.n) }));
+        },
+        // For retention: players first seen since fromDay, by first day, and
+        // on which days they came back: [{ firstDay, day, n }].
+        async cohorts(fromDay) {
+            const { rows } = await pool.query(`SELECT p.first_day, d.day, COUNT(*) AS n FROM players p JOIN player_days d ON d.player_id = p.id
+                WHERE p.first_day >= $1 GROUP BY p.first_day, d.day`, [fromDay]);
+            return rows.map(r => ({ firstDay: r.first_day, day: r.day, n: Number(r.n) }));
         },
         // Every player with a known position: [{ furthest, playerLevel, lastSeen }].
         async playerPositions() {
@@ -208,7 +247,7 @@ export async function createPgStore(url) {
 
 export function createMemoryStore() {
     const players = new Map(), tokens = new Map(), saves = new Map(), scores = new Map(), links = new Map(), stats = new Map();
-    const accounts = new Map(), codes = new Map();
+    const accounts = new Map(), codes = new Map(), events = new Map();
     const acct = a => a && { ...a };
     const key = (p, b) => p + '\u0000' + b;
     return {
@@ -257,12 +296,30 @@ export function createMemoryStore() {
             }
             return [...sum].map(([k, n]) => { const [level, mode, metric] = k.split('\u0000'); return { level, mode, metric, n }; });
         },
-        async touchPlayer(id, { lastSeen, furthest, playerLevel }) {
+        async touchPlayer(id, { lastSeen, furthest, playerLevel, day }) {
             const p = players.get(id);
             if (!p) return;
             p.lastSeen = lastSeen;
+            if (day) { if (!p.firstDay) p.firstDay = day; (p.days = p.days || new Set()).add(day); }
             if (furthest !== undefined && furthest !== null) p.furthest = furthest;
             if (playerLevel !== undefined && playerLevel !== null) p.playerLevel = playerLevel;
+        },
+        async addEvents(day, rows) { for (const r of rows) { const k = day + '\u0000' + r.name; events.set(k, (events.get(k) || 0) + r.n); } },
+        async eventsSince(fromDay) {
+            return [...events].map(([k, n]) => { const [day, name] = k.split('\u0000'); return { day, name, n }; }).filter(r => r.day >= fromDay);
+        },
+        async activeByDay(fromDay) {
+            const by = new Map();
+            for (const p of players.values()) for (const d of p.days || []) if (d >= fromDay) by.set(d, (by.get(d) || 0) + 1);
+            return [...by].map(([day, n]) => ({ day, n }));
+        },
+        async cohorts(fromDay) {
+            const by = new Map();
+            for (const p of players.values()) {
+                if (!p.firstDay || p.firstDay < fromDay) continue;
+                for (const d of p.days || []) { const k = p.firstDay + '|' + d; by.set(k, (by.get(k) || 0) + 1); }
+            }
+            return [...by].map(([k, n]) => { const [firstDay, day] = k.split('|'); return { firstDay, day, n }; });
         },
         async playerPositions() {
             return [...players.values()].filter(p => p.lastSeen).map(p => ({ furthest: p.furthest || 0, playerLevel: p.playerLevel || 1, lastSeen: p.lastSeen }));

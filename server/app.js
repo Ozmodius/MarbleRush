@@ -74,7 +74,12 @@ function nearDays(now) {
 
 // Play tracking (POST /v1/events): what the game reports, and what each
 // counts as. Anonymous: only daily totals per level and mode are kept.
-const EVENT_METRIC = { start: 'starts', clear: 'clears', fall: 'falls', quit: 'quits' };
+const EVENT_METRIC = { start: 'starts', clear: 'clears', fall: 'falls', quit: 'quits', revive: 'revives', shield: 'shields' };
+const TIERS = new Set(['gold', 'silver', 'bronze']);
+const CAUSES = new Set(['hole', 'icicle', 'flare', 'molten', 'shock', 'crush', 'other']);
+const ACT_NAME = /^[a-z0-9:_.-]{1,48}$/;
+// The funnel's steps: levels cleared.
+const FUNNEL = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50];
 const MODES = new Set(['roll', 'explore', 'daily']);
 const dayOf = t => new Date(t).toISOString().slice(0, 10);
 
@@ -201,27 +206,35 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
         if (ms < lv.minMs * (m[1] === 'walk' ? WALK_FLOOR : 1)) throw new HttpError(400, 'too-fast');
     };
 
+    const openSession = async (req, body) => {
+        const m = typeof body.token === 'string' ? await store.playerByToken(hashToken(body.token)) : null;
+        if (body.crazyToken) {
+            if (!verifyCrazy) throw new HttpError(501, 'crazygames-off');
+            let who;
+            try { who = await verifyCrazy(body.crazyToken); } catch (_) { throw new HttpError(401, 'bad-crazy-token'); }
+            let p = await store.playerByExternal('crazygames', who.userId);
+            const name = cleanName(who.username, 'Player');
+            if (!p) p = await store.createPlayer({ id: newId(), kind: 'crazygames', externalId: who.userId, name });
+            else if (who.username && p.name !== name) { await store.renamePlayer(p.id, name); p.name = name; }
+            // The device's guest (never another account) folds in.
+            if (m && m.kind === 'guest') await fold(m, p);
+            if (m && m.id === p.id) return { token: body.token, player: { id: p.id, name: p.name, kind: p.kind } };
+            return issue(p);
+        }
+        if (m) return { token: body.token, player: { id: m.id, name: m.name, kind: m.kind } };
+        const p = await store.createPlayer({ id: newId(), kind: 'guest', name: guestName() });
+        return issue(p);
+    };
+
+
     const routes = {
         'GET /health': async () => ({ ok: true, store: store.kind }),
 
+        // Any session counts the player as active today (retention).
         'POST /v1/session': async (req, body) => {
-            const m = typeof body.token === 'string' ? await store.playerByToken(hashToken(body.token)) : null;
-            if (body.crazyToken) {
-                if (!verifyCrazy) throw new HttpError(501, 'crazygames-off');
-                let who;
-                try { who = await verifyCrazy(body.crazyToken); } catch (_) { throw new HttpError(401, 'bad-crazy-token'); }
-                let p = await store.playerByExternal('crazygames', who.userId);
-                const name = cleanName(who.username, 'Player');
-                if (!p) p = await store.createPlayer({ id: newId(), kind: 'crazygames', externalId: who.userId, name });
-                else if (who.username && p.name !== name) { await store.renamePlayer(p.id, name); p.name = name; }
-                // The device's guest (never another account) folds in.
-                if (m && m.kind === 'guest') await fold(m, p);
-                if (m && m.id === p.id) return { token: body.token, player: { id: p.id, name: p.name, kind: p.kind } };
-                return issue(p);
-            }
-            if (m) return { token: body.token, player: { id: m.id, name: m.name, kind: m.kind } };
-            const p = await store.createPlayer({ id: newId(), kind: 'guest', name: guestName() });
-            return issue(p);
+            const out = await openSession(req, body);
+            await store.touchPlayer(out.player.id, { lastSeen: now(), day: dayOf(now()) });
+            return out;
         },
 
         'GET /v1/save': async (req) => {
@@ -235,28 +248,48 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             if (!body.save || typeof body.save !== 'object' || Array.isArray(body.save)) throw new HttpError(400, 'bad-save');
             const save = await mergeInto(p.id, body.save);
             // Where this player has got to, for the stats page.
-            await store.touchPlayer(p.id, { lastSeen: now(), furthest: save.highestIndex || 0, playerLevel: levelForXp(save.xp || 0) });
+            await store.touchPlayer(p.id, { lastSeen: now(), furthest: save.highestIndex || 0, playerLevel: levelForXp(save.xp || 0), day: dayOf(now()) });
             return { save };
         },
 
-        // Play tracking: [{ type: start|clear|fall|quit, level, mode, ms? }],
-        // up to 100 a call; anything malformed is skipped.
+        // Play tracking, up to 100 events a call; anything malformed is
+        // skipped. A run's { type: start|clear|fall|quit|revive|shield,
+        // level, mode, ms?, tier?, coins?, coinsOf?, cause?, hole? }; an
+        // { type: 'act', name }; a { type: 'session', ms }.
         'POST /v1/events': async (req, body) => {
             const p = await authed(req);
             const list = Array.isArray(body.events) ? body.events.slice(0, 100) : [];
-            const sums = new Map();
+            const sums = new Map(), acts = new Map();
             const add = (level, mode, metric, n) => { const k = level + '|' + mode + '|' + metric; sums.set(k, (sums.get(k) || 0) + n); };
+            const count = (name, n = 1) => acts.set(name, (acts.get(name) || 0) + n);
+            const int = (v, max) => Number.isInteger(v) && v >= 0 && v <= max ? v : null;
             let accepted = 0;
             for (const e of list) {
-                if (!e || !EVENT_METRIC[e.type] || !MODES.has(e.mode)) continue;
-                const known = e.mode === 'daily' ? dailies.has(e.level) : ladder.has(e.level);
-                if (!known) continue;
+                if (!e || typeof e !== 'object') continue;
+                if (e.type === 'act') { if (typeof e.name === 'string' && ACT_NAME.test(e.name)) { count(e.name); accepted++; } continue; }
+                if (e.type === 'session') { const ms = int(e.ms, 3 * 3600e3); if (ms !== null) { count('sessions'); count('session_ms', ms); accepted++; } continue; }
+                if (!EVENT_METRIC[e.type] || !MODES.has(e.mode)) continue;
+                const lv = e.mode === 'daily' ? dailies.get(e.level) : ladder.get(e.level);
+                if (!lv) continue;
                 add(e.level, e.mode, EVENT_METRIC[e.type], 1);
-                if (e.type === 'clear' && Number.isInteger(e.ms) && e.ms > 0 && e.ms <= MAX_MS) add(e.level, e.mode, 'clear_ms', e.ms);
+                if (e.type === 'clear') {
+                    const ms = int(e.ms, MAX_MS);
+                    if (ms) add(e.level, e.mode, 'clear_ms', ms);
+                    if (TIERS.has(e.tier)) add(e.level, e.mode, 'tier_' + e.tier, 1);
+                    const of = int(e.coinsOf, 50), got = int(e.coins, 50);
+                    if (of !== null && got !== null && got <= of) { add(e.level, e.mode, 'coins_taken', got); add(e.level, e.mode, 'coins_possible', of); }
+                }
+                if (e.type === 'fall') {
+                    if (CAUSES.has(e.cause)) add(e.level, e.mode, 'fall_' + e.cause, 1);
+                    const hole = int(e.hole, (lv.holes || []).length - 1);
+                    if (e.cause === 'hole' && hole !== null) add(e.level, e.mode, 'hole_' + hole, 1);
+                }
                 accepted++;
             }
-            if (sums.size) await store.addStats(dayOf(now()), [...sums].map(([k, n]) => { const [level, mode, metric] = k.split('|'); return { level, mode, metric, n }; }));
-            await store.touchPlayer(p.id, { lastSeen: now() });
+            const day = dayOf(now());
+            if (sums.size) await store.addStats(day, [...sums].map(([k, n]) => { const [level, mode, metric] = k.split('|'); return { level, mode, metric, n }; }));
+            if (acts.size) await store.addEvents(day, [...acts].map(([name, n]) => ({ name, n })));
+            await store.touchPlayer(p.id, { lastSeen: now(), day });
             return { accepted };
         },
 
@@ -274,7 +307,7 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             for (const r of rows) {
                 const k = r.level + '|' + r.mode;
                 if (!by.has(k)) by.set(k, { level: r.level, mode: r.mode, starts: 0, clears: 0, falls: 0, quits: 0, clear_ms: 0 });
-                by.get(k)[r.metric] = r.n;
+                by.get(k)[r.metric] = (by.get(k)[r.metric] || 0) + r.n;
             }
             const positions = await store.playerPositions();
             const cutoff = now() - idle * 86400e3;
@@ -282,8 +315,17 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             for (const pos of positions) if (pos.lastSeen < cutoff) stoppedAt.set(pos.furthest, (stoppedAt.get(pos.furthest) || 0) + 1);
             const describe = (lv, mode) => {
                 const s = by.get(lv.id + '|' + mode) || { starts: 0, clears: 0, falls: 0, quits: 0, clear_ms: 0 };
-                return { starts: s.starts, clears: s.clears, falls: s.falls, quits: s.quits,
-                    clearRate: s.starts ? s.clears / s.starts : null, avgClearMs: s.clears ? Math.round(s.clear_ms / s.clears) : null };
+                const medals = s.clears ? { gold: (s.tier_gold || 0) / s.clears, silver: (s.tier_silver || 0) / s.clears, bronze: (s.tier_bronze || 0) / s.clears } : null;
+                const causes = {};
+                for (const c of CAUSES) if (s['fall_' + c]) causes[c] = s['fall_' + c];
+                let worstHole = null;
+                for (let h = 0; h < (lv.holes || []).length; h++) {
+                    const n = s['hole_' + h] || 0;
+                    if (n && (!worstHole || n > worstHole.n)) worstHole = { index: h, n, share: s.fall_hole ? n / s.fall_hole : null, x: lv.holes[h].x, z: lv.holes[h].z };
+                }
+                return { starts: s.starts, clears: s.clears, falls: s.falls, quits: s.quits, revives: s.revives || 0, shields: s.shields || 0,
+                    clearRate: s.starts ? s.clears / s.starts : null, avgClearMs: s.clears ? Math.round(s.clear_ms / s.clears) : null,
+                    medals, coinsFound: s.coins_possible ? (s.coins_taken || 0) / s.coins_possible : null, causes, worstHole };
             };
             const levelsOut = levels.map(lv => ({
                 id: lv.id, name: lv.name, world: lv.world, index: lv.index, goldMs: lv.goldMs,
@@ -294,8 +336,49 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             const daily = dailyLevels.map(lv => ({ id: lv.id, world: lv.world, ...describe(lv, 'daily') })).filter(d => d.starts);
             const playerLevels = {};
             for (const pos of positions) playerLevels[pos.playerLevel] = (playerLevels[pos.playerLevel] || 0) + 1;
+            // Retention and sessions, day by day.
+            const fromDay = dayOf(now() - (days - 1) * 86400e3), today = dayOf(now());
+            const dayList = [];
+            for (let t = Date.parse(fromDay + 'T00:00:00Z'); dayOf(t) <= today; t += 86400e3) dayList.push(dayOf(t));
+            const active = new Map((await store.activeByDay(fromDay)).map(r => [r.day, r.n]));
+            const evRows = await store.eventsSince(fromDay);
+            const evDay = new Map();
+            const actions = new Map();
+            for (const r of evRows) {
+                const d = evDay.get(r.day) || {}; d[r.name] = (d[r.name] || 0) + r.n; evDay.set(r.day, d);
+                if (r.name !== 'sessions' && r.name !== 'session_ms') actions.set(r.name, (actions.get(r.name) || 0) + r.n);
+            }
+            const cohortRows = await store.cohorts(dayOf(now() - (days + 30) * 86400e3));
+            const cohortMap = new Map();
+            for (const r of cohortRows) { const c = cohortMap.get(r.firstDay) || new Map(); c.set(r.day, r.n); cohortMap.set(r.firstDay, c); }
+            const plus = (day, k) => dayOf(Date.parse(day + 'T00:00:00Z') + k * 86400e3);
+            const cohorts = [...cohortMap.keys()].filter(d => d >= fromDay).sort().map(d => {
+                const c = cohortMap.get(d), size = c.get(d) || 0;
+                const back = k => (plus(d, k) > today || !size ? null : (c.get(plus(d, k)) || 0) / size);
+                return { day: d, size, d1: back(1), d7: back(7), d30: back(30) };
+            });
+            const weighted = key => {
+                const ok = cohorts.filter(c => c[key] !== null && c.size);
+                const n = ok.reduce((a, c) => a + c.size, 0);
+                return n ? ok.reduce((a, c) => a + c[key] * c.size, 0) / n : null;
+            };
+            const byDay = dayList.map(d => {
+                const e = evDay.get(d) || {}, dau = active.get(d) || 0;
+                return { day: d, dau, new: (cohortMap.get(d) && cohortMap.get(d).get(d)) || 0, sessions: e.sessions || 0,
+                    avgSessionMs: e.sessions ? Math.round((e.session_ms || 0) / e.sessions) : null, playMsPerDau: dau ? Math.round((e.session_ms || 0) / dau) : null };
+            });
+            const totalSessions = byDay.reduce((a, d) => a + d.sessions, 0);
+            const totalSessionMs = evRows.filter(r => r.name === 'session_ms').reduce((a, r) => a + r.n, 0);
+            // The funnel: of everyone with a position, how many cleared k levels.
+            const funnel = FUNNEL.filter(k => k <= levels.length).map(k => {
+                const n = positions.filter(pp => pp.furthest >= k).length;
+                return { cleared: k, n, share: positions.length ? n / positions.length : null };
+            });
             return { days, idle, players: { total: positions.length, active: positions.filter(pp => pp.lastSeen >= cutoff).length, finished: stoppedAt.get(levels.length) || 0 },
-                levels: levelsOut, daily, playerLevels };
+                retention: { d1: weighted('d1'), d7: weighted('d7'), d30: weighted('d30'), cohorts },
+                activity: { byDay, sessions: totalSessions, avgSessionMs: totalSessions ? Math.round(totalSessionMs / totalSessions) : null },
+                funnel, levels: levelsOut, daily, playerLevels,
+                actions: [...actions].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n) };
         },
         'GET /admin': () => ({ html: ADMIN_PAGE }),
 
