@@ -1,4 +1,4 @@
-import { ICE_SURFACE, rollMix, impactStrength, impactPartials, marbleVoice, WALLS } from './soundModel.js';
+import { ICE_SURFACE, rollMix, rollVoice, impactStrength, impactPartials, marbleVoice, WALLS } from './soundModel.js';
 
 // THE SOUND ENGINE: soundModel.js's numbers made audible with Web Audio.
 //
@@ -176,7 +176,7 @@ export function createSoundEngine(ctx) {
             return { f, g };
         };
         const rumble = band('bandpass'), body = band('bandpass'), hiss = band('highpass');
-        const rings = [band('bandpass'), band('bandpass'), band('bandpass')];
+        const rings = [band('bandpass'), band('bandpass'), band('bandpass'), band('bandpass'), band('bandpass')];
         // The low end of a roll is felt as much as heard: a brown-noise rumble
         // under the white, so a heavy marble on a hollow board has weight.
         const bsrc = ctx.createBufferSource(); bsrc.buffer = brown; bsrc.loop = true;
@@ -185,32 +185,43 @@ export function createSoundEngine(ctx) {
         bsrc.connect(blp).connect(bg).connect(sum);
         const level = ctx.createGain(); level.gain.value = 0;
         const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-        sum.connect(level);
+        // The marble's top end: a rubber ball damps everything above a few kHz.
+        const top = ctx.createBiquadFilter(); top.type = 'lowpass'; top.frequency.value = 12000; top.Q.value = 0.5;
+        sum.connect(top).connect(level);
         if (pan) level.connect(pan).connect(dry); else level.connect(dry);
         const send = ctx.createGain(); send.gain.value = 0.15;
         level.connect(send).connect(verb);
         let started = false;
-        return { src, bsrc, rumble, body, hiss, rings, bg, level, pan, start(t) { if (!started) { started = true; src.start(t); bsrc.start(t); } } };
+        return { src, bsrc, rumble, body, hiss, rings, bg, top, level, pan, start(t) { if (!started) { started = true; src.start(t); bsrc.start(t); } } };
     })();
-    let surface = null, iceSurface = null, marble = marbleVoice('classic');
+    let surface = null, marble = marbleVoice('classic');
+    // What THIS marble on the floor and on ice sounds like (soundModel.js
+    // rollVoice): the two materials together, remade when either changes.
+    let floorVoice = null, iceVoice = null;
     let wobPhase = 0, grainDebt = 0, tickDebt = 0, lastRoll = { gain: 0 };
-    let current = null;               // the surface being played (floor or ice)
+    let current = null;               // the voice being played (floor or ice)
+    function voices() {
+        floorVoice = surface ? rollVoice(surface, marble) : null;
+        iceVoice = rollVoice(ICE_SURFACE, marble);
+        current = null;
+    }
 
     function applySurface(s, t, tc = 0.04) {
         const set = (p, v) => p.setTargetAtTime(v, t, tc);
         set(roll.rumble.f.frequency, s.rumble.f); set(roll.rumble.f.Q, s.rumble.q);
         set(roll.body.f.frequency, s.body.f); set(roll.body.f.Q, s.body.q);
         set(roll.hiss.f.frequency, s.hiss.f);
-        roll.rings.forEach((r, i) => { const f = s.ring[i]; set(r.f.frequency, f || 1000); set(r.f.Q, 18); });
+        set(roll.top.frequency, Math.min(s.cutoff, ctx.sampleRate * 0.45));
+        roll.rings.forEach((r, i) => { const ring = s.rings[i]; set(r.f.frequency, ring ? ring.f : 1000); set(r.f.Q, ring ? ring.q : 18); });
         current = s;
     }
 
     // speed (units/s), radius, onFloor, onIce, pan, dt (s since last update).
     function updateRoll({ speed = 0, radius = 0.3, onFloor = true, onIce = false, pan = 0, dt = 1 / 60, t } = {}) {
-        if (!surface) return;
+        if (!floorVoice) return;
         t = now(t);
         roll.start(t);
-        const s = onIce && iceSurface ? iceSurface : surface;
+        const s = onIce ? iceVoice : floorVoice;
         if (s !== current) applySurface(s, t, 0.03);
         const mix = rollMix(speed, radius, s, marble, onFloor);
         // Out-of-round wobble: a few percent of level, once per revolution.
@@ -219,11 +230,11 @@ export function createSoundEngine(ctx) {
         const g = mix.gain * wob * ROLL_LEVEL;
         const tc = mix.gain > lastRoll.gain ? 0.025 : 0.06;   // speed up fast, die away softly
         roll.level.gain.setTargetAtTime(g, t, tc);
-        roll.rumble.g.gain.setTargetAtTime(s.rumble.g * marble.weight, t, 0.05);
+        roll.rumble.g.gain.setTargetAtTime(s.rumble.g, t, 0.05);
         roll.body.g.gain.setTargetAtTime(s.body.g, t, 0.05);
         roll.hiss.g.gain.setTargetAtTime(s.hiss.g * mix.bright, t, 0.05);
-        roll.bg.gain.setTargetAtTime(0.5 * s.rumble.g * marble.weight, t, 0.05);
-        roll.rings.forEach((r, i) => r.g.gain.setTargetAtTime(s.ring[i] ? 0.25 * mix.bright : 0, t, 0.05));
+        roll.bg.gain.setTargetAtTime(s.weight, t, 0.05);
+        roll.rings.forEach((r, i) => r.g.gain.setTargetAtTime(s.rings[i] ? s.rings[i].g * mix.bright : 0, t, 0.05));
         // Brighter as it speeds up: every band rides up a little.
         roll.rumble.f.frequency.setTargetAtTime(s.rumble.f * (0.85 + 0.3 * (mix.bright - 0.8) / 0.6), t, 0.08);
         roll.body.f.frequency.setTargetAtTime(s.body.f * mix.bright, t, 0.08);
@@ -245,7 +256,7 @@ export function createSoundEngine(ctx) {
             const count = Math.floor(tickDebt);
             while (tickDebt >= 1 && k < 8) {
                 tickDebt -= 1;
-                grain({ f: 2600 * rnd(0.95, 1.05), q: 2.5, gain: 0.22 * Math.sqrt(mix.gain) * marble.roll * ROLL_LEVEL / 0.55, pan, t: t + 0.02 + (k / Math.max(1, count)) * dt, rate: 0.7 });
+                grain({ f: s.tick.f * rnd(0.95, 1.05), q: 2.5, gain: s.tick.g * Math.sqrt(mix.gain) * marble.roll * ROLL_LEVEL / 0.55, pan, t: t + 0.02 + (k / Math.max(1, count)) * dt, rate: 0.7 });
                 k++;
             }
         } else tickDebt = 0;
@@ -398,8 +409,8 @@ export function createSoundEngine(ctx) {
         setVolume(v, t) { master.gain.setTargetAtTime(v, now(t), 0.03); },
         setRoom,
         // The board this run is on: its floor, its ice, and the marble.
-        setSurface(s, t) { surface = s; iceSurface = ICE_SURFACE; current = null; if (s) applySurface(s, now(t), 0.01); },
-        setMarble(id) { marble = marbleVoice(id); },
+        setSurface(s, t) { surface = s; voices(); if (floorVoice) applySurface(floorVoice, now(t), 0.01); },
+        setMarble(id) { marble = marbleVoice(id); voices(); },
         marble: () => marble,
         updateRoll,
         silenceRoll,

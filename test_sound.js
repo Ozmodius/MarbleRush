@@ -71,6 +71,32 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(rubber.ping.length === 0 && classic.ping.length > 0, 'rubber has no ping');
     check(M.marbleVoice('nonsense') === classic, 'an unknown marble sounds like Classic');
 
+    // The roll is the two materials meeting (rollVoice).
+    const V = (surf, id) => M.rollVoice(surf, M.marbleVoice(id));
+    const ringSum = (v) => v.rings.reduce((n, r) => n + r.g, 0);
+    for (const [name, surf] of Object.entries(M.SURFACES).concat([['ice', M.ICE_SURFACE]])) {
+        check(surf.hard >= 0 && surf.hard <= 1, `${name} has a hardness`);
+        for (const id of Object.keys(M.MARBLE_VOICES)) {
+            const v = V(surf, id);
+            check(finite(v) && v.cutoff > 500 && v.cutoff < 20000 && v.rings.every(r => r.f > 100 && r.g >= 0), `${id} on ${name}: a sane voice`);
+            check(V(surf, 'rubber').cutoff < V(surf, 'steel').cutoff, `on ${name}, rubber is duller than steel`);
+            check(V(surf, 'rubber').hiss.g < V(surf, 'glass').hiss.g, `on ${name}, rubber hisses less than glass`);
+            check(V(surf, 'rubber').grain.f < V(surf, 'steel').grain.f, `on ${name}, rubber's grit crunches lower than steel's clicks`);
+        }
+    }
+    // The floor matters as much as the marble.
+    check(V(M.ICE_SURFACE, 'glass').hiss.g > V(M.SURFACES.snowfield, 'glass').hiss.g * 3, 'glass on ice hisses; glass on snow does not');
+    check(V(M.SURFACES.snowfield, 'steel').cutoff < V(M.SURFACES.foundry, 'steel').cutoff, 'a soft floor muffles even steel');
+    check(ringSum(V(M.SURFACES.foundry, 'steel')) > ringSum(V(M.SURFACES.snowfield, 'steel')) * 3, 'steel sings on steel, not on snow');
+    check(V(M.SURFACES.foundry, 'rubber').rings.length === M.SURFACES.foundry.ring.length, 'rubber adds no ring of its own');
+    check(ringSum(V(M.SURFACES.foundry, 'rubber')) < ringSum(V(M.SURFACES.foundry, 'steel')) * 0.3, 'rubber barely excites a steel plate');
+    check(V(M.SURFACES.workshop, 'steel').weight > V(M.SURFACES.workshop, 'glass').weight, 'steel is heavier underfoot than glass');
+    // Every board stays recognisable under every marble: its own resonance
+    // keeps its place among the boards.
+    for (const id of Object.keys(M.MARBLE_VOICES)) {
+        check(V(M.SURFACES.playroom, id).body.f < V(M.SURFACES.toybox, id).body.f, `${id}: a foam mat stays duller than plastic`);
+    }
+
     // Impacts.
     check(M.impactStrength(0.05) === 0 && M.impactStrength(M.IMPACT_MIN_SPEED - 0.01) === 0, 'a resting touch is silent');
     check(M.impactStrength(1) > M.impactStrength(0.5) && M.impactStrength(10) <= 1, 'harder hits are louder, to a ceiling');

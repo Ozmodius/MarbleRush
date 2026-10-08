@@ -27,23 +27,25 @@
 // rumble: the board's low body resonance; body: its mid colour; hiss: the
 // high texture noise (a highpass cutoff); grain: clicks per unit of distance
 // rolled, and their colour; tread: spacing of raised bumps (units), 0 = none;
-// ring: metal plate resonances excited by the roll; loud: overall level.
+// ring: metal plate resonances excited by the roll; loud: overall level;
+// hard: how hard the floor is, 0 (snow, a foam mat) to 1 (steel, ice) --
+// half of what decides how bright the contact is (rollVoice).
 export const SURFACES = {
-    workshop:  { rumble: { f: 170, q: 1.4, g: 1.0 }, body: { f: 520, q: 1.6, g: 0.55 }, hiss: { f: 2600, g: 0.12 }, grain: { perUnit: 5, f: 1800, q: 1.2, g: 0.18 }, tread: 0, ring: [], loud: 1.0 },
-    forest:    { rumble: { f: 120, q: 1.0, g: 0.6 }, body: { f: 380, q: 1.0, g: 0.35 }, hiss: { f: 1800, g: 0.10 }, grain: { perUnit: 26, f: 1300, q: 0.9, g: 0.42 }, tread: 0, ring: [], loud: 0.85 },
-    snowfield: { rumble: { f: 140, q: 0.9, g: 0.45 }, body: { f: 650, q: 1.0, g: 0.30 }, hiss: { f: 3200, g: 0.08 }, grain: { perUnit: 22, f: 2400, q: 1.6, g: 0.36 }, tread: 0, ring: [], loud: 0.75 },
-    glacier:   { rumble: { f: 230, q: 2.0, g: 0.55 }, body: { f: 1400, q: 2.4, g: 0.40 }, hiss: { f: 4200, g: 0.30 }, grain: { perUnit: 1.5, f: 3600, q: 3.0, g: 0.15 }, tread: 0, ring: [], loud: 0.9 },
-    cinder:    { rumble: { f: 150, q: 1.2, g: 0.7 }, body: { f: 700, q: 1.3, g: 0.40 }, hiss: { f: 2300, g: 0.16 }, grain: { perUnit: 30, f: 2000, q: 1.1, g: 0.40 }, tread: 0, ring: [], loud: 0.95 },
-    lava:      { rumble: { f: 130, q: 1.4, g: 0.85 }, body: { f: 820, q: 1.6, g: 0.45 }, hiss: { f: 2800, g: 0.18 }, grain: { perUnit: 18, f: 2600, q: 1.4, g: 0.32 }, tread: 0, ring: [], loud: 1.0 },
-    playroom:  { rumble: { f: 110, q: 0.8, g: 0.55 }, body: { f: 300, q: 0.8, g: 0.25 }, hiss: { f: 1500, g: 0.05 }, grain: { perUnit: 3, f: 900, q: 0.8, g: 0.10 }, tread: 0, ring: [], loud: 0.6 },
-    toybox:    { rumble: { f: 210, q: 1.8, g: 0.7 }, body: { f: 950, q: 2.2, g: 0.55 }, hiss: { f: 3000, g: 0.12 }, grain: { perUnit: 4, f: 2200, q: 2.0, g: 0.16 }, tread: 0, ring: [], loud: 0.95 },
-    rustworks: { rumble: { f: 160, q: 1.6, g: 0.75 }, body: { f: 900, q: 1.8, g: 0.45 }, hiss: { f: 3000, g: 0.20 }, grain: { perUnit: 14, f: 2800, q: 1.5, g: 0.30 }, tread: 0, ring: [1180, 2650], loud: 1.0 },
-    foundry:   { rumble: { f: 190, q: 2.2, g: 0.8 }, body: { f: 1100, q: 2.6, g: 0.50 }, hiss: { f: 3600, g: 0.22 }, grain: { perUnit: 2, f: 3200, q: 2.0, g: 0.12 }, tread: 0.38, ring: [1240, 2890, 4710], loud: 1.05 }
+    workshop:  { rumble: { f: 170, q: 1.4, g: 1.0 }, body: { f: 520, q: 1.6, g: 0.55 }, hiss: { f: 2600, g: 0.12 }, grain: { perUnit: 5, f: 1800, q: 1.2, g: 0.18 }, tread: 0, ring: [], loud: 1.0, hard: 0.65 },
+    forest:    { rumble: { f: 120, q: 1.0, g: 0.6 }, body: { f: 380, q: 1.0, g: 0.35 }, hiss: { f: 1800, g: 0.10 }, grain: { perUnit: 26, f: 1300, q: 0.9, g: 0.42 }, tread: 0, ring: [], loud: 0.85, hard: 0.2 },
+    snowfield: { rumble: { f: 140, q: 0.9, g: 0.45 }, body: { f: 650, q: 1.0, g: 0.30 }, hiss: { f: 3200, g: 0.08 }, grain: { perUnit: 22, f: 2400, q: 1.6, g: 0.36 }, tread: 0, ring: [], loud: 0.75, hard: 0.15 },
+    glacier:   { rumble: { f: 230, q: 2.0, g: 0.55 }, body: { f: 1400, q: 2.4, g: 0.40 }, hiss: { f: 4200, g: 0.30 }, grain: { perUnit: 1.5, f: 3600, q: 3.0, g: 0.15 }, tread: 0, ring: [], loud: 0.9, hard: 0.9 },
+    cinder:    { rumble: { f: 150, q: 1.2, g: 0.7 }, body: { f: 700, q: 1.3, g: 0.40 }, hiss: { f: 2300, g: 0.16 }, grain: { perUnit: 30, f: 2000, q: 1.1, g: 0.40 }, tread: 0, ring: [], loud: 0.95, hard: 0.55 },
+    lava:      { rumble: { f: 130, q: 1.4, g: 0.85 }, body: { f: 820, q: 1.6, g: 0.45 }, hiss: { f: 2800, g: 0.18 }, grain: { perUnit: 18, f: 2600, q: 1.4, g: 0.32 }, tread: 0, ring: [], loud: 1.0, hard: 0.75 },
+    playroom:  { rumble: { f: 110, q: 0.8, g: 0.55 }, body: { f: 300, q: 0.8, g: 0.25 }, hiss: { f: 1500, g: 0.05 }, grain: { perUnit: 3, f: 900, q: 0.8, g: 0.10 }, tread: 0, ring: [], loud: 0.6, hard: 0.2 },
+    toybox:    { rumble: { f: 210, q: 1.8, g: 0.7 }, body: { f: 950, q: 2.2, g: 0.55 }, hiss: { f: 3000, g: 0.12 }, grain: { perUnit: 4, f: 2200, q: 2.0, g: 0.16 }, tread: 0, ring: [], loud: 0.95, hard: 0.8 },
+    rustworks: { rumble: { f: 160, q: 1.6, g: 0.75 }, body: { f: 900, q: 1.8, g: 0.45 }, hiss: { f: 3000, g: 0.20 }, grain: { perUnit: 14, f: 2800, q: 1.5, g: 0.30 }, tread: 0, ring: [1180, 2650], loud: 1.0, hard: 0.85 },
+    foundry:   { rumble: { f: 190, q: 2.2, g: 0.8 }, body: { f: 1100, q: 2.6, g: 0.50 }, hiss: { f: 3600, g: 0.22 }, grain: { perUnit: 2, f: 3200, q: 2.0, g: 0.12 }, tread: 0.38, ring: [1240, 2890, 4710], loud: 1.05, hard: 1.0 }
 };
 
 // Ice is its own surface wherever it is: a hard, glassy hiss with almost no
 // grain, so the player HEARS the grip go before they feel it.
-export const ICE_SURFACE = { rumble: { f: 260, q: 2.4, g: 0.35 }, body: { f: 1700, q: 3.0, g: 0.35 }, hiss: { f: 5200, g: 0.42 }, grain: { perUnit: 0.6, f: 4200, q: 4.0, g: 0.10 }, tread: 0, ring: [], loud: 0.8 };
+export const ICE_SURFACE = { rumble: { f: 260, q: 2.4, g: 0.35 }, body: { f: 1700, q: 3.0, g: 0.35 }, hiss: { f: 5200, g: 0.42 }, grain: { perUnit: 0.6, f: 4200, q: 4.0, g: 0.10 }, tread: 0, ring: [], loud: 0.8, hard: 1.0 };
 
 // --- walls: what an impact rings at ------------------------------------------
 // modes: the wall's resonances { f, decay (s), amp }; click: the colour of
@@ -68,12 +70,19 @@ export const THEME_WALL = {
 // --- the marble ---------------------------------------------------------------
 // ping: the marble's own ring on a hit; bright: scales the contact click;
 // damp: scales how long the wall rings (rubber kills it); weight: scales the
-// low end; roll: scales the rolling noise; hit: overall impact level.
+// low end; roll: scales the rolling noise; hit: overall impact level;
+// hard: the marble's half of the contact (rubber 0.1 .. steel 1); rollRing:
+// the marble's own faint ring while it rolls on something hard enough to
+// excite it (a steel ball on steel sings; rubber never does).
 export const MARBLE_VOICES = {
-    classic: { ping: [{ f: 4300, decay: 0.03, amp: 0.35 }, { f: 8100, decay: 0.018, amp: 0.2 }], bright: 1.0, damp: 1.0, weight: 1.0, roll: 1.0, hit: 1.0 },
-    glass:   { ping: [{ f: 4700, decay: 0.05, amp: 0.5 }, { f: 9300, decay: 0.03, amp: 0.3 }], bright: 1.25, damp: 1.0, weight: 0.9, roll: 0.95, hit: 1.0 },
-    steel:   { ping: [{ f: 6100, decay: 0.06, amp: 0.4 }, { f: 11200, decay: 0.035, amp: 0.2 }], bright: 1.15, damp: 1.1, weight: 1.5, roll: 1.25, hit: 1.3 },
-    rubber:  { ping: [], bright: 0.35, damp: 0.4, weight: 1.1, roll: 0.45, hit: 0.7 }
+    classic: { ping: [{ f: 4300, decay: 0.03, amp: 0.35 }, { f: 8100, decay: 0.018, amp: 0.2 }], bright: 1.0, damp: 1.0, weight: 1.0, roll: 1.0, hit: 1.0,
+               hard: 0.85, rollRing: [{ f: 5200, g: 0.05 }] },
+    glass:   { ping: [{ f: 4700, decay: 0.05, amp: 0.5 }, { f: 9300, decay: 0.03, amp: 0.3 }], bright: 1.25, damp: 1.0, weight: 0.9, roll: 0.95, hit: 1.0,
+               hard: 0.92, rollRing: [{ f: 5900, g: 0.09 }, { f: 8700, g: 0.05 }] },
+    steel:   { ping: [{ f: 6100, decay: 0.06, amp: 0.4 }, { f: 11200, decay: 0.035, amp: 0.2 }], bright: 1.15, damp: 1.1, weight: 1.5, roll: 1.25, hit: 1.3,
+               hard: 1.0, rollRing: [{ f: 3400, g: 0.12 }, { f: 6300, g: 0.07 }] },
+    rubber:  { ping: [], bright: 0.35, damp: 0.4, weight: 1.1, roll: 0.75, hit: 0.7,
+               hard: 0.1, rollRing: [] }
 };
 export function marbleVoice(id) { return MARBLE_VOICES[id] || MARBLE_VOICES.classic; }
 
@@ -91,7 +100,8 @@ export function blendSurface(a, b, t) {
         // Bumps and plate rings belong to one surface or the other, not a mix.
         tread: t < 0.5 ? a.tread : b.tread,
         ring: t < 0.5 ? a.ring : b.ring,
-        loud: lerp(a.loud, b.loud, t)
+        loud: lerp(a.loud, b.loud, t),
+        hard: lerp(a.hard, b.hard, t)
     };
 }
 // The rolling surface of a level (its theme blended toward themeTo).
@@ -118,6 +128,47 @@ export function floorForLevel(lv) {
 }
 
 // --- rolling ------------------------------------------------------------------
+// WHAT THIS MARBLE ON THIS FLOOR SOUNDS LIKE. A roll is the two materials
+// meeting, so neither decides it alone:
+//  - CONTACT (the two hardnesses multiplied) sets how bright and hissy the
+//    roll is and how much any plate rings: glass on ice is all sheen, glass
+//    on snow is a muffled crunch, rubber on anything is a soft rumble.
+//  - The MARBLE alone sets the top end (a rubber ball damps everything
+//    above a few kHz, whatever it rolls on), the colour of the grit it
+//    kicks up (a hard ball clicks, a soft one crunches), and the weight.
+//  - The FLOOR alone sets its resonances (a hollow board booms, a play mat
+//    does not), so the board is recognisable under any marble.
+//  - A hard marble on a hard floor adds its OWN ring: steel on steel sings.
+// The result has the surface's shape, plus cutoff (Hz, a lowpass on the
+// whole roll), weight (the sub rumble), tick (tread plate's click) and rings
+// [{ f, q, g }] (floor plate rings and the marble's own).
+export function rollVoice(surface, marble) {
+    const sh = surface.hard === undefined ? 0.6 : surface.hard;
+    const mh = marble.hard === undefined ? 0.85 : marble.hard;
+    const c = sh * mh;
+    const lerpT = (a, b, t) => a + (b - a) * t;
+    return {
+        // A soft marble's energy goes into the low end rather than the hiss.
+        rumble: { f: surface.rumble.f * lerpT(0.85, 1.05, mh), q: surface.rumble.q, g: surface.rumble.g * marble.weight * lerpT(2.2, 1, mh) },
+        body: { f: surface.body.f * lerpT(0.75, 1.1, mh), q: surface.body.q, g: surface.body.g * lerpT(0.55, 1.15, c) },
+        hiss: { f: surface.hiss.f * lerpT(0.7, 1.15, mh), g: surface.hiss.g * lerpT(0.15, 1.3, c) },
+        grain: {
+            perUnit: surface.grain.perUnit,
+            f: surface.grain.f * lerpT(0.45, 1.15, mh),
+            q: surface.grain.q,
+            g: surface.grain.g * lerpT(0.5, 1.1, mh)
+        },
+        tread: surface.tread,
+        tick: { f: 2600 * lerpT(0.5, 1.1, mh), g: 0.22 * lerpT(0.35, 1.2, mh) },
+        rings: surface.ring.map(f => ({ f, q: 18, g: 0.25 * c }))
+            .concat((marble.rollRing || []).map(r => ({ f: r.f, q: 24, g: r.g * Math.pow(sh, 1.5) }))),
+        cutoff: lerpT(1600, 15000, mh) * lerpT(0.55, 1, sh),
+        weight: 0.5 * surface.rumble.g * marble.weight * lerpT(1.2, 0.9, sh) * lerpT(1.8, 1, mh),
+        loud: surface.loud * lerpT(0.85, 1.1, c),
+        hard: sh
+    };
+}
+
 export const ROLL_FULL_SPEED = 6;          // speed at which the roll is at full level (full tilt reaches ~7 down a long straight)
 // The roll's mix at this speed: { gain, bright (filter multiplier), wobbleHz,
 // grainRate (clicks/s), tickRate (bumps/s) }. Silent off the floor.

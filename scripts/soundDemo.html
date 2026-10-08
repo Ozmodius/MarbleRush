@@ -29,6 +29,15 @@ function rollFor(e, { from, to, speed, surface, iceAt, radius = 0.3, pan = (t) =
     }
     e.silenceRoll(to);
 }
+// Three marbles, the same 2 s roll each, a hit after each.
+function compare(e, marbles, wall, onIce = false) {
+    marbles.forEach((m, i) => {
+        const t0 = 0.15 + i * 2.6;
+        e.setMarble(m);
+        rollFor(e, { from: t0, to: t0 + 2.0, speed: hill(t0, t0 + 2.0, 4.6), iceAt: () => onIce });
+        e.impact(wall, 2.5, { t: t0 + 2.15 });
+    });
+}
 const ramp = (t0, t1, v0, v1) => (t) => v0 + (v1 - v0) * Math.max(0, Math.min(1, (t - t0) / (t1 - t0)));
 const hill = (t0, t1, peak) => (t) => { const k = (t - t0) / (t1 - t0); return k <= 0 || k >= 1 ? 0 : peak * Math.sin(Math.PI * k); };
 
@@ -102,15 +111,24 @@ export const SCENES = [
         }
     },
     {
-        title: 'Rubber marble vs Classic on the same wood: a roll and a hit each (rubber is the damped one)',
-        seconds: 6, theme: 'workshop', marble: 'rubber', room: [0.7, 0.14], ambience: ['room', 0.035],
-        play(e) {
-            rollFor(e, { from: 0.1, to: 2.2, speed: hill(0.1, 2.2, 4.6), surface: SURFACES.workshop });
-            e.impact('wood', 3, { t: 2.4 });
-            e.setMarble('classic');
-            rollFor(e, { from: 3.1, to: 5.2, speed: hill(3.1, 5.2, 4.6), surface: SURFACES.workshop });
-            e.impact('wood', 3, { t: 5.4 });
-        }
+        title: 'Marble x floor, WOOD: the same roll with Glass, Steel, then Rubber (each followed by a wall hit)',
+        seconds: 8, theme: 'workshop', marble: 'glass', room: [0.7, 0.14], ambience: ['room', 0.035],
+        play(e) { compare(e, ['glass', 'steel', 'rubber'], 'wood'); }
+    },
+    {
+        title: 'Marble x floor, ICE: Glass, Steel, Rubber (hard on hard is all sheen; rubber stays soft)',
+        seconds: 8, theme: 'glacier', marble: 'glass', room: [1.1, 0.12], ambience: ['wind', 0.07], ice: true,
+        play(e) { compare(e, ['glass', 'steel', 'rubber'], 'ice', true); }
+    },
+    {
+        title: 'Marble x floor, SNOW: Glass, Steel, Rubber (a soft floor muffles even steel)',
+        seconds: 8, theme: 'snowfield', marble: 'glass', room: [0.4, 0.04], ambience: ['wind', 0.05],
+        play(e) { compare(e, ['glass', 'steel', 'rubber'], 'stone'); }
+    },
+    {
+        title: 'Marble x floor, STEEL TREAD PLATE: Glass, Steel, Rubber (steel on steel sings)',
+        seconds: 8, theme: 'foundry', marble: 'glass', room: [1.9, 0.2], ambience: ['factory', 0.06],
+        play(e) { compare(e, ['glass', 'steel', 'rubber'], 'steel'); }
     },
     {
         title: 'Moments: a coin, a power-up, a shield saving a fall, a geyser blast, a marble down a hole, and a clear (into the cup, then the bell)',
