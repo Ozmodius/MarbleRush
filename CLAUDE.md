@@ -83,6 +83,9 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
 - **The CrazyGames bundle is flat** (no folders): CrazyGames' drag-and-drop
   upload can drop subfolders. Ball Smack's `scripts/buildCrazyGames.js` is the
   model when the build script is written.
+  The zip is named `planetilt-crazygames-v<VERSION>.zip` (`VERSION` in
+  `scripts/buildCrazyGames.js`, `CG_VERSION` overrides it); bump it for every
+  zip that goes up to CrazyGames.
 - **One codebase, two platforms**: only `platform.js` may know which platform
   it is on (it also holds the API URL, `apiBase()`).
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,

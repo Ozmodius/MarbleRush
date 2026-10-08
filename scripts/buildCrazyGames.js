@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Build the CrazyGames bundle: dist/crazygames/ and dist/planetilt-crazygames.zip.
+// Build the CrazyGames bundle: dist/crazygames/ and dist/planetilt-crazygames-v<VERSION>.zip.
 //
 // THE BUNDLE IS FLAT -- no folders (CLAUDE.md). CrazyGames' drag-and-drop
 // upload can drop subfolders, and a game missing its scripts is a black
@@ -34,7 +34,12 @@ const esbuild = require('esbuild');
 const ROOT = path.join(__dirname, '..');
 const WEB = process.argv.includes('--web');
 const OUT = path.join(ROOT, 'dist', WEB ? 'web' : 'crazygames');
-const ZIP = WEB ? null : path.join(ROOT, 'dist', 'planetilt-crazygames.zip');
+// The release version in the zip's name, so each upload to CrazyGames is
+// told apart from the last. Bump it for every zip that goes up; CG_VERSION
+// overrides it for a one-off build.
+const VERSION = (process.env.CG_VERSION || '1.0.1').trim().replace(/^v/, '');
+if (!/^\d+\.\d+\.\d+$/.test(VERSION)) throw new Error('CG_VERSION is not x.y.z: ' + VERSION);
+const ZIP = WEB ? null : path.join(ROOT, 'dist', `planetilt-crazygames-v${VERSION}.zip`);
 
 // The cloud save / leaderboard server (server/), when PLANETILT_API_URL is
 // set at build time; without it the game builds exactly as before, no server.
