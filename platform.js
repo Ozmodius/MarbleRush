@@ -42,7 +42,14 @@ try { if (typeof document !== 'undefined') document.documentElement.setAttribute
 //                     CrazyGames forbids sending players to a copy of the game
 //                     outside it, and a worker on their host would cache our
 //                     old builds across their updates.
-//   externalLogin  -- Google sign-in. CrazyGames allows only its own login.
+//   externalLogin  -- our own accounts (username or email + password,
+//                     server/accounts.js). CrazyGames allows only its own login.
+//   requireLogin   -- an account before play (the user's call, 2026-10-08):
+//                     the web opens on a sign-in screen there is no way past
+//                     but in. Never on CrazyGames, whose rules require a new
+//                     player to reach gameplay in one click with no account.
+//                     Only with a server configured (nothing to sign in to
+//                     otherwise).
 //   guestPlay      -- a PLAY NOW on the sign-in screen that starts a bot match
 //                     with no account. CrazyGames requires new players to reach
 //                     gameplay in one click. The web keeps its registered-only
@@ -58,8 +65,8 @@ try { if (typeof document !== 'undefined') document.documentElement.setAttribute
 //                     name or picture are hidden (.web-only): CrazyGames
 //                     allows no other login and owns the name and picture.
 export const features = Object.freeze(isCrazyGames
-    ? { offlineInstall: false, externalLogin: false, guestPlay: true, sellsOfflinePlay: false, platformLogin: true, ownLoader: true, ads: true, sdkInvites: true }
-    : { offlineInstall: true, externalLogin: true, guestPlay: false, sellsOfflinePlay: true, platformLogin: false, ownLoader: false, ads: false, sdkInvites: false });
+    ? { offlineInstall: false, externalLogin: false, requireLogin: false, guestPlay: true, sellsOfflinePlay: false, platformLogin: true, ownLoader: true, ads: true, sdkInvites: true }
+    : { offlineInstall: true, externalLogin: true, requireLogin: true, guestPlay: false, sellsOfflinePlay: true, platformLogin: false, ownLoader: false, ads: false, sdkInvites: false });
 
 // ---------------------------------------------------------------------------
 // SDK plumbing

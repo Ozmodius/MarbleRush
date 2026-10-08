@@ -40,6 +40,8 @@ function renderStatus() {
         who.appendChild(small);
     }
     $('cloudLoginBtn').hidden = !platformOffer;
+    // Signed out, or the session lost: back to the sign-in screen.
+    if (needsAccount()) openGate();
 }
 
 // --- the account panel ---------------------------------------------------------
@@ -77,7 +79,26 @@ function acctView(view, message, ok) {
     const first = form.querySelector('input');
     if (first && !first.value) setTimeout(() => { try { first.focus(); } catch (_) { /* ignore */ } }, 50);
 }
-const closeAcct = () => { $('accountPanel').hidden = true; $('acctMsg').textContent = ''; };
+// THE SIGN-IN GATE (features.requireLogin, the web): the same panel, opened
+// over everything with no way to close it until there is an account.
+let gate = false;
+const needsAccount = () => {
+    const me = sync && sync.player();
+    return !!(features.requireLogin && sync && sync.enabled && !(me && me.kind === 'account'));
+};
+function openGate() {
+    if (gate) return;
+    gate = true;
+    $('accountPanel').classList.add('is-gate');
+    $('acctGateNote').hidden = false;
+    acctView('register');
+}
+function closeGate() {
+    gate = false;
+    $('accountPanel').classList.remove('is-gate');
+    $('acctGateNote').hidden = true;
+}
+const closeAcct = () => { if (gate) return; $('accountPanel').hidden = true; $('acctMsg').textContent = ''; };
 const val = id => $(id).value.trim();
 
 // While a call is out, its form's buttons wait.
@@ -88,6 +109,7 @@ async function busy(form, fn) {
 }
 
 function signedInDone(r, words) {
+    closeGate();
     renderStatus();
     closeAcct();
     $('cloudMsg').textContent = words || (r && r.player ? `Signed in as ${r.player.name}.` : '');
