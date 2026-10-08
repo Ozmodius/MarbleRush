@@ -229,9 +229,10 @@ Phase 3 as built (2026-10-06), on Oz's call and choices:
 Prize = the reward for clearing the world; it helps against the trap named in
 the next world. Worlds 1-5 ship at launch.
 
-Each world is a planet with its own name, shown with its place (the user's
-call, 2026-10-08; `worlds.js`): Sawturn · the Workshop, Slipstonia · the
-Glacier, Magmars · Magma Works, Bouncelot · the Toy Box, Gearth · the Foundry.
+Each world is a planet with its own name, and each level is a place on it,
+named by the level's own name; players never see "World 1" (the user's call,
+2026-10-08; `worlds.js`): Sawturn (the Workshop), Slipstonia (the Glacier),
+Magmars (Magma Works), Bouncelot (the Toy Box), Gearth (the Foundry).
 Worlds 6-10 get planet names when they are built.
 
 | # | World | Trap on L1 | Trap on L4 | Trap on L10 | Prize |

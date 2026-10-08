@@ -818,9 +818,7 @@ html, body {
   margin: 0 auto;
 }
 .world-sheethead { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
-.world-sheetnum { margin: 0; font-size: 0.64rem; letter-spacing: 0.22em; color: var(--accent); }
 .world-sheetname { margin: 0; font-size: 1.05rem; letter-spacing: 0.04em; text-wrap: balance; }
-.world-sheetplace { display: block; font-size: 0.72rem; color: var(--ink-dim); letter-spacing: 0.04em; }
 .mode-switch { display: inline-flex; padding: 2px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line); }
 .mode-btn { font: inherit; font-size: 0.68rem; font-weight: 900; letter-spacing: 0.12em; padding: 5px 12px; border: 0; border-radius: 999px; color: var(--ink-dim); background: none; cursor: pointer; }
 .mode-btn.is-on { color: #3a2408; background: linear-gradient(#ffd66e, #e69a22); }

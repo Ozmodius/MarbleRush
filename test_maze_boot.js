@@ -87,8 +87,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
         // between them, a sun burns in the distance, and a locked world's
         // PLAY is greyed out and starts nothing.
         check(await page.evaluate(() => window.__mazeDebug.hasSun()), 'a sun burns behind the home planet');
-        check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 1 && (await page.textContent('#homeWorldName')).trim() === 'SAWTURN' && /WORLD 1 · THE WORKSHOP/.test(await page.textContent('#homeWorldPlace'))
-            && await page.isDisabled('#homePrevWorld'), 'home opens on world 1, with nothing to its left');
+        check(await page.evaluate(() => window.__mazeDebug.homeWorld()) === 1 && (await page.textContent('#homeWorldName')).trim() === 'SAWTURN' && (await page.textContent('#homeWorldPlace')).trim() === levels[0].name.toUpperCase()
+            && await page.isDisabled('#homePrevWorld'), 'home opens on the first planet, at its first level\'s place, with nothing to its left');
         {
             const cdp = await ctx.newCDPSession(page);
             const swipe = async (x0, x1) => {
@@ -100,6 +100,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
             const h2 = await page.evaluate(() => window.__mazeDebug.homeLevel());
             check(h2 && h2.world === 2 && h2.locked, `a swipe left brings in world 2, locked for a new player: ${JSON.stringify(h2)}`);
             check(await page.evaluate(() => window.__mazeDebug.planetX()) > 0, 'the new planet slides in from the right');
+            check(!/WORLD/.test(await page.textContent('.home-play')), 'home never says "World n"');
             check(await page.isDisabled('#homePlayBtn') && (await page.textContent('#homePlayLabel')).trim() === 'LOCKED'
                 && /Finish Sawturn/.test(await page.textContent('#homeGoal')), 'a locked world greys PLAY out and says what opens it');
             await page.tap('#homePlayBtn', { force: true });
@@ -134,10 +135,9 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await page.isHidden('#homeView'), 'one tab at a time');
         check(await page.evaluate(() => window.__mazeDebug.backdrop()) === 'system', 'the worlds tab shows the solar system');
         check((await page.textContent('#worldSheetName')).trim() === 'Sawturn', 'the sheet opens on the world of the next level');
-        check((await page.textContent('#worldSheetPlace')).trim() === 'the Workshop', 'under the planet\'s name, the place it is');
         await page.locator('#worldLabel_2').click({ force: true });   // labels drift with their planets
         check((await page.textContent('#worldSheetName')).trim() === 'Slipstonia' && await page.locator('.level-node').count() === levels.filter(l => l.world === 2).length
-            && /Clear World 1/.test(await page.textContent('#worldSheetNote')), 'a built but locked world shows its levels, locked, and says what opens it');
+            && /Finish Sawturn/.test(await page.textContent('#worldSheetNote')), 'a built but locked world shows its levels, locked, and says what opens it');
         // The first world not built yet: one past the last world in the data.
         const comingN = Math.max(...levels.map(l => l.world)) + 1;
         const W = await import('./worlds.js');

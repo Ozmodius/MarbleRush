@@ -4,7 +4,7 @@ import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 import { onFrame, getRenderer } from './sceneHost.js';
 import { showBanner, adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { sfx } from './sfx.js';
-import { worldName, placeName, LAUNCH_WORLDS } from './worlds.js';
+import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, showLevelUps } from './dailyUi.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
@@ -173,7 +173,7 @@ function renderHome() {
         // Locked: say what opens it -- the world before, finished.
         $('homeGoal').textContent = `Finish ${worldName(home.world - 1)} to unlock`;
         $('homePlayLabel').textContent = 'LOCKED';
-        $('homePlayLevel').textContent = 'WORLD ' + home.world;
+        $('homePlayLevel').textContent = '';
     } else {
         $('homeGoal').textContent = best
             ? `Best ${(best.bestMs / 1000).toFixed(1)}s  ·  gold under ${(lv.goldMs / 1000).toFixed(1)}s`
@@ -194,7 +194,8 @@ function renderWorldNav(home) {
     const n = home.world;
     const name = $('homeWorldName');
     name.textContent = worldName(n).toUpperCase();
-    $('homeWorldPlace').textContent = `WORLD ${n}  ·  ${placeName(n).toUpperCase()}`;
+    // Each level is a place on its planet: the one PLAY lands on, by name.
+    $('homeWorldPlace').textContent = home.locked ? '' : home.level.name.toUpperCase();
     name.classList.toggle('is-locked-name', home.locked);
     const dots = $('homeWorldDots');
     dots.innerHTML = '';
@@ -235,7 +236,7 @@ function renderWorlds() {
         b.type = 'button';
         b.id = 'worldLabel_' + w.n;
         b.className = 'world-label' + (w.n === selectedWorld ? ' is-selected' : '') + (w.state === 'coming' ? ' is-coming' : '');
-        b.textContent = w.n + '  ' + w.name.toUpperCase();
+        b.textContent = w.name.toUpperCase();
         b.style.visibility = 'hidden';   // placed on the next frame
         b.addEventListener('click', (e) => { e.preventDefault(); pickWorld(w.n); });
         labels.append(b);
@@ -260,9 +261,7 @@ function renderSheet(w) {
         const b = $(id);
         if (b) { b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', String(on)); }
     }
-    $('worldSheetNum').textContent = 'WORLD ' + w.n;
     $('worldSheetName').textContent = w.name;
-    $('worldSheetPlace').textContent = placeName(w.n);
     const grid = $('mazeSelectList');
     grid.innerHTML = '';
     const done = w.levels.filter(l => (walk ? p.walks[l.id] : p.cleared[l.id])).length;
@@ -271,7 +270,7 @@ function renderSheet(w) {
     const nextIdx = (p.highestIndex || 0) + 1;
     const next = w.levels.find(l => l.index === nextIdx);
     if (w.state === 'coming') $('worldSheetNote').textContent = 'Coming in an update. Its levels are still being built.';
-    else if (w.state === 'locked') $('worldSheetNote').textContent = `Clear World ${w.n - 1} to land here.`;
+    else if (w.state === 'locked') $('worldSheetNote').textContent = `Finish ${worldName(w.n - 1)} to land here.`;
     else if (walk) $('worldSheetNote').textContent = 'Explore any level you have rolled, from inside the maze. Find the exit; the traps are real.';
     else if (next) $('worldSheetNote').textContent = `Next: ${next.name}  ·  gold under ${(next.goldMs / 1000).toFixed(1)}s`;
     else $('worldSheetNote').textContent = 'Every level cleared. Replay any for a better medal.';

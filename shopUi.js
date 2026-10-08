@@ -4,6 +4,7 @@ import { trailCss } from './trail3d.js';
 import { adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { upgradePrice } from './progressStore.js';
 import { sfx } from './sfx.js';
+import { worldName } from './worlds.js';
 
 // THE STORE AND PROFILE PAGES. DOM only: every rule (prices, what may be
 // bought, what a marble does) lives in shopCatalog.js and progressStore.js,
@@ -187,7 +188,7 @@ export function renderStore() {
                        buyResult('storeMsg', ctx.store.buyPrizeRefill(id), `+${z.refill.uses} ${z.name} uses`);
                        renderStore();
                    })]
-                : [h('span', 'shop-locked', `Clear World ${z.world}`)];
+                : [h('span', 'shop-locked', `Finish ${worldName(z.world)}`)];
             list.append(row(z.name, z.blurb + (earned ? ` ${z.refill.uses} uses per refill; one use covers one level.` : ''), side, h('span', 'prize-badge')));
         }
     }
