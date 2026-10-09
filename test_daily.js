@@ -48,6 +48,23 @@ const check = (c, m) => { if (!c) failures.push(m); };
     let mid = D.claimDaily(D.claimDaily(S.freshProgress(), day(0)).progress, day(1)).progress;
     check(D.dailyStatus(mid, day(2)).day === 3 && D.dailyStatus(mid, day(3)).day === 1, 'missing a day mid-week starts over at day 1, not day 3');
     check(D.dailyStatus(p, day(3)).day === 1, 'a clock that went backwards starts over rather than double-paying a day');
+    // What tomorrow brings (said on the calendar and the CLEARED panel): the
+    // day after today's, true to what claiming tomorrow actually pays.
+    {
+        let t = S.freshProgress();
+        for (let n = 0; n < 7; n++) {
+            const said = D.tomorrowDaily(D.claimDaily(t, day(n)).progress, day(n));
+            t = D.claimDaily(t, day(n)).progress;
+            const got = D.claimDaily(t, day(n + 1));
+            check(got.ok && got.day === said.day && JSON.stringify(got.reward) === JSON.stringify(said.reward),
+                `after day ${n + 1}, "tomorrow" is what tomorrow pays: said day ${said.day}, got day ${got.day}`);
+        }
+        check(D.tomorrowDaily(D.claimDaily(S.freshProgress(), day(0)).progress, day(0)).day === 2, 'after day 1, tomorrow is day 2');
+        let six = S.freshProgress(); for (let n = 0; n < 6; n++) six = D.claimDaily(six, day(n)).progress;
+        check(D.tomorrowDaily(six, day(5)).big && D.tomorrowDaily(six, day(5)).day === 7, 'after day 6, tomorrow is the big day 7');
+    }
+    check(D.rewardText({ coins: 80 }) === '80 coins' && D.rewardText({ coins: 50, charges: { shield: 1 } }) === '50 coins + Shield'
+        && D.rewardText(C.DAILY_CALENDAR[6]) === '300 coins + 3 power-ups', `rewards read in words: "${D.rewardText(C.DAILY_CALENDAR[6])}"`);
 
     // 2. ×2 ad
     let q = S.freshProgress();

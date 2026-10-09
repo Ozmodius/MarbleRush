@@ -642,6 +642,7 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         adUpgradeWaitMs: () => adUpgradeWaitMs(progress),
         // Daily rewards and missions (daily.js).
         dailyStatus: () => daily.dailyStatus(progress, clock()),
+        tomorrowDaily: () => daily.tomorrowDaily(progress, clock()),
         claimDaily: () => {
             const out = daily.claimDaily(progress, clock());
             apply(out);

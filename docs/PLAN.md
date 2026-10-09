@@ -313,3 +313,15 @@ growth list -- session length):
   calendar like its OK does (it skipped it).
 - *The 3D scene pauses under the web's landing site*, and a failed save upload
   after sign-in is retried instead of being called synced.
+
+Come back tomorrow (2026-10-09, Oz's go-ahead, item 3 of the CrazyGames
+growth list -- day-1 retention):
+- *Found first*: a new player boots straight into level 1 (the one-tap rule)
+  and, going NEXT to NEXT, never passed home -- 5 clears in, the daily reward
+  was never claimed and the streak never started.
+- *DAY n GIFT on the CLEARED panel* while today's reward waits: one tap
+  claims it there and says "DAY 1: +50 COINS · DAY 2 TOMORROW: 80 COINS".
+- *The calendar sells tomorrow*: a TOMORROW tag on tomorrow's tile once
+  today is claimed, and its line says what tomorrow pays and when, how many
+  days in a row the streak has run, and what day 7 is worth.
+- *The daily maze's clear says a new one comes tomorrow.*

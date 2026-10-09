@@ -32,6 +32,7 @@ import { createWalkHud } from './walkHud.js';
 import { openComfort, closeComfort } from './comfortUi.js';
 import { createWalkInput, wantedVelocity, walkImpulse, walkHandling, handlingAccel, clampPitch, lookPoint, openingYaw, thirdPersonPose, EYE_ABOVE_CENTRE } from './walkMode.js';
 import { MISSIONS } from './shopCatalog.js';
+import { rewardText } from './daily.js';
 import { applySkin } from './skins3d.js';
 import { createTrail } from './trail3d.js';
 import { setGameplayActive, features, showMidgameAd, showRewardedAd, adsAvailable, adFailureMessage, happytime, reportGameCompleted } from './platform.js';
@@ -1507,6 +1508,30 @@ function win() {
     showEl('mazeNextBtn', !walkMode && !isDaily(level) && !!nextLevelAfter(level));
     // A level just rolled can be walked next (the Labyrinth).
     showEl('mazeWalkBtn', !walkMode && !isDaily(level) && !!(result && result.accepted));
+    renderGift();
+}
+
+// TODAY'S GIFT on the CLEARED panel (2026-10-09): the daily reward lives on
+// the home screen, and a player going NEXT to NEXT -- every new player, who
+// boots straight into level 1 -- never got there, so never claimed day 1 and
+// never started a streak. One tap here claims it and says what tomorrow
+// brings; the home calendar shows it claimed.
+function renderGift() {
+    const s = store && store.dailyStatus ? store.dailyStatus() : null;
+    const on = !!(s && s.canClaim);
+    showEl('mazeGiftBtn', on);
+    const t = el('mazeGiftText');
+    if (on && t) t.textContent = s.day === 7 ? 'DAY 7 BIG GIFT' : `DAY ${s.day} GIFT`;
+}
+function claimGift() {
+    if (phase !== 'won' || !store || !store.claimDaily) return;
+    const out = store.claimDaily();
+    showEl('mazeGiftBtn', false);
+    if (!out.ok) return;
+    try { uiSfx.coin(); } catch (e) { /* ignore */ }
+    const next = store.tomorrowDaily();
+    setStatus2('');
+    setStatus2(`DAY ${out.day}: +${rewardText(out.reward).toUpperCase()}  ·  DAY ${next.day} TOMORROW: ${rewardText(next.reward).toUpperCase()}`);
 }
 
 // THE NEAR MISS: after a clear that left a medal on the table, say which and
@@ -1568,6 +1593,7 @@ function restart() {
     setStatus('');
     showWinStar(false);
     showEl('mazeWinPanel', false);
+    showEl('mazeGiftBtn', false);
     showEl('mazeReplayBtn', false);
 }
 
@@ -1973,6 +1999,7 @@ function startLevel(levelId, opts = {}) {
     showEl('mazeSelect', false);
     showEl('mazeHud', true);
     showEl('mazeWinPanel', false);
+    showEl('mazeGiftBtn', false);
     showEl('mazeReplayBtn', false);
     showEl('mazeNextBtn', false);
     showEl('mazeLevelsBtn', false);
@@ -2409,6 +2436,8 @@ function showClearResult(res, ms) {
     // The clear that opens the daily maze says so: a player going from NEXT
     // to NEXT never passes the home screen where it lives.
     if (res.dailyUnlocked) status2Later('DAILY MAZE UNLOCKED  ·  ON HOME', beat);
+    // Today's daily maze done: tomorrow has another.
+    if (isDaily(level)) status2Later('A NEW DAILY MAZE TOMORROW', beat);
     if (res.prize) {
         try { uiSfx.open(); } catch (e) { /* ignore */ }
     }
@@ -2446,6 +2475,7 @@ export function initMazeControls() {
     bindTap('mazeReviveBtn', () => { reviveFromAd(); });
     bindTap('mazeRetryBtn', () => { if (phase === 'offer' && !offerAdPending) { closeFallOffer(); restart(); } });
     bindTap('mazeDoubleBtn', () => { doubleClearFromAd(); });
+    bindTap('mazeGiftBtn', () => { claimGift(); });
     bindTap('mazeAdShieldBtn', () => { freeShieldFromAd(); });
     bindTap('mazeExitBtn', () => { leave(); });
     bindTap('mazeWinExitBtn', () => { leave(); });

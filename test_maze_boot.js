@@ -295,6 +295,9 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(/LEVEL UP!  YOU ARE LEVEL 2/.test(await page.textContent('#mazeStatus2')) && /CLEARED/.test(await page.textContent('#mazeStatus')),
             `a level-up is told under the result, which stays: "${await page.textContent('#mazeStatus')}" / "${await page.textContent('#mazeStatus2')}"`);
         check((await page.textContent('#mazeNextBtn')).includes('NEXT') && await page.isHidden('#mazeNextBtn .key-hint'), 'a touch device shows no SPACE hint on NEXT');
+        // Today's reward waits on the CLEARED panel too (left unclaimed here:
+        // the calendar at home takes it below).
+        check(await page.isVisible('#mazeGiftBtn') && (await page.textContent('#mazeGiftText')).trim() === 'DAY 1 GIFT', 'the first clear offers the DAY 1 GIFT');
         // That clear was silver, 5s off gold: the near-miss line says so.
         check(await page.isVisible('#mazeNearMiss') && /^\d+\.\ds FASTER FOR GOLD$/.test((await page.textContent('#mazeNearText')).trim())
             && (await page.textContent('#mazeReplayBtn')).trim() === 'REPLAY',
@@ -866,6 +869,14 @@ const check = (c, m) => { if (!c) failures.push(m); };
             check(/DAILY MAZE UNLOCKED/.test(await kp.textContent('#mazeStatus2')) && /CLEARED/.test(await kp.textContent('#mazeStatus')),
                 `the clear that opens the daily maze says so under the result: "${await kp.textContent('#mazeStatus')}" / "${await kp.textContent('#mazeStatus2')}"`);
             check(await kp.isVisible('#mazeNextBtn .key-hint'), 'NEXT shows SPACE on a computer');
+            // The day's gift, claimed from the panel: paid, the streak started,
+            // and tomorrow named.
+            const w0 = (await kdbg('progress')).wallet;
+            await kp.click('#mazeGiftBtn');
+            const kprog = await kdbg('progress');
+            check(kprog.daily && kprog.daily.streak === 1 && kprog.wallet === w0 + 50 && await kp.isHidden('#mazeGiftBtn')
+                && /DAY 1: \+50 COINS  ·  DAY 2 TOMORROW: 80 COINS/.test(await kp.textContent('#mazeStatus2')),
+                `the CLEARED panel's gift claims day 1 and names tomorrow: "${await kp.textContent('#mazeStatus2')}" ${JSON.stringify(kprog.daily)}`);
             await kp.focus('#mazeReplayBtn');
             await kp.keyboard.press('Space');
             await kp.waitForFunction((id) => window.__mazeDebug.phase() === 'ready' && document.getElementById('mazeLevelName').textContent.trim() === id, levels[3].name, { timeout: 8000 }).catch(() => {});
