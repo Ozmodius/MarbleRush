@@ -53,8 +53,9 @@ when it answers), so that is a delay on the leaderboard, not on play.
 
 ## Accounts
 
-On the web build, the Gear page's ACCOUNT card offers CREATE ACCOUNT and
-SIGN IN (on CrazyGames, players sign in with CrazyGames instead):
+On the web build, the landing site offers CREATE ACCOUNT, SIGN IN or PLAY AS
+GUEST; a guest's Gear page ACCOUNT card offers CREATE ACCOUNT and SIGN IN
+later (on CrazyGames, players sign in with CrazyGames instead):
 
 - **Create:** username (3–16 letters, numbers, `_ . -`, unique, checked
   against a slur list), email (unique, never shown), password (8+). With

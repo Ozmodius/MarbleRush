@@ -95,7 +95,7 @@ async function load(ev) {
 const pctOr = (x, dash = '–') => x === null || x === undefined ? dash : Math.round(x * 100) + '%';
 const mins = ms => ms === null ? '–' : ms >= 60000 ? (ms / 60000).toFixed(1) + ' min' : Math.round(ms / 1000) + 's';
 const CAUSE = { hole: 'Holes', icicle: 'Icicles', flare: 'Flares', molten: 'Molten gates', shock: 'Rails', crush: 'Crushers', other: 'Other' };
-const GROUPS = [['buy:', 'Purchases'], ['use:', 'Power-ups and prizes used'], ['claim:', 'Rewards claimed'], ['ad:', 'Rewarded ads watched'], ['levelup:', 'Player level-ups'], ['account:', 'Accounts'], ['', 'Other']];
+const GROUPS = [['buy:', 'Purchases'], ['use:', 'Power-ups and prizes used'], ['claim:', 'Rewards claimed'], ['ad:', 'Rewarded ads watched'], ['levelup:', 'Player level-ups'], ['account:', 'Accounts'], ['landing:', 'Front door (landing site: shown, create, sign in, guest)'], ['', 'Other']];
 function render(r) {
   const maxStop = Math.max(1, ...r.levels.map(l => l.stopped));
   const ret = r.retention || {}, act = r.activity || { byDay: [] };

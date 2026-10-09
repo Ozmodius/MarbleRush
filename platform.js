@@ -50,10 +50,11 @@ try { if (typeof document !== 'undefined') document.documentElement.setAttribute
 //                     player to reach gameplay in one click with no account.
 //                     Only with a server configured (nothing to sign in to
 //                     otherwise).
-//   guestPlay      -- a PLAY NOW on the sign-in screen that starts a bot match
-//                     with no account. CrazyGames requires new players to reach
-//                     gameplay in one click. The web keeps its registered-only
-//                     rule (CLAUDE.md, "Offline play is for REGISTERED players").
+//   guestPlay      -- a PLAY AS GUEST way past the sign-in gate (the user's
+//                     call, 2026-10-08): the device plays on its own guest
+//                     save, synced as a guest, and can make an account later
+//                     from Gear without losing anything. Only means something
+//                     where requireLogin does (CrazyGames has no gate at all).
 //   sellsOfflinePlay -- offline play is a one-time purchase (server.js's
 //                     OFFLINE PLAY UNLOCK, paid through Square). Web only: a
 //                     build carries one way of making money, and CrazyGames'
@@ -66,7 +67,7 @@ try { if (typeof document !== 'undefined') document.documentElement.setAttribute
 //                     allows no other login and owns the name and picture.
 export const features = Object.freeze(isCrazyGames
     ? { offlineInstall: false, externalLogin: false, requireLogin: false, guestPlay: true, sellsOfflinePlay: false, platformLogin: true, ownLoader: true, ads: true, sdkInvites: true }
-    : { offlineInstall: true, externalLogin: true, requireLogin: true, guestPlay: false, sellsOfflinePlay: true, platformLogin: false, ownLoader: false, ads: false, sdkInvites: false });
+    : { offlineInstall: true, externalLogin: true, requireLogin: true, guestPlay: true, sellsOfflinePlay: true, platformLogin: false, ownLoader: false, ads: false, sdkInvites: false });
 
 // ---------------------------------------------------------------------------
 // SDK plumbing

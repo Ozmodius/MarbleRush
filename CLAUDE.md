@@ -73,10 +73,15 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   personal data beyond an account's email) needs the user's call.
   `npm test` runs `server/` tests too (`npm ci --prefix server` first);
   `TEST_DATABASE_URL` runs them against a real Postgres.
-- **The web build requires an account to play** (`features.requireLogin`,
-  the user's call, 2026-10-08); the CrazyGames build must never require one
-  (their rules: one click to gameplay, no account). Both are platform.js
-  flags -- never test the platform anywhere else to decide this.
+- **The web build opens on its front door** (`features.requireLogin`, the
+  user's call, 2026-10-08): the landing site, with CREATE ACCOUNT, SIGN IN
+  and -- also the user's call, same day -- PLAY AS GUEST
+  (`features.guestPlay`). A guest plays on the device's own save, synced as a
+  guest; the choice is remembered on the device (`planetilt.guestPlay` in
+  localStorage, never the save) and forgotten on sign-out or account delete.
+  The CrazyGames build must never require an account (their rules: one click
+  to gameplay, no account). All are platform.js flags -- never test the
+  platform anywhere else to decide this.
 - **No ad during a run, ever.** Midgame ads only at natural breaks; rewarded
   ads only on a tap the player chose. `platform.js`'s `showMidgameAd` /
   `showRewardedAd` already resolve false on the web and on any SDK failure.

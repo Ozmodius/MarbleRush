@@ -156,6 +156,16 @@ Accounts and play tracking (2026-10-08, Oz's call):
   account (3dBallSmack's PLAY NOW exists for the same reason). Expect it to
   cost first-session players on the web: the funnel's first step on /admin
   is where that shows.
+- *Guest play on the web* (Oz's call, later the same day): the landing
+  site's hero and closing section offer "or play as a guest" under CREATE
+  ACCOUNT / SIGN IN (`features.guestPlay`), a quiet link so an account stays
+  the obvious choice. A guest plays on the device's save, synced as a guest
+  (the server always made one per device), and is not shown the site again
+  on that device (`planetilt.guestPlay`, a device preference). Gear tells a
+  guest their progress lives on this device only and offers CREATE ACCOUNT;
+  the guest becomes the account, keeping everything. Signing out or deleting
+  the account forgets the choice. /admin counts `landing:guest` beside
+  `landing:register` and `landing:signin` (its "Front door" group).
 - *A landing site is the web's front door* (Oz's call, same day): a new
   player first sees a scrolling page about the game -- the hero, the five
   worlds and their traps, how tilting plays, Explore mode, marbles and looks,

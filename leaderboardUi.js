@@ -27,6 +27,9 @@ function renderStatus() {
     const crazySignedIn = !!(me && me.kind === 'crazygames');
     const platformOffer = !!(login && login.available() && !crazySignedIn);
     $('acctGuest').hidden = signedIn || crazySignedIn;
+    $('acctGuestHelp').textContent = features.requireLogin
+        ? 'You are playing as a guest, so your progress is kept on this device only. Make a free account to keep it safe and pick it up on any device.'
+        : 'Make an account to keep your progress safe and pick it up on any device.';
     $('acctOwnButtons').hidden = !features.externalLogin;
     // Nothing to offer (signed in with CrazyGames, or no way to sign in
     // here): no card at all.
@@ -83,13 +86,43 @@ function acctView(view, message, ok) {
 // landing site (index.html's LANDING): what the game is, with CREATE ACCOUNT
 // after every highlight and SIGN IN / CREATE ACCOUNT on its top bar, each
 // opening this panel OVER the site -- closable, back to the site. Without the
-// site (a build that strips it) the panel itself is the gate, unclosable.
+// site (a build that strips it) the panel itself is the gate, unclosable but
+// for its own PLAY AS GUEST.
+//
+// PLAY AS GUEST (features.guestPlay, the user's call, 2026-10-08) is the other
+// way past: the device plays as the guest it already is (its own save, synced
+// as a guest), and the choice is remembered on the device (localStorage, a
+// device preference like the sound button, never the save), so the site does
+// not come back on every visit. Gear's ACCOUNT card still offers CREATE
+// ACCOUNT, and the guest's progress becomes the account's. Signing out or
+// deleting an account forgets the choice: the device is a new guest and
+// starts at the front door again.
+const GUEST_KEY = 'planetilt.guestPlay';
+const guestChosen = () => {
+    if (!features.guestPlay) return false;
+    try { return localStorage.getItem(GUEST_KEY) === '1'; } catch (_) { return false; }
+};
+const setGuestChosen = (on) => {
+    try { if (on) localStorage.setItem(GUEST_KEY, '1'); else localStorage.removeItem(GUEST_KEY); } catch (_) { /* storage blocked: the gate asks again next visit */ }
+};
+let guestThisVisit = false;   // chose guest though storage refused to keep it
 let gate = false;
 const landing = () => $('landing');
 const needsAccount = () => {
     const me = sync && sync.player();
+    if (features.guestPlay && (guestThisVisit || guestChosen())) return false;
     return !!(features.requireLogin && sync && sync.enabled && !(me && me.kind === 'account'));
 };
+function playAsGuest() {
+    if (!features.guestPlay) return;
+    guestThisVisit = true;
+    setGuestChosen(true);
+    sync.track({ type: 'act', name: 'landing:guest' });
+    $('accountPanel').hidden = true;
+    $('acctMsg').textContent = '';
+    closeGate();
+    renderStatus();
+}
 function openGate() {
     if (gate) return;
     gate = true;
@@ -137,13 +170,17 @@ function signedInDone(r, words) {
 function updateDeleteBtn() { $('deleteGoBtn').disabled = $('deleteConfirm').value.trim().toUpperCase() !== 'DELETE'; }
 
 function wireLanding() {
+    $('acctGateGuestBtn').hidden = !features.guestPlay;
+    $('acctGateGuestBtn').addEventListener('click', (e) => { e.preventDefault(); playAsGuest(); });
     const site = landing();
     if (!site) return;
+    for (const b of site.querySelectorAll('[data-lp="guest"]')) b.hidden = !features.guestPlay;
     // Every CREATE ACCOUNT and SIGN IN on the site, the top bar's included.
     site.addEventListener('click', (e) => {
         const b = e.target.closest('[data-lp]');
         if (!b) return;
         e.preventDefault();
+        if (b.dataset.lp === 'guest') { playAsGuest(); return; }
         sync.track({ type: 'act', name: 'landing:' + b.dataset.lp });
         acctView(b.dataset.lp);
     });
@@ -210,6 +247,7 @@ function wireAccountPanel(reload) {
         if ($('deleteConfirm').value.trim().toUpperCase() !== 'DELETE') return;
         const r = await sync.deleteAccount($('deletePassword').value);
         if (!r.ok) { $('acctMsg').textContent = errorText(r.error); return; }
+        setGuestChosen(false);
         reload();
     }));
     $('acctDeleteLink').addEventListener('click', (e) => {
@@ -226,6 +264,7 @@ function wireAccountPanel(reload) {
         const r = await sync.logout();
         btn.disabled = false;
         if (!r.ok) { $('cloudMsg').textContent = r.error === 'offline' ? 'Could not reach the server, so you are still signed in (nothing is lost).' : errorText(r.error); return; }
+        setGuestChosen(false);
         reload();
     });
 }
