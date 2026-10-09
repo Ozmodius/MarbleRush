@@ -53,6 +53,12 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   of fullscreen.
 - **Frame-rate assertions are ratios, not rates.** This sandbox throttles rAF.
   A browser test waits on frames, never on a wall clock.
+- **Physics runs on real time at any refresh rate** (2026-10-08). The frame
+  loop steps whole FIXED_STEPs and CARRIES the remainder (`simCarryMs`); the
+  ball is drawn between its last two steps. Never round a frame up to a step:
+  that ran the marble 2.4x fast at 144 Hz (a CrazyGames QA check, and unfair
+  gold times). `test_maze_boot.js` checks 30/60/120/144/165 Hz agree, in ONE
+  page.evaluate (the page's own rAF must not slip frames in between).
 
 ## Rules that are new here
 
@@ -82,8 +88,19 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   The CrazyGames build must never require an account (their rules: one click
   to gameplay, no account). All are platform.js flags -- never test the
   platform anywhere else to decide this.
+- **A new player is one tap from playing** (2026-10-08, CrazyGames' Full
+  Launch rule): with no clears, boot opens level 1's ready screen
+  (`isNewPlayer`, main.js) -- except behind the web's sign-in front door
+  (`features.requireLogin` with a server). The daily calendar never pops up
+  before the first clear. Keys start a run on a computer (Space, Enter, an
+  arrow), and the ready line speaks keys or tilt by the device.
+- **The privacy policy lives in the game** (`privacy.js`, an in-game panel
+  from Gear, the landing footer and a new player's line under START when a
+  server is on). It must stay TRUE to `server/`: change it with anything the
+  server starts keeping.
 - **No ad during a run, ever.** Midgame ads only at natural breaks; rewarded
-  ads only on a tap the player chose. `platform.js`'s `showMidgameAd` /
+  ads only on a tap the player chose. Leaving a level is a break only if a
+  run was played on that visit (`ranThisVisit`). `platform.js`'s `showMidgameAd` /
   `showRewardedAd` already resolve false on the web and on any SDK failure.
 - **The CrazyGames bundle is flat** (no folders): CrazyGames' drag-and-drop
   upload can drop subfolders. Ball Smack's `scripts/buildCrazyGames.js` is the

@@ -1,4 +1,4 @@
-import { initPlatform, loadingStart, loadingStop, loadSave, writeSave, onAdBusy, apiBase, getPlatformUserToken, onPlatformAuthChange, isPlatformLoginAvailable, showPlatformLogin } from './platform.js';
+import { features, initPlatform, loadingStart, loadingStop, loadSave, writeSave, onAdBusy, apiBase, getPlatformUserToken, onPlatformAuthChange, isPlatformLoginAvailable, showPlatformLogin } from './platform.js';
 import { initSceneHost } from './sceneHost.js';
 import { createProgressStore } from './progressStore.js';
 import * as game from './mazeGame.js';
@@ -6,6 +6,7 @@ import { initShopUi } from './shopUi.js';
 import { initMenus, marbleChanged, progressChanged } from './menus.js';
 import { createCloudSync } from './cloudSync.js';
 import { initCloudUi } from './leaderboardUi.js';
+import { initPrivacy } from './privacy.js';
 
 // BOOT. Platform first (CrazyGames wants loadingStart as early as possible and
 // the save may live in its SDK), then the renderer, then the save, then the
@@ -41,12 +42,19 @@ async function boot() {
     initShopUi({ store, getLevels: game.getLevels, onChange: marbleChanged, tryMarble: game.startMarbleTrial });
     initMenus({ store, game });
     const ok = await game.enterMaze(store);
+    // A first visit opens on level 1, START away from playing (CrazyGames'
+    // Full Launch rule: at most one click to gameplay); home and the daily
+    // calendar come after. Not behind the web's sign-in front door
+    // (features.requireLogin with a server), where someone signing in may
+    // be a returning player and the landing site is the first screen anyway.
+    if (ok && game.isNewPlayer() && !(features.requireLogin && apiBase())) game.playLevel();
     loadingStop();
     bootMessage(ok ? '' : 'COULD NOT LOAD THE LEVELS. RELOAD TO TRY AGAIN.');
 
     const sync = createCloudSync({ store, api: apiBase(), getCrazyToken: getPlatformUserToken, onRemoteChange: progressChanged });
+    const privacy = initPrivacy({ online: !!sync.enabled, isNew: game.isNewPlayer });
     game.setClearListener(initCloudUi({ sync, login: { available: isPlatformLoginAvailable, show: showPlatformLogin } }));
-    game.setRunListener(ev => sync.track(ev));
+    game.setRunListener((ev) => { if (ev && ev.type === 'start') privacy.runStarted(); sync.track(ev); });
     store.onAction(name => sync.track({ type: 'act', name }));
     onPlatformAuthChange(() => sync.reconnect());
     sync.start();

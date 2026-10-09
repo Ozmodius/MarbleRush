@@ -282,3 +282,16 @@ No crumbling or sinking floor in any world (see CLAUDE.md).
 - Allow a midgame ad after repeated falls? (Ball Smack never shows one there.)
 - Keep the maze inside Ball Smack too? (Plan says yes.)
 - Any link between the two games' economies? (Plan says not at launch.)
+
+CrazyGames review fixes (2026-10-08, Oz's go-ahead after a review against
+CrazyGames' requirements):
+- *Refresh rate*: physics carried a remainder instead of rounding each frame
+  up to a step, so 120/144/165 Hz play at real speed (it ran 2-2.75x fast).
+- *One tap to play*: a new player opens on level 1's START; the calendar
+  waits for the first clear; keys start a run on a computer.
+- *Privacy*: an in-game policy (Ponotech LLC) and, with a server, a one-line
+  notice under a new player's START (CrazyGames asks for one when a game
+  keeps data beyond SDK events: here, names on leaderboards).
+- *No ad for backing out of an unplayed level.*
+- *Sign-in no longer waits on a slow save upload* (at most 2.5 s, then the
+  upload finishes in the background).

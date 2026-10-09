@@ -196,6 +196,9 @@ html, body {
   padding: 0 16px;
 }
 .maze-status { top: calc(66px + var(--safe-top)); font-size: 1.05rem; }
+/* The ready screen's line sits just above START, off the top of the board
+   where most levels start the marble (it covered the marble on level 1). */
+.maze-status.is-ready { top: auto; bottom: calc(86px + var(--safe-bottom)); }
 .maze-powerups { top: calc(94px + var(--safe-top)); font-size: 0.85rem; color: #9fe6ff; }
 .maze-bottombar, .maze-winpanel {
   position: absolute;
@@ -1379,6 +1382,7 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
 .lp-final { text-align: center; padding-block: 80px; }
 .lp-final .lp-lead { margin-inline: auto; }
 .lp-final .lp-ctas { justify-content: center; }
+.lp-foot-link { border: 0; background: none; padding: 0; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
 .lp-foot { padding: 28px 16px calc(28px + var(--safe-bottom)); text-align: center; color: var(--ink-dim); font-size: 0.82rem; border-top: 1px solid rgba(255, 214, 110, 0.08); }
 /* A phone's top bar has to hold the brand and both buttons in ~358px. */
 @media (max-width: 480px) {
@@ -1408,3 +1412,20 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
 }
 /* Over the landing site, the account panel is a normal closable card. */
 #accountPanel.over-landing { z-index: 90; }
+
+/* PRIVACY (privacy.js): the policy panel, above the landing site too, and a
+   new player's one-line notice under START. */
+#privacyPanel { z-index: 95; }
+.privacy-card { width: min(100%, 460px); text-align: left; }
+.privacy-body { margin-top: 10px; font-size: 0.86rem; line-height: 1.5; color: var(--ink); user-select: text; -webkit-user-select: text; }
+.privacy-body h3 { margin: 14px 0 4px; font-size: 0.9rem; color: #ffd66e; letter-spacing: 0.04em; }
+.privacy-body p { margin: 0; color: var(--ink-dim); }
+.privacy-body .privacy-updated { text-align: center; font-size: 0.78rem; }
+.privacy-note { position: absolute; left: 0; right: 0; bottom: calc(2px + var(--safe-bottom)); margin: 0; padding: 0 16px; text-align: center; font-size: 0.72rem; line-height: 16px; color: var(--ink-dim); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+.privacy-note button { pointer-events: auto; border: 0; background: none; padding: 0 2px; color: #6fc3ff; font: inherit; text-decoration: underline; cursor: pointer; }
+.privacy-note[hidden] { display: none; }
+.gear-foot { margin: 18px 0 4px; text-align: center; }
+/* With the notice under it, START (and the ready line above it) sit a little
+   higher so nothing touches. */
+.maze-hud:has(#privacyNote:not([hidden])) .maze-bottombar { bottom: calc(28px + var(--safe-bottom)); }
+.maze-hud:has(#privacyNote:not([hidden])) .maze-status.is-ready { bottom: calc(94px + var(--safe-bottom)); }
