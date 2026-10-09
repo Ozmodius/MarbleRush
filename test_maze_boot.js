@@ -53,7 +53,12 @@ const check = (c, m) => { if (!c) failures.push(m); };
     // Every fresh boot with today's daily reward unclaimed opens the calendar
     // over home (dailyUi.js); close it to get on with the rest.
     // A level-up card can come first; its OK goes on to the calendar.
+    // A new player with no sign-in front door opens on level 1 instead
+    // (main.js): back out of it to home. Boot is done once __cloudSync is set.
     const homeUp = async (pg) => {
+        await pg.waitForFunction(() => window.__cloudSync !== undefined, null, { timeout: 30000 });
+        const autoOpened = await pg.evaluate(() => window.__mazeDebug.phase() === 'ready' && !Object.keys(window.__mazeDebug.progress().cleared || {}).length);
+        if (autoOpened && await pg.isVisible('#mazeStartBtn')) await pg.tap('#mazeExitBtn');
         await pg.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
         if (await pg.isVisible('#levelPanel')) await pg.tap('#levelOkBtn');
         if (await pg.isVisible('#rewardsPanel')) await pg.tap('#rewardsCloseBtn');
@@ -68,15 +73,31 @@ const check = (c, m) => { if (!c) failures.push(m); };
         page.on('console', m => { if (m.type() === 'error' && !foreign(m.text() + JSON.stringify(m.location()))) errors.push(m.text()); });
         const dbg = (fn, ...args) => page.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
 
-        // --- boot -> home ------------------------------------------------
+        // --- boot: a new player opens on level 1, one tap from playing -------
+        // (CrazyGames' Full Launch rule: at most one click before gameplay.)
         await page.goto(base);
-        await page.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
-        check(await page.isVisible('#rewardsPanel') && await page.isVisible('#dailyPanel') && (await page.textContent('#dailyNote')).includes('Day 1')
-            && (await page.getAttribute('#rewardsTab_daily', 'aria-selected')) === 'true',
-            'a new player is met by REWARDS on the DAILY tab, day 1');
+        await page.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 30000 });
+        check(await dbg('phase') === 'ready' && (await page.textContent('#mazeLevelName')).trim() === levels[0].name
+            && await page.isHidden('#rewardsPanel') && await page.isHidden('#tabBar'),
+            'a new player opens on level 1\'s START, with no calendar or menus in the way');
+        check((await page.textContent('#mazeStatus')).trim() === 'TAP START, THEN TILT', `a touch device is told to tap START, then tilt: ${await page.textContent('#mazeStatus')}`);
+        check(await page.isHidden('#privacyNote'), 'with no server, no privacy line under START (nothing leaves the device)');
+        await page.tap('#mazeExitBtn');
+        await page.waitForSelector('#tabBar', { state: 'visible' });
+        await page.tap('#tab_home');
+        await page.waitForSelector('#homeView', { state: 'visible' });
+        check(await page.isHidden('#rewardsPanel'), 'home holds the calendar back until the first clear');
         check((await page.textContent('#homeRewardsBtn')).includes('REWARDS') && await page.isHidden('#homeMissionsBtn'), 'the side button says REWARDS (missions live in it now)');
-        await homeUp(page);
-        check(await page.isVisible('#homeRewardsBadge'), 'closed unclaimed, the REWARDS button keeps a badge');
+        check(await page.isVisible('#homeRewardsBadge'), 'unclaimed, the REWARDS button keeps a badge');
+        // Privacy: the policy opens in the game from Gear (no page to leave for).
+        await page.tap('#tab_gear');
+        await page.locator('#profileView [data-privacy]').tap();
+        await page.waitForSelector('#privacyPanel', { state: 'visible' });
+        check(/Ponotech LLC/.test(await page.textContent('#privacyBody')) && /leaderboard/.test(await page.textContent('#privacyBody')), 'Gear opens the privacy policy in the game');
+        await page.tap('#privacyCloseBtn');
+        check(await page.isHidden('#privacyPanel'), 'and it closes');
+        await page.tap('#tab_home');
+        await page.waitForSelector('#homeView', { state: 'visible' });
         check(await page.isVisible('#homeDailyMaze') && (await page.textContent('#homeMazeLabel')).trim() === 'LOCKED', 'a new player sees the daily maze locked');
         await page.tap('#homeDailyMaze');
         check(/Clear 3 levels/.test(await page.textContent('#homeToast')) && await page.isVisible('#homeView'), 'tapping it says what unlocks it, and starts nothing');
@@ -210,6 +231,27 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.keyboard.up('ArrowRight');
         check(p3.x > p2.x + 0.05, `ArrowRight must roll the ball right (+x): x ${p2.x.toFixed(2)} -> ${p3.x.toFixed(2)}`);
         check((await page.evaluate(() => window.__soundDebug.counts())).impact > 0, 'rolling into a wall is heard as a hit');
+        // The same half second of play moves the marble the same way on any
+        // refresh rate (a CrazyGames QA check; rounding each frame up to a whole
+        // physics step once ran it 2.4x fast at 144 Hz).
+        // One evaluate per measurement, so the page's own animation loop cannot
+        // slip real frames in between placing, pressing and stepping.
+        const travel = (hz) => page.evaluate(([hz, s]) => {
+            const d = window.__mazeDebug;
+            d.placeBall(s.x, s.z);                        // off whatever it rolled to
+            d.advanceFrames(60);                          // tilt settles back to level
+            d.placeBall(s.x, s.z);
+            window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowDown', key: 'ArrowDown' }));
+            const end = d.advanceFrames(hz / 2, 1000 / hz);
+            window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowDown', key: 'ArrowDown' }));
+            // Leave it at rest on the start with the board level, so the
+            // page's own frames cannot roll it on into a hole afterwards.
+            d.placeBall(s.x, s.z); d.advanceFrames(60); d.placeBall(s.x, s.z);
+            return Math.hypot(end.x - s.x, end.z - s.z);
+        }, [hz, levels[0].start]);
+        const hzTravel = { 60: await travel(60), 120: await travel(120), 144: await travel(144), 165: await travel(165), 30: await travel(30) };
+        check(hzTravel[60] > 0.3 && [120, 144, 165, 30].every(hz => Math.abs(hzTravel[hz] - hzTravel[60]) < hzTravel[60] * 0.06),
+            `the marble moves the same at 30, 60, 120, 144 and 165 Hz: ${JSON.stringify(hzTravel)}`);
         // The HUD's sound switch mutes and unmutes, and the choice is the device's.
         await page.tap('#mazeSoundBtn');
         check(await page.evaluate(() => window.__soundDebug.silent()) && await page.getAttribute('#mazeSoundBtn', 'aria-pressed') === 'true', 'the sound button mutes');
@@ -228,7 +270,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await dbg('advanceFrames', 2);
         check(await dbg('phase') === 'falling', `a ball over a hole falls (phase ${await dbg('phase')})`);
         check((await page.evaluate(() => window.__soundDebug.counts())).coin === 1, 'the coin is heard');
-        check((await page.evaluate(() => window.__soundDebug.counts())).holeDrop === 1, 'the fall is heard going down the hole');
+        check((await page.evaluate(() => window.__soundDebug.counts())).holeDrop === 1, `the fall is heard going down the hole: ${JSON.stringify(await page.evaluate(() => window.__soundDebug.counts()))}`);
         await dbg('advanceFrames', 3);
         await page.evaluate(() => new Promise(r => setTimeout(r, 900)));   // FALL_RESTART_MS is wall clock
         await dbg('advanceFrames', 1);
@@ -267,7 +309,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check((await page.textContent('#levelTitle')).trim() === 'LEVEL UP!' && (await page.textContent('#levelBig')).trim() === '2'
             && /60 coins/.test(await page.textContent('#levelRewards')), 'home shows the level-up and what it paid');
         await page.tap('#levelOkBtn');
-        check(await page.isHidden('#levelPanel') && await page.isHidden('#dailyPanel'), 'NICE! closes it (the calendar was already seen this session)');
+        // With a level cleared, NICE! goes on to the calendar (its first time
+        // this session): day 1 on the DAILY tab.
+        await page.waitForSelector('#rewardsPanel', { state: 'visible' });
+        check(await page.isHidden('#levelPanel') && await page.isVisible('#dailyPanel') && (await page.textContent('#dailyNote')).includes('Day 1')
+            && (await page.getAttribute('#rewardsTab_daily', 'aria-selected')) === 'true', 'NICE! goes on to REWARDS on the DAILY tab, day 1');
+        await page.tap('#rewardsCloseBtn');
+        await page.waitForSelector('#rewardsPanel', { state: 'hidden' });
         check((await page.textContent('#homePlayerLevel')).trim() === '2' && /^20 \/ 136 XP$/.test((await page.textContent('#homeXpText')).trim()),
             `the level bar shows level 2, 20 of 136 XP: ${await page.textContent('#homeXpText')}`);
         await page.tap('#homeLevelBar');
@@ -830,7 +878,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 await pg.goto(base);
                 if (!crazyBuild && auth) await (auth.before ? auth.before(pg) : passGate(pg, auth));
                 await homeUp(pg);
-                await pg.waitForFunction(() => window.__cloudSync && window.__cloudSync.status() === 'synced', null, { timeout: 15000 });
+                await pg.waitForFunction(() => window.__cloudSync && window.__cloudSync.status() === 'synced', null, { timeout: 15000 }).catch(async (e) => {
+                    console.log('DEBUG sync:', JSON.stringify(await pg.evaluate(() => ({ st: window.__cloudSync && window.__cloudSync.status(), pl: window.__cloudSync && window.__cloudSync.player(), phase: window.__mazeDebug.phase() }))));
+                    throw e;
+                });
                 return { c, pg, dbg: (fn, ...args) => pg.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]) };
             };
             const today = new Date();
@@ -923,7 +974,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 check(/Wrong username/.test(await pg.textContent('#acctMsg')) && await pg.isVisible('#accountPanel'), 'a wrong password says so, and the gate stays');
                 await pg.fill('#acctPassword', 'marbles-rule');
                 await pg.tap('#acctView_signin button[type=submit]');
-                await pg.waitForSelector('#landing', { state: 'hidden', timeout: 10000 });
+                await pg.waitForSelector('#landing', { state: 'hidden', timeout: 10000 }).catch(async (e) => {
+                    console.log('DEBUG d2 sign-in:', JSON.stringify(await pg.evaluate(() => ({ msg: document.getElementById('acctMsg').textContent, panel: !document.getElementById('accountPanel').hidden, player: window.__cloudSync && window.__cloudSync.player(), status: window.__cloudSync && window.__cloudSync.status() }))));
+                    throw e;
+                });
             } });
             if (!crazyBuild) {
                 const d2prog = await d2.dbg('progress');
@@ -1007,6 +1061,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const adbg = (fn, ...args) => ad.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
         const adLog = () => ad.evaluate(() => window.__adLog.slice());
         await ad.goto(base);
+        // A new CrazyGames player opens on level 1, START away from playing;
+        // backing out of it untouched is no break, so no ad.
+        await ad.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 30000 });
+        check(await adbg('phase') === 'ready' && await ad.isHidden('#tabBar'), 'on CrazyGames a new player opens on level 1, one tap from playing');
+        await ad.tap('#mazeExitBtn');
+        await ad.waitForSelector('#homeView', { state: 'visible' });
+        check(!(await adLog()).some(x => /midgame/.test(x)), `backing out of an unplayed level shows no ad: ${JSON.stringify(await adLog())}`);
         await homeUp(ad);
         check(await ad.isVisible('#homeFreeCoins') && !(await ad.isDisabled('#homeFreeCoins')) && (await ad.textContent('#homeFreeLabel')).trim() === '+60',
             'on CrazyGames, home offers free coins for an ad');

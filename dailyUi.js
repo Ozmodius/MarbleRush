@@ -325,8 +325,12 @@ export function renderDailyButtons() {
 
 // On arriving home: the calendar opens by itself, once a session, when today's
 // reward has not been claimed.
+// Never for a player who has not cleared a level yet: their first minutes are
+// for the game, and the calendar is still on the REWARDS button.
 export function maybeAutoOpenDaily() {
     if (!ctx || autoShown) return;
+    const p = ctx.store.get();
+    if (!Object.keys((p && p.cleared) || {}).length) return;
     autoShown = true;
     if (ctx.store.dailyStatus().canClaim) openRewards('daily');
 }

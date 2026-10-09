@@ -137,7 +137,7 @@
       <button class="lp-guest" type="button" data-lp="guest">or play as a guest &rsaquo;</button>
     </section>
   </main>
-  <footer class="lp-foot">© 2026 PlaneTilt. Free to play.</footer>
+  <footer class="lp-foot">© 2026 PlaneTilt. Free to play. · <button class="lp-foot-link" type="button" data-privacy>Privacy</button></footer>
 </div>
 <!-- LANDING:END -->
 
@@ -287,6 +287,7 @@
       </div>
     </div>
   </div>
+  <p class="gear-foot"><button class="acct-link" type="button" data-privacy>Privacy</button></p>
   <div id="profileBanner" class="ad-banner" aria-hidden="true"></div>
 </section>
 
@@ -338,6 +339,8 @@
     <button id="mazeUse_slowmo" class="maze-btn maze-charge" type="button" style="display:none"><span class="pu-dot pu-slowmo"></span>SLOW-MO <span class="count"></span></button>
     <button id="mazeUse_magnet" class="maze-btn maze-charge" type="button" style="display:none"><span class="pu-dot pu-magnet"></span>MAGNET <span class="count"></span></button>
   </div>
+  <!-- A new player's notice, under START, when a server is on (privacy.js) -->
+  <p id="privacyNote" class="privacy-note" hidden>Progress and best times are saved online. <button type="button" data-privacy>Privacy</button></p>
   <div class="maze-bottombar">
     <button id="mazeStartBtn" class="maze-btn maze-btn-big" type="button">START</button>
     <button id="mazeAdShieldBtn" class="maze-btn maze-btn-ad" type="button" style="display:none"><span class="ad-play">▶</span>FREE SHIELD</button>
@@ -421,6 +424,15 @@
     <p id="boardNote" class="modal-note"></p>
     <ol id="boardList" class="board-list"></ol>
     <p id="boardYou" class="board-you"></p>
+  </div>
+</div>
+
+<!-- PRIVACY: the policy, in the game (privacy.js) -->
+<div id="privacyPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="privacyTitle" hidden>
+  <div class="modal-card privacy-card">
+    <button id="privacyCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+    <h2 id="privacyTitle" class="modal-title">PRIVACY</h2>
+    <div id="privacyBody" class="privacy-body"></div>
   </div>
 </div>
 

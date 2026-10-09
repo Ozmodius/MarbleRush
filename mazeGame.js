@@ -70,6 +70,7 @@ const WALL_HEIGHT = 0.55;
 const FLOOR_Y = 0;
 const FIXED_STEP = 1 / 60;
 const MAX_CATCHUP_STEPS = 150;   // ~2.5s of sim in one frame, same cap diceBox3d uses
+const FIXED_STEP_MS = FIXED_STEP * 1000;
 
 // How far the board leans on screen at full tilt. Feedback only -- deliberately
 // far less than the ~25 degrees of real lean that produces it, because a board
@@ -361,6 +362,17 @@ let active = false;
 let phase = 'idle';              // idle | ready | running | falling | won
 let frameHookInstalled = false;
 let lastStepTime = 0;
+// Simulated time not yet stepped (less than one FIXED_STEP). Carried between
+// frames so the sim runs at real time on ANY refresh rate: a 144 Hz frame is
+// 0.42 of a step, so most frames step once and some not at all. Rounding each
+// frame up to a whole step (as this did until 2026-10-08) ran the marble 2.4x
+// fast at 144 Hz and 2x at 120 Hz -- a CrazyGames QA check, and unfair times.
+let simCarryMs = 0;
+// The ball's pose before the last step, so a frame between steps draws it
+// part of the way there instead of holding still (no judder at 144 Hz).
+const prevBallPos = new THREE.Vector3();
+const prevBallQuat = new THREE.Quaternion();
+let prevBallValid = false;
 let fallStartedAt = 0;
 let runStartedAt = 0;
 
@@ -419,9 +431,29 @@ function showManualHint() {
     setStatus(MANUAL_HINT);
 }
 function inRun() { return active && phase === 'running'; }
+// The ready screen's instruction, in the words of the device in hand: a
+// computer with a mouse and no touch steers with keys, everything else tilts.
+function keyboardFirst() {
+    try { return !!(window.matchMedia && window.matchMedia('(pointer: fine)').matches) && !(navigator.maxTouchPoints > 0); } catch (_) { return false; }
+}
+function readyHint() {
+    if (keyboardFirst()) return walkMode ? 'PRESS SPACE TO START, THEN FIND THE EXIT' : 'PRESS SPACE OR AN ARROW KEY TO START';
+    return walkMode ? 'TAP START, THEN FIND THE EXIT' : 'TAP START, THEN TILT';
+}
 
 if (typeof window !== 'undefined') {
     window.addEventListener('keydown', (e) => {
+        // On the ready screen a keyboard starts the run too: Space or Enter,
+        // or (rolling) the first arrow/WASD press -- a desktop player's hand
+        // is already on them. Not while a dialog is up or START is hidden.
+        if (active && phase === 'ready' && !e.repeat && (e.code === 'Space' || e.code === 'Enter' || (KEY_DIRS[e.code] && !walkMode))) {
+            const t0 = e.target, btn = el('mazeStartBtn');
+            if (t0 && (t0.tagName === 'INPUT' || t0.tagName === 'TEXTAREA' || t0.isContentEditable)) return;
+            if (!btn || btn.hidden || btn.style.display === 'none' || document.querySelector('.modal:not([hidden])')) return;
+            e.preventDefault();
+            startRun();
+            return;
+        }
         const d = KEY_DIRS[e.code];
         if (!d || !inRun()) return;
         const t = e.target;
@@ -996,15 +1028,28 @@ function advance(elapsedMs) {
     // Fixed timestep with a hand-rolled catch-up, exactly as diceBox3d.js does
     // and for the same reason: cannon's own accumulator bails out of substep
     // catch-up under CPU contention and leaves the sim permanently behind.
+    // Whole steps only, the remainder carried to the next frame (simCarryMs);
+    // past the catch-up cap the backlog is dropped rather than chased.
     const simMs = phase === 'running' ? elapsedMs * timeScale(pickupState) : elapsedMs;
-    const steps = Math.min(Math.max(1, Math.round((simMs / 1000) / FIXED_STEP)), MAX_CATCHUP_STEPS);
+    simCarryMs += simMs;
+    let steps = Math.floor(simCarryMs / FIXED_STEP_MS);
+    if (steps > MAX_CATCHUP_STEPS) { steps = MAX_CATCHUP_STEPS; simCarryMs = 0; }
+    else simCarryMs -= steps * FIXED_STEP_MS;
     for (let i = 0; i < steps; i++) {
         if (phase === 'running') { if (walkMode) applyWalk(FIXED_STEP); applyConveyor(FIXED_STEP); applyWind(FIXED_STEP); applyGeysers(FIXED_STEP); applyToys(); applyFoundry(FIXED_STEP); }
+        if (i === steps - 1) { prevBallPos.copy(ballBody.position); prevBallQuat.copy(ballBody.quaternion); prevBallValid = true; }
         world.step(FIXED_STEP);
     }
 
+    // Draw the ball between its last two steps by the carried fraction. A
+    // jump (restart, revive, a placed ball) is drawn where it landed.
     ballMesh.position.copy(ballBody.position);
     ballMesh.quaternion.copy(ballBody.quaternion);
+    if (prevBallValid && ballMesh.position.distanceToSquared(prevBallPos) < 1) {
+        const a = simCarryMs / FIXED_STEP_MS;
+        ballMesh.position.lerp(prevBallPos, 1 - a);
+        ballMesh.quaternion.slerp(prevBallQuat, 1 - a);
+    }
     if (trail) trail.update(ballBody.position, elapsedMs);
     if (walkMode) {
         if (walkHud) walkHud.update(ballBody.position.x, ballBody.position.z, walkYaw, elapsedMs);
@@ -1369,6 +1414,10 @@ async function freeShieldFromAd() {
 // clear, or quit (left the level mid-attempt), as { type, level, mode, ms? }.
 let runListener = null;
 let attemptOpen = false;
+// A run was played on this visit to a level: only then is leaving it a break
+// worth an ad. Backing out of a ready screen untouched (a new player looking
+// around) never shows one.
+let ranThisVisit = false;
 export function setRunListener(fn) { runListener = fn || null; }
 function emitRun(type, extra) {
     if (!runListener || !level) return;
@@ -1493,6 +1542,7 @@ function restart() {
     renderPowerups();
     phase = 'running';
     attemptOpen = true;
+    ranThisVisit = true;
     emitRun('start');
     setStatus('');
     showWinStar(false);
@@ -1511,7 +1561,12 @@ function formatTime(ms) {
 
 function el(id) { return document.getElementById(id); }
 function showEl(id, show) { const e = el(id); if (e) e.style.display = show ? '' : 'none'; }
-function setStatus(text) { const e = el('mazeStatus'); if (e) e.textContent = text || ''; }
+function setStatus(text) {
+    const e = el('mazeStatus');
+    if (!e) return;
+    e.textContent = text || '';
+    e.classList.toggle('is-ready', phase === 'ready');   // above START, off the board's top
+}
 function renderCoins() {
     const e = el('mazeCoins');
     if (e) e.textContent = pickupState ? `${pickupState.coins} / ${(level && level.coins || []).length}` : '';
@@ -1744,6 +1799,13 @@ export function worldAnchors() {
 // The menus ask mazeGame for screens through these.
 export function setMenuHandler(fn) { menuHandler = fn; }
 export function showMenus(tab) { enterMenus(tab); }
+// A player who has never cleared, walked or played a daily maze: the game
+// opens them straight into level 1's ready screen, one tap (START) from
+// playing (CrazyGames' Full Launch rule; better first minutes everywhere).
+export function isNewPlayer() {
+    const p = progressNow();
+    return !Object.keys(p.cleared || {}).length && !Object.keys(p.walks || {}).length && !(p.highestIndex > 0);
+}
 export function playLevel(id) {
     if (!id) {
         const home = homeLevel();
@@ -1885,8 +1947,9 @@ function startLevel(levelId, opts = {}) {
 
     phase = 'ready';
     lastStepTime = 0;
+    simCarryMs = 0; prevBallValid = false;
     smoothed = null;
-    setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : walkMode ? 'TAP START, THEN FIND THE EXIT' : 'TAP START, THEN TILT');
+    setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : readyHint());
     freeShieldTaken = false;
     rewardedThisBreak = false;   // that break is over; this level's are its own
     closeFallOffer();
@@ -2208,6 +2271,7 @@ export async function enterMaze(progressStore) {
     active = true;
     phase = 'idle';
     lastStepTime = 0;
+    simCarryMs = 0; prevBallValid = false;
     smoothed = null;
 
     if (!frameHookInstalled) { onFrame(step); frameHookInstalled = true; }
@@ -2334,7 +2398,8 @@ export function initMazeControls() {
     // spaces break ads at least three minutes apart).
     const leave = async () => {
         if (phase === 'running' || phase === 'falling' || phase === 'offer') { closeFallOffer(); phase = 'idle'; setGameplayActive(false); }
-        if (features.ads && !rewardedThisBreak) await showMidgameAd();
+        if (features.ads && !rewardedThisBreak && ranThisVisit) await showMidgameAd();
+        ranThisVisit = false;
         enterMenus('home');
     };
     bindTap('mazeReviveBtn', () => { reviveFromAd(); });

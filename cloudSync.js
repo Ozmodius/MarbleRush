@@ -24,6 +24,11 @@
 export const CLOUD_KEY = 'planetilt.cloud.v1';
 const RETRY_MS = 30e3;
 const TIMEOUT_MS = 10e3;
+// How long signing in (or making an account) waits for the save to go up
+// before it reports done; the push finishes in the background after that.
+// A slow upload used to hold the sign-in form open for up to TIMEOUT_MS
+// after the server had already said yes.
+const SIGNIN_PUSH_WAIT_MS = 2500;
 
 function memoryStorage() {
     const m = new Map();
@@ -200,9 +205,13 @@ export function createCloudSync({
             remember(r.token, r.player);
             acct = r.account || null;
             adopt(r.save, joined);
-            try { await pushNow(); } catch (_) { /* it goes up with the next save */ }
-            status = 'synced';
-            for (const fn of listeners) { try { fn(status, me); } catch (_) { /* ignore */ } }
+            const pushed = pushNow().catch(() => { /* it goes up with the next save */ }).then(() => {
+                status = 'synced';
+                for (const fn of listeners) { try { fn(status, me); } catch (_) { /* ignore */ } }
+            });
+            let waited = null;
+            await Promise.race([pushed, new Promise((res) => { waited = setTimer(res, SIGNIN_PUSH_WAIT_MS); })]);
+            if (waited) clearTimer(waited);
         }
         return { ok: true, ...r };
     }
