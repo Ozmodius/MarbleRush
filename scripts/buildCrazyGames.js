@@ -21,8 +21,8 @@
 // Run: node scripts/buildCrazyGames.js   (or npm run build:crazygames)
 //
 // --web builds the same flat bundle WITHOUT the platform flag or the SDK, into
-// dist/web/ and with no zip: the plain web game, for GitHub Pages (published
-// by .github/workflows/pages.yml). Pages serves only what is committed, and
+// dist/web/ and with no zip: the plain web game, for planetilt.com (a Render
+// static site that runs this). A static host serves only what is committed, and
 // node_modules is not, so the dev page's importmap cannot load there; the
 // bundle has three and cannon-es inside it.
 
@@ -82,7 +82,7 @@ async function build() {
     });
     fs.writeFileSync(path.join(OUT, 'index.html'), page());
     for (const f of ['style.css', 'mazeLevels.json', 'dailyLevels.json']) fs.copyFileSync(path.join(ROOT, f), path.join(OUT, f));
-    // The web build's landing site pictures (GitHub Pages keeps folders).
+    // The web build's landing site pictures (the web host keeps folders).
     if (WEB) fs.cpSync(path.join(ROOT, 'landing'), path.join(OUT, 'landing'), { recursive: true });
 
     // Flatness, checked rather than assumed.
