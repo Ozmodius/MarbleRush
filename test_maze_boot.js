@@ -938,8 +938,46 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 await d2.pg.waitForFunction(() => window.__cloudSync.status() === 'synced', null, { timeout: 15000 });
                 check((await d2.dbg('progress')).cleared.w1_01, 'signing in by username brings it back');
             }
+            // Device 3 plays as a guest (features.guestPlay): past the front door
+            // with no account, remembered on the device, an account offered on
+            // Gear later; signing out of that account starts at the door again.
+            let d3 = null;
+            if (!crazyBuild) {
+                d3 = await cloudDevice({ v: 1, wallet: 321, xp: 0, highestIndex: 1, cleared: { w1_01: { bestMs: 88000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {} }, { before: async (pg) => {
+                    await pg.waitForSelector('#landing', { state: 'visible', timeout: 30000 });
+                    const guestLinks = await pg.$$eval('#landing [data-lp="guest"]', els => els.filter(e => !e.hidden).length);
+                    check(guestLinks >= 2, `the landing site offers PLAY AS GUEST under its big buttons (${guestLinks})`);
+                    await pg.locator('.lp-hero [data-lp="guest"]').tap();
+                    await pg.waitForSelector('#landing', { state: 'hidden', timeout: 10000 });
+                    check(await pg.isHidden('#accountPanel'), 'playing as a guest opens the game with no account panel');
+                } });
+                check((await d3.pg.evaluate(() => window.__cloudSync.player())).kind === 'guest', 'the device plays as a guest');
+                await d3.pg.reload();
+                // The new visit's calendar slides in a moment after home shows:
+                // let it arrive and settle before homeUp closes it.
+                await d3.pg.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+                await d3.pg.waitForSelector('#rewardsPanel', { state: 'visible', timeout: 5000 }).catch(() => {});
+                await d3.pg.evaluate(() => new Promise(r => { let n = 30; const f = () => (--n ? requestAnimationFrame(f) : r()); requestAnimationFrame(f); }));
+                await homeUp(d3.pg);
+                check(await d3.pg.isHidden('#landing') && (await d3.dbg('progress')).cleared.w1_01, 'the guest choice is remembered: a new visit goes straight to the game, progress kept');
+                await d3.pg.tap('#tab_gear');
+                check(await d3.pg.isVisible('#acctGuest') && /guest/.test(await d3.pg.textContent('#acctGuestHelp')) && await d3.pg.isVisible('#acctCreateBtn'),
+                    'Gear tells the guest their progress is on this device only, and offers CREATE ACCOUNT');
+                await d3.pg.tap('#acctCreateBtn');
+                await d3.pg.fill('#regUsername', 'TurnedPro');
+                await d3.pg.fill('#regEmail', 'guest@example.com');
+                await d3.pg.fill('#regPassword', 'marbles-rule');
+                await d3.pg.tap('#acctView_register button[type=submit]');
+                await d3.pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 10000 });
+                check(/^Signed in as TurnedPro/.test(await d3.pg.textContent('#acctWho')) && (await d3.dbg('progress')).cleared.w1_01 && (await d3.dbg('progress')).wallet === 321,
+                    'a guest who makes an account keeps their clears and coins');
+                await d3.pg.tap('#acctSignOutBtn');
+                await d3.pg.waitForSelector('#landing', { state: 'visible', timeout: 30000 });
+                check(true, 'signing out forgets the guest choice: the front door again');
+            }
             await d1.c.close();
             await d2.c.close();
+            if (d3) await d3.c.close();
         } finally { apiServer.close(); }
 
         // --- ads, against a stand-in CrazyGames SDK -------------------------

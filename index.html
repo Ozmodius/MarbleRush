@@ -54,6 +54,7 @@
           <button class="lp-btn lp-gold lp-big" type="button" data-lp="register">Create free account</button>
           <button class="lp-btn lp-ghost" type="button" data-lp="signin">I already play</button>
         </div>
+        <button class="lp-guest" type="button" data-lp="guest">or play as a guest &rsaquo;</button>
       </div>
     </section>
 
@@ -133,6 +134,7 @@
         <button class="lp-btn lp-gold lp-big" type="button" data-lp="register">Create free account</button>
         <button class="lp-btn lp-ghost" type="button" data-lp="signin">Sign in</button>
       </div>
+      <button class="lp-guest" type="button" data-lp="guest">or play as a guest &rsaquo;</button>
     </section>
   </main>
   <footer class="lp-foot">© 2026 PlaneTilt. Free to play.</footer>
@@ -266,7 +268,7 @@
         <!-- A guest: make an account or sign in (own accounts on the web; the
              platform's sign-in on CrazyGames) -->
         <div id="acctGuest" class="acct-block">
-          <p class="cloud-help">Make an account to keep your progress safe and pick it up on any device.</p>
+          <p id="acctGuestHelp" class="cloud-help">Make an account to keep your progress safe and pick it up on any device.</p>
           <div id="acctOwnButtons" class="acct-buttons">
             <button id="acctCreateBtn" class="maze-btn maze-btn-big" type="button">CREATE ACCOUNT</button>
             <button id="acctSignInBtn" class="maze-btn" type="button">SIGN IN</button>
@@ -364,7 +366,10 @@
   <div class="modal-card acct-card">
     <button id="acctCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
     <h2 id="acctTitle" class="modal-title">SIGN IN</h2>
-    <p id="acctGateNote" class="acct-gate-note" hidden>Welcome to PlaneTilt! Create a free account to play, or sign in. Your progress is saved to it, on every device.</p>
+    <div id="acctGateNote" class="acct-gate-note" hidden>
+      <p>Welcome to PlaneTilt! Create a free account, or sign in, and your progress is saved to it on every device.</p>
+      <button id="acctGateGuestBtn" class="acct-link" type="button">Play as guest</button>
+    </div>
     <form id="acctView_signin" class="acct-form" data-title="SIGN IN" hidden>
       <input id="acctLogin" type="text" placeholder="Username or email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="254" required>
       <input id="acctPassword" type="password" placeholder="Password" autocomplete="current-password" maxlength="200" required>
