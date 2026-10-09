@@ -94,6 +94,13 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   (`features.requireLogin` with a server). The daily calendar never pops up
   before the first clear. Keys start a run on a computer (Space, Enter, an
   arrow), and the ready line speaks keys or tilt by the device.
+- **Between levels, NEXT is the one bright choice** (2026-10-09). The CLEARED
+  line (time, medal, pay) stays up; what else a clear brought -- level up,
+  mission, prize, the daily maze unlocked -- goes on the line under it
+  (`#mazeStatus2`), never over it. Space/Enter on the CLEARED panel is NEXT
+  (REPLAY when there is none). EXPLORE IT dresses as a secondary button there.
+- **Nothing renders behind the landing site** (`sceneHost.setCovered`): the
+  spinning home planet cost a visitor's CPU and battery while they read it.
 - **The privacy policy lives in the game** (`privacy.js`, an in-game panel
   from Gear, the landing footer and a new player's line under START when a
   server is on). It must stay TRUE to `server/`: change it with anything the

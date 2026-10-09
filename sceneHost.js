@@ -11,6 +11,11 @@ import * as THREE from 'three';
 //   onFrame(fn)           called once per animation frame, before render
 //   setExclusiveMode(m)   a mode that owns the camera: m.isActive(), m.getPose()
 //   requestRender()       draw on the next frame even if nothing else asks
+//   setCovered(on)        something opaque covers the whole scene (the web's
+//                         landing site): no frame callbacks, no drawing, until
+//                         it is uncovered -- the home planet otherwise spun at
+//                         full rate behind it, costing a phone battery and CPU
+//                         while its owner read the site or typed a password
 //
 // ONE WebGLRenderer for the page's life: a second live context is the
 // documented mobile GPU-OOM hazard, and a lost context is unrecoverable.
@@ -25,6 +30,7 @@ let scene = null;
 let camera = null;
 let exclusive = null;
 let dirty = true;
+let covered = false;
 const frameFns = [];
 
 // The sun. Its shadow frustum is sized for a level: test_maze_levels.js keeps
@@ -58,6 +64,7 @@ function resizeToDisplay() {
 }
 
 function frame() {
+    if (covered) return;
     resizeToDisplay();
     for (const fn of frameFns) {
         try { fn(); } catch (e) { console.error('[sceneHost] frame callback failed:', e); }
@@ -106,3 +113,4 @@ export function getRenderer() { return renderer; }
 export function onFrame(fn) { if (typeof fn === 'function') frameFns.push(fn); }
 export function setExclusiveMode(mode) { exclusive = mode || null; dirty = true; }
 export function requestRender() { dirty = true; }
+export function setCovered(on) { covered = !!on; if (!covered) dirty = true; }

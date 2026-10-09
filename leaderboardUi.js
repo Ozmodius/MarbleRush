@@ -20,6 +20,7 @@ const $ = id => document.getElementById(id);
 const fmtMs = ms => (ms / 1000).toFixed(2) + 's';
 
 let sync = null, login = null, current = null;
+let cover = () => {};   // sceneHost's setCovered, from main.js
 
 function renderStatus() {
     const me = sync.player(), a = sync.account();
@@ -129,6 +130,7 @@ function openGate() {
     if (landing()) {
         landing().hidden = false;
         landing().scrollTop = 0;
+        cover(true);
         $('accountPanel').classList.add('over-landing');
         $('accountPanel').hidden = true;
         sync.track({ type: 'act', name: 'landing:shown' });
@@ -141,6 +143,7 @@ function openGate() {
 function closeGate() {
     gate = false;
     if (landing()) landing().hidden = true;
+    cover(false);
     $('accountPanel').classList.remove('is-gate', 'over-landing');
     $('acctGateNote').hidden = true;
 }
@@ -317,6 +320,7 @@ function onClear(info) {
 
 export function initCloudUi(opts) {
     sync = opts.sync; login = opts.login || null;
+    if (typeof opts.cover === 'function') cover = opts.cover;
     if (!sync || !sync.enabled) return onClear;
     $('cloudSection').hidden = false;
     wireAccountPanel(opts.reload || (() => { try { location.reload(); } catch (_) { /* ignore */ } }));

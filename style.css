@@ -1429,3 +1429,14 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
    higher so nothing touches. */
 .maze-hud:has(#privacyNote:not([hidden])) .maze-bottombar { bottom: calc(28px + var(--safe-bottom)); }
 .maze-hud:has(#privacyNote:not([hidden])) .maze-status.is-ready { bottom: calc(94px + var(--safe-bottom)); }
+
+/* BETWEEN LEVELS (mazeGame.js showClearResult): the result line stays up; what
+   else the clear brought appears one after another on a line under it. */
+.maze-status2 { position: absolute; left: 0; right: 0; top: calc(96px + var(--safe-top)); padding: 0 16px; text-align: center; font-size: 0.9rem; font-weight: 800; letter-spacing: 0.1em; color: #ffd66e; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9); opacity: 0; transition: opacity 220ms ease; pointer-events: none; }
+.maze-status2.is-on { opacity: 1; }
+/* On the CLEARED panel, NEXT is the one bright choice: EXPLORE IT keeps its
+   compass but dresses like the other secondary buttons. */
+#mazeWinPanel .maze-walkbtn { background: rgba(40, 31, 24, 0.9); color: var(--ink); border: 1px solid var(--line); box-shadow: 0 3px 0 rgba(0, 0, 0, 0.45); }
+/* A keyboard computer is told Space moves on (html.kbd-first, mazeGame.js). */
+.key-hint { display: none; margin-left: 10px; padding: 2px 6px; border-radius: 5px; font-size: 0.6em; letter-spacing: 0.08em; vertical-align: 0.2em; background: rgba(42, 26, 8, 0.18); box-shadow: inset 0 0 0 1px rgba(42, 26, 8, 0.35); }
+html.kbd-first .key-hint { display: inline-block; }

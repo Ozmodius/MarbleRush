@@ -325,6 +325,9 @@
     <button id="mazeComfortBtn" class="maze-btn maze-btn-small maze-cambtn" type="button" aria-label="Explore comfort settings" style="display:none"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
   </div>
   <div id="mazeStatus" class="maze-status"></div>
+  <!-- After a clear, what else it brought (level up, mission, prize, the daily
+       maze unlocked), under the result line rather than over it (mazeGame.js) -->
+  <div id="mazeStatus2" class="maze-status2" aria-live="polite"></div>
   <!-- Walking (the Labyrinth): edge vignette, floating joystick -->
   <div id="walkVignette" class="walk-vignette" aria-hidden="true"></div>
   <!-- Touch controls (phones and tablets): a joystick to move, a pad to look -->
@@ -355,7 +358,7 @@
   <div id="mazeWinPanel" class="maze-winpanel" style="display:none">
     <p id="mazeNearMiss" class="near-miss" style="display:none"><span id="mazeNearMedal" class="medal"></span><span id="mazeNearText"></span></p>
     <button id="mazeDoubleBtn" class="maze-btn maze-btn-ad" type="button" style="display:none"><span class="ad-play">▶</span><span id="mazeDoubleText">×2 COINS</span></button>
-    <button id="mazeNextBtn" class="maze-btn maze-btn-big" type="button">NEXT</button>
+    <button id="mazeNextBtn" class="maze-btn maze-btn-big" type="button">NEXT<span class="key-hint" aria-hidden="true">SPACE</span></button>
     <button id="mazeReplayBtn" class="maze-btn" type="button" style="display:none">REPLAY</button>
     <button id="mazeWalkBtn" class="maze-btn maze-walkbtn" type="button" style="display:none"><span class="walk-icon" aria-hidden="true">🧭</span>EXPLORE IT</button>
     <button id="mazeRankBtn" class="maze-btn maze-rankbtn" type="button" hidden><span aria-hidden="true">🏆</span><span id="mazeRankText">LEADERBOARD</span></button>
