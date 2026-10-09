@@ -6,7 +6,7 @@ change so the listing never drifts from what players get.
 
 | File | Use |
 | --- | --- |
-| `../dist/planetilt-crazygames.zip` | The game upload. Built by `npm run build:crazygames`: flat (no folders), `index.html` at the root, CrazyGames SDK v3. Not committed (dist/ is build output). |
+| `../dist/planetilt-crazygames-v<version>-<commit>.zip` | The game upload. Built by `npm run build:crazygames`: flat (no folders), `index.html` at the root, CrazyGames SDK v3. Not committed (dist/ is build output). |
 | `cover-landscape-1920x1080.png` | Landscape cover (16:9): Toy Box, level 10 |
 | `cover-portrait-800x1200.png` | Portrait cover (2:3): Magma Works, level 10 |
 | `cover-square-800x800.png` | Square cover (1:1): the Workshop grown to forest, level 10 |
