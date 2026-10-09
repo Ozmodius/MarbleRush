@@ -95,6 +95,23 @@ C.store.recordClear(lv(0).id, okMs(0), 0);
 check(C.store.get().cleared[lv(0).id], 'play goes on offline');
 check((await C.sync.submitScore(`roll:${lv(0).id}`, okMs(0))) === null, 'an offline score returns null');
 
+// A server that is not up yet when the game starts: the first retry comes
+// within seconds (3 s), not the 30 s steady-state wait.
+{
+    const probe = http.createServer();
+    await new Promise(r => probe.listen(0, '127.0.0.1', r));
+    const port = probe.address().port;
+    await new Promise(r => probe.close(r));
+    const E = await device(`http://127.0.0.1:${port}`);
+    check((await E.sync.start()) === false && E.sync.status() === 'offline', 'a server not up yet: offline at first');
+    const late = http.createServer(createApp({ store: createMemoryStore(), levels, dailyLevels, rateMax: 10000 }));
+    await new Promise(r => late.listen(port, '127.0.0.1', r));
+    const t0 = Date.now();
+    while (E.sync.status() !== 'synced' && Date.now() - t0 < 6000) await new Promise(r => setTimeout(r, 100));
+    check(E.sync.status() === 'synced' && Date.now() - t0 < 5000, `the first retry comes soon: synced after ${Date.now() - t0} ms`);
+    late.close();
+}
+
 server.close();
 console.log(`cloud sync: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

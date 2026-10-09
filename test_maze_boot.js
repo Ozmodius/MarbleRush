@@ -265,7 +265,14 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await dbg('coinsTaken') === 1, 'rolling onto a coin collects it');
         check((await page.textContent('#mazeCoins')).trim().startsWith('1'), 'the HUD coin count updates');
 
-        // A fall: put the ball in a hole.
+        // The beginner's shield: an uncleared level among the first three
+        // starts every attempt shielded, free, so the first fall is caught.
+        check(/SHIELD/.test(await page.textContent('#mazePowerups')), 'a beginner level starts shielded');
+        await dbg('placeBall', lv1.holes[0].x, lv1.holes[0].z);
+        await dbg('advanceFrames', 2);
+        check(await dbg('phase') === 'running' && /SHIELD SAVED YOU/.test(await page.textContent('#mazeStatus')) && !((await dbg('progress')).charges.shield),
+            `the beginner's shield catches the first fall, and costs no charge (phase ${await dbg('phase')})`);
+        // A fall: put the ball in a hole (the shield is spent for this attempt).
         await dbg('placeBall', lv1.holes[0].x, lv1.holes[0].z);
         await dbg('advanceFrames', 2);
         check(await dbg('phase') === 'falling', `a ball over a hole falls (phase ${await dbg('phase')})`);
@@ -319,7 +326,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.tap('#levelOkBtn');
         // With a level cleared, NICE! goes on to the calendar (its first time
         // this session): day 1 on the DAILY tab.
-        await page.waitForSelector('#rewardsPanel', { state: 'visible' });
+        await page.waitForSelector('#rewardsPanel', { state: 'visible' }).catch(async (e) => {
+            console.log('DEBUG calendar:', JSON.stringify(await page.evaluate(() => ({ daily: window.__mazeDebug.progress().daily, levelPanel: !document.getElementById('levelPanel').hidden, rewards: !document.getElementById('rewardsPanel').hidden, home: document.getElementById('homeView').style.display, now: new Date().toString() }))));
+            throw e;
+        });
         check(await page.isHidden('#levelPanel') && await page.isVisible('#dailyPanel') && (await page.textContent('#dailyNote')).includes('Day 1')
             && (await page.getAttribute('#rewardsTab_daily', 'aria-selected')) === 'true', 'NICE! goes on to REWARDS on the DAILY tab, day 1');
         await page.tap('#rewardsCloseBtn');
@@ -641,8 +651,19 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await sdbg('advanceFrames', 1);
         check(/SLOW/.test(await shop.textContent('#mazePowerups')) && !(await sdbg('progress')).charges.slowmo,
             'tapping slow-mo fires it and spends it from the inventory');
+        // Level 1 is a beginner level: its free shield is the one used, and the
+        // bought one is left in the inventory.
         const lvA = levels[0];
         await sdbg('placeBall', lvA.holes[0].x, lvA.holes[0].z);
+        await sdbg('advanceFrames', 2);
+        check(await sdbg('phase') === 'running' && (await sdbg('progress')).charges.shield === 1, 'on a beginner level the free shield saves the ball, and the bought one is kept');
+        // Level 4 is not: the bought shield is armed, saves the ball, and is spent.
+        const lvPast = levels[3];
+        check(await sdbg('startLevelForTest', lvPast.id), `can build ${lvPast.id}`);
+        await shop.tap('#mazeStartBtn');
+        await shop.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+        check(/SHIELD/.test(await shop.textContent('#mazePowerups')), 'past the beginner levels the bought shield is armed');
+        await sdbg('placeBall', lvPast.holes[0].x, lvPast.holes[0].z);
         await sdbg('advanceFrames', 2);
         check(await sdbg('phase') === 'running', 'the bought shield saves the ball from the hole');
         check(!(await sdbg('progress')).charges.shield, 'the shield is spent from the inventory once it saves you');
@@ -966,7 +987,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 await pg.fill('#regEmail', 'tilt@example.com');
                 await pg.fill('#regPassword', 'marbles-rule');
                 await pg.tap('#acctView_register button[type=submit]');
-                await pg.waitForFunction(() => document.getElementById('acctMsg').textContent.length > 0);
+                await pg.waitForFunction(() => document.getElementById('acctMsg').textContent.length > 0, null, { polling: 100, timeout: 30000 });
                 check(/at least 3/.test(await pg.textContent('#acctMsg')) && await pg.isVisible('#accountPanel'), 'a too-short username is explained, and the gate stays');
                 await pg.fill('#regUsername', 'TiltTester');
                 await pg.tap('#acctView_register button[type=submit]');
@@ -1022,7 +1043,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 await pg.fill('#acctLogin', 'tilt@example.com');
                 await pg.fill('#acctPassword', 'wrong-password');
                 await pg.tap('#acctView_signin button[type=submit]');
-                await pg.waitForFunction(() => document.getElementById('acctMsg').textContent.length > 0);
+                await pg.waitForFunction(() => document.getElementById('acctMsg').textContent.length > 0, null, { polling: 100, timeout: 30000 }).catch(async (e) => {
+                    console.log('DEBUG d2 wrong password:', JSON.stringify(await pg.evaluate(() => ({ msg: document.getElementById('acctMsg').textContent, panel: !document.getElementById('accountPanel').hidden, form: !document.getElementById('acctView_signin').hidden, disabled: document.querySelector('#acctView_signin button[type=submit]').disabled, login: document.getElementById('acctLogin').value, st: window.__cloudSync && window.__cloudSync.status(), pl: window.__cloudSync && window.__cloudSync.player() }))));
+                    throw e;
+                });
                 check(/Wrong username/.test(await pg.textContent('#acctMsg')) && await pg.isVisible('#accountPanel'), 'a wrong password says so, and the gate stays');
                 await pg.fill('#acctPassword', 'marbles-rule');
                 await pg.tap('#acctView_signin button[type=submit]');
@@ -1159,11 +1183,17 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await ad.isDisabled('#homeFreeCoins') && /^\d+:\d\d$/.test((await ad.textContent('#homeFreeLabel')).trim()), 'home counts down to the next free coins');
         await ad.tap('#homePlayBtn');
         await ad.waitForSelector('#mazeStartBtn', { state: 'visible' });
-        check(await ad.isVisible('#mazeAdShieldBtn'), 'the ready screen offers a free shield for an ad');
+        // A beginner level (uncleared, among the first three) is shielded for
+        // free, so it offers no shield for an ad.
+        check(await ad.isHidden('#mazeAdShieldBtn'), 'a beginner level offers no shield for an ad (its own shield is free)');
         await ad.tap('#mazeStartBtn');
         await ad.waitForFunction(() => window.__mazeDebug.phase() === 'running');
-        check(await ad.isHidden('#mazeAdShieldBtn'), 'and stops offering it once the run starts');
+        check(await ad.isHidden('#mazeAdShieldBtn'), 'and none once the run starts');
         const lvOne = levels[0];
+        // The beginner's shield catches the attempt's first fall.
+        await adbg('placeBall', lvOne.holes[0].x, lvOne.holes[0].z);
+        await adbg('advanceFrames', 2);
+        check(await adbg('phase') === 'running' && /SHIELD SAVED YOU/.test(await ad.textContent('#mazeStatus')), 'on CrazyGames too, the beginner\'s shield catches the first fall');
         // A fall in the first seconds: no CONTINUE, straight back to the start.
         await adbg('placeBall', lvOne.holes[0].x, lvOne.holes[0].z);
         await ad.waitForTimeout(900);
@@ -1171,6 +1201,9 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(await adbg('phase') === 'running' && await ad.isHidden('#mazeFallPanel'), 'an early fall just retries -- nothing to continue');
         // A fall after a while: CONTINUE is offered; taking it puts the ball back.
         // (Its 4s countdown runs on the wall clock, so it is held for the tap.)
+        // The new attempt is shielded again: spend that first.
+        await adbg('placeBall', lvOne.holes[0].x, lvOne.holes[0].z);
+        await adbg('advanceFrames', 2);
         await adbg('holdFallOffer', true);
         await adbg('ageRun', 9000);
         await adbg('placeBall', lvOne.holes[0].x, lvOne.holes[0].z);
@@ -1203,7 +1236,11 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await ad.tap('#mazeNextBtn');
         await ad.waitForSelector('#mazeStartBtn', { state: 'visible' });
         check((await adLog()).filter(x => x === 'ad:midgame').length === mid0, 'no break ad right after a rewarded one');
-        // Level 2's ready screen: take the free shield.
+        // Level 1 again, now cleared: no beginner's shield, so the ready
+        // screen offers the free shield for an ad -- take it.
+        await adbg('startLevelForTest', levels[0].id);
+        await ad.waitForFunction(() => window.__mazeDebug.phase() === 'ready');
+        check(await ad.isVisible('#mazeAdShieldBtn'), 'a cleared level 1 offers a free shield for an ad');
         await ad.tap('#mazeAdShieldBtn');
         await ad.waitForFunction(() => (window.__mazeDebug.progress().charges.shield || 0) > 0, null, { timeout: 5000 }).catch(() => {});
         check(((await adbg('progress')).charges.shield || 0) === 1 && await ad.isHidden('#mazeAdShieldBtn'), 'a free shield is a Shield charge, offered once');

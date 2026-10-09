@@ -408,7 +408,16 @@ let drag = null;                 // { x0, y0, x, y } while a drag is in progress
 let sensorSeen = false;          // a real deviceorientation reading has arrived
 let manualHintShown = false;
 let sensorCheckTimer = null;
-const MANUAL_HINT = 'ARROW KEYS, WASD OR DRAG TO TILT';
+// The hint when no tilt sensor is steering, in the device's words: a phone
+// whose motion was refused (or whose frame never forwards it) has no arrow
+// keys, and a computer is told keys first.
+function manualHintText() {
+    let touch = false, fine = false;
+    try { touch = navigator.maxTouchPoints > 0; fine = !!(window.matchMedia && window.matchMedia('(pointer: fine)').matches); } catch (_) { /* ignore */ }
+    if (touch && !fine) return 'DRAG ON THE SCREEN TO TILT';
+    if (!touch) return 'ARROW KEYS OR WASD TO TILT  ·  OR DRAG';
+    return 'ARROW KEYS, WASD OR DRAG TO TILT';
+}
 
 function manualReading() {
     if (drag) {
@@ -429,7 +438,7 @@ function noteManualInput() {
 function showManualHint() {
     if (!active || phase !== 'running' || sensorSeen) return;
     manualHintShown = true;
-    setStatus(MANUAL_HINT);
+    setStatus(manualHintText());
 }
 function inRun() { return active && phase === 'running'; }
 // The ready screen's instruction, in the words of the device in hand: a
@@ -1415,10 +1424,18 @@ async function doubleClearFromAd() {
     if (res.ok) { setStatus('+' + formatBearings(res.amount) + '  DOUBLED'); try { uiSfx.coin(); } catch (e) { /* ignore */ } }
 }
 
+// The beginner's shield (run setup, above): levels 1..BEGINNER_LEVELS of the
+// ladder, rolled, until first cleared.
+const BEGINNER_LEVELS = 3;
+function beginnerShieldOn() {
+    if (!level || walkMode || isDaily(level) || !(level.index <= BEGINNER_LEVELS)) return false;
+    return !(progressNow().cleared || {})[level.id];
+}
 // FREE SHIELD on the ready screen: a Shield charge, armed when the run starts.
+// Not on a level where the beginner's shield already covers the run.
 function offerFreeShield() {
     const owned = store ? (store.get().charges.shield || 0) : 0;
-    showEl('mazeAdShieldBtn', phase === 'ready' && adsAvailable() && !freeShieldTaken && !owned);
+    showEl('mazeAdShieldBtn', phase === 'ready' && adsAvailable() && !freeShieldTaken && !owned && !beginnerShieldOn());
 }
 async function freeShieldFromAd() {
     if (phase !== 'ready' || freeShieldTaken) return;
@@ -1583,6 +1600,12 @@ function restart() {
     pickupState = createRunPickups(level, owned, ballSpec);
     if (props) props.tickRun(0);
     pickupState.boughtShield = pickupState.shield;
+    // THE BEGINNER'S SHIELD (2026-10-09): the first levels' shortest routes run
+    // along a hole's edge, and a first-time tilter's fall sends them back to
+    // the start. Until a level among the first BEGINNER_LEVELS is cleared,
+    // every attempt at it starts shielded, free: a bought shield is left
+    // unspent, and the levels themselves (seeded, verified) are untouched.
+    if (beginnerShieldOn()) { pickupState.shield = true; pickupState.boughtShield = false; }
     if (props) props.reset();
     renderCoins();
     renderPowerups();
