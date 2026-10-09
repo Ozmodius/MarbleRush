@@ -7,16 +7,26 @@ change so the listing never drifts from what players get.
 | File | Use |
 | --- | --- |
 | `../dist/planetilt-crazygames-v<version>-<commit>.zip` | The game upload. Built by `npm run build:crazygames`: flat (no folders), `index.html` at the root, CrazyGames SDK v3. Not committed (dist/ is build output). |
-| `cover-landscape-1920x1080.png` | Landscape cover (16:9): Toy Box, level 10 |
-| `cover-portrait-800x1200.png` | Portrait cover (2:3): Magma Works, level 10 |
-| `cover-square-800x800.png` | Square cover (1:1): the Workshop grown to forest, level 10 |
-| `video-landscape-1920x1080.mp4` | Landscape gameplay video: level 10 of all five worlds with a chase camera, an Explore run inside the maze, then the logo |
-| `video-portrait-1080x1920.mp4` | Portrait gameplay video: the same runs from the game's own overhead camera |
+| `cover-landscape-1920x1080.png` | Landscape cover (16:9) |
+| `cover-portrait-800x1200.png` | Portrait cover (2:3) |
+| `cover-square-800x800.png` | Square cover (1:1) |
+| `video-landscape-1920x1080.mp4` | Landscape preview video, 18.4 s |
+| `video-portrait-1080x1620.mp4` | Portrait preview video (2:3), 18.4 s |
 
-Sizes follow CrazyGames' usual asks (covers 1920×1080, 800×1200, 800×800;
-gameplay videos ~20 s, H.264 MP4, no audio). Their developer docs could not
-be reached from the build machine, so check the current requirements on the
-submission page before uploading; `capture.cjs` takes any size.
+All three covers are one scene -- Magma Works level 10, the Ember marble with
+the Flame trail -- framed for each shape, so the game is recognised in any
+format (CrazyGames asks for consistent covers). Text is the wordmark only.
+
+Each video opens on its cover (0.8 s), then four worlds at level 10 joined
+mid-run, each in a different marble and trail: Slipstonia (Prism, Aurora),
+Magma Works (Ember, Flame), Bouncelot (Galaxy, Rainbow), Foundry (Eight Ball,
+Gold Dust); then the wordmark (1.6 s). No audio, no cursor, no promotional text.
+
+Checked against CrazyGames' docs on 2026-10-08
+(docs.crazygames.com/requirements/game-covers): covers 1920×1080, 800×1200,
+800×800 with no borders and only the title as text; videos at most 20 s and
+50 MB, no audio, landscape 1080p 16:9 and portrait 1080p 2:3, opening on the
+cover. Re-check before a new submission; `capture.cjs` takes any size.
 
 ## Regenerating
 
