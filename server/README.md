@@ -25,7 +25,7 @@ Environment variables:
 | --- | --- |
 | `DATABASE_URL` | the Postgres *Internal Database URL* |
 | `NODE_VERSION` | `22` |
-| `ALLOWED_ORIGINS` | optional; default `*`. To lock it down: `https://ozmodius.github.io,https://*.crazygames.com` |
+| `ALLOWED_ORIGINS` | optional; default `*`. To lock it down: `https://planetilt.com,https://www.planetilt.com,https://*.crazygames.com` |
 | `CRAZYGAMES_PUBLIC_KEY_URL` | optional; default `https://sdk.crazygames.com/publicKey.json` |
 | `RATE_LIMIT` | optional; requests per IP per minute, default 240 |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | optional; email for account codes (port 465 by default). Without them, accounts are made with no emailed code and "Forgot password?" says it is not available |
@@ -40,9 +40,9 @@ Check it: `https://<your-service>.onrender.com/health` → `{"ok":true,"store":"
 
 The URL is baked in at build time; unset, the game builds with no server.
 
-- **Web (GitHub Pages):** repo Settings → Secrets and variables → Actions →
-  Variables → `PLANETILT_API_URL` = `https://<your-service>.onrender.com`.
-  The next push to main builds with it.
+- **Web (planetilt.com):** the Render static site `PlaneTilt` → Environment →
+  `PLANETILT_API_URL` = `https://<your-service>.onrender.com`. The next build
+  uses it.
 - **CrazyGames zip:** `PLANETILT_API_URL=https://<your-service>.onrender.com npm run build:crazygames`.
 - **Dev page:** in the browser console,
   `localStorage.setItem('planetilt.api', 'http://localhost:8787')`.

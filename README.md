@@ -20,13 +20,16 @@ Arrow keys / WASD or drag to tilt on desktop; the phone's tilt sensor on a phone
 
 ## Play it on your phone
 
-**Easiest: GitHub Pages.** Every push to `main` builds the web game and
-publishes it (`.github/workflows/pages.yml`) at
-**https://ozmodius.github.io/MarbleRush/** -- HTTPS, so tilt works. Open it
-on the phone, tap PLAY then START, and allow motion when asked. (One-time
-setup: repo Settings -> Pages -> Source: "GitHub Actions".)
+**Easiest: https://planetilt.com.** A Render static site (`PlaneTilt`)
+builds every push to `main` -- `npm ci && npm ci --prefix server && npm test
+&& npm run build:web`, published from `dist/web`, with `PLANETILT_API_URL` set
+to the API service -- so a level or server that fails its tests never goes
+live. HTTPS, so tilt works. Open it on the phone, tap PLAY then START, and
+allow motion when asked. The domain's DNS is at Namecheap (`@` A record to
+Render, `www` CNAME to `planetilt.onrender.com`). The old GitHub Pages address
+now only redirects there (`.github/workflows/pages.yml`).
 
-Pages publishes the built bundle, not the repo files: the dev page loads
+The site serves the built bundle, not the repo files: the dev page loads
 three.js from `node_modules`, which is not committed, so served straight from
 the repo it hangs on loading.
 
@@ -72,7 +75,7 @@ npm test                      # levels, hazards, tilt, walls, pickups, progress 
 npm run test:browser          # boot to home, use the tabs, play level 1, shop, pick a marble
 npm run levels                # regenerate mazeLevels.json (seeded, reproduces exactly)
 npm run build:crazygames      # flat bundle + dist/planetilt-crazygames.zip
-npm run build:web             # the same bundle without the SDK, for GitHub Pages (dist/web)
+npm run build:web             # the same bundle without the SDK, for planetilt.com (dist/web)
 npm run test:browser:bundle   # the browser test against that bundle
 ```
 

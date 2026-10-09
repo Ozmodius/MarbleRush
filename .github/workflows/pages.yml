@@ -1,14 +1,9 @@
-# Publish the web game to GitHub Pages on every push to main.
-#
-# Pages serves only committed files, and node_modules is not committed, so the
-# dev page (index.html's importmap) cannot load there. This builds the flat web
-# bundle instead -- three and cannon-es inside game.js, no CrazyGames SDK --
-# and deploys dist/web/. The Node test suite gates it: a level the verifier
-# rejects never reaches the site, and neither does a server that fails its
-# tests (server/).
-#
-# One-time setup: repo Settings -> Pages -> Build and deployment -> Source:
-# "GitHub Actions".
+# The game now lives at https://planetilt.com (a Render static site that
+# builds from main, tests first: `npm ci && npm ci --prefix server && npm test
+# && npm run build:web`, published from dist/web). This workflow still runs the
+# Node suite on every push, and keeps the old GitHub Pages address alive as a
+# redirect to planetilt.com (.github/pages-redirect/) so old links still land
+# on the game. Turning Pages off entirely is repo Settings -> Pages.
 name: Pages
 
 on:
@@ -37,16 +32,10 @@ jobs:
       - run: npm ci
       - run: npm ci --prefix server
       - run: npm test
-      # The cloud save / leaderboard server, when the repo variable
-      # PLANETILT_API_URL is set (Settings -> Secrets and variables ->
-      # Actions -> Variables); unset, the site builds without one.
-      - run: npm run build:web
-        env:
-          PLANETILT_API_URL: ${{ vars.PLANETILT_API_URL }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist/web
+          path: .github/pages-redirect
 
   deploy:
     needs: build
