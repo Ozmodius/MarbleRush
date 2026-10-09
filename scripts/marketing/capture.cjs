@@ -129,6 +129,12 @@ async function openGame(browser, base, { width, height, save }) {
     }, save);
     await page.clock.install();
     await page.goto(base);
+    // FROZEN: install() alone lets the page's clock run at real speed, and
+    // then the game's own frame loop steps the physics during every slow
+    // frame render -- uncontrolled motion that jammed the marble in big
+    // captures but not tiny ones. Paused, time moves only by runFor and the
+    // autopilot's own steps, so a capture is the same at any size.
+    await page.clock.pauseAt(Date.now() + 1000);
     for (let k = 0; k < 600 && !(await page.isVisible('#homeView')); k++) await page.clock.runFor(50);
     await page.clock.runFor(200);
     const dbg = (fn, ...a) => page.evaluate(([f, x]) => window.__mazeDebug[f](...x), [fn, a]);
@@ -152,8 +158,8 @@ function saveFor({ skin = 'galaxy', trail = 'rainbow', ballCam = false } = {}) {
     return {
         v: 1, wallet: 2500, xp: 3000, highestIndex: LEVELS.length, cleared, goldClaimed: [], prizes: ['rubberCoat', 'heatShield'],
         prizeUses: { heatShield: 99, rubberCoat: 99 }, charges: {}, daily: { streak: 3, last: today() },
-        skins: ['plain', 'stripe', 'swirl', 'checker', 'eight', 'earth', 'galaxy', 'ember'], skin,
-        trails: ['none', 'comet', 'mint', 'flame', 'rainbow', 'gold'], trail, ballCam, explorer: ['compass']
+        skins: ['plain', 'stripe', 'swirl', 'checker', 'eight', 'earth', 'galaxy', 'ember', 'prism'], skin,
+        trails: ['none', 'comet', 'mint', 'flame', 'rainbow', 'gold', 'aurora'], trail, ballCam, explorer: ['compass']
     };
 }
 
@@ -270,9 +276,23 @@ function makeChaseCam({ back = 2.2, up = 4.2, lv } = {}) {
 }
 
 // --- covers -------------------------------------------------------------------------
+// A high, raking view across the board toward the ball: walls stand up,
+// the floor reads, the trail streams behind.
+const raking = (dist, height, side) => (pos, vel) => {
+    const sp = Math.hypot(vel.x, vel.z) || 1;
+    const dx = vel.x / sp, dz = vel.z / sp;
+    return { px: pos.x - dx * dist + dz * side, py: pos.y + height, pz: pos.z - dz * dist - dx * side, lx: pos.x + dx * 0.9, ly: 0, lz: pos.z + dz * 0.9 };
+};
+// For a wide frame of a long, narrow board: a camera that stays near the
+// board's middle (x pulled toward 0 by `k`), `back` behind the ball and
+// `height` up, looking down the maze -- the board fills the frame.
+const over = (height, back, k, ahead = 1.2) => (pos) => ({
+    px: pos.x * k, py: pos.y + height, pz: pos.z - back, lx: pos.x * (k + 1) / 2, ly: 0, lz: pos.z + ahead
+});
+
 // A rendered scene, then the PlaneTilt wordmark over it (the same CSS logo as
 // the home screen), screenshotted at the exact size.
-async function cover(browser, base, { name, width, height, level, skin, trail, at, cam, logo }) {
+async function cover(browser, base, { name, width, height, level, skin, trail, at, cam, logo, out }) {
     const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor({ skin, trail }) });
     // Roll partway along the route so the trail is laid, then frame the shot.
     let state = null;
@@ -286,27 +306,34 @@ async function cover(browser, base, { name, width, height, level, skin, trail, a
     const p2 = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
     await p2.goto(`${base}scripts/marketing/cover.html?bg=/__tmp/${path.basename(shot)}&logo=${logo}&w=${width}&h=${height}`);
     await p2.waitForTimeout(400);
-    await p2.screenshot({ path: path.join(OUT, `${name}.png`) });
+    await p2.screenshot(out ? { path: out, type: 'jpeg', quality: 93 } : { path: path.join(OUT, `${name}.png`) });
     await p2.close();
-    console.log('wrote', `marketing/${name}.png`);
+    console.log('wrote', out ? path.relative(ROOT, out) : `marketing/${name}.png`);
 }
+
+// The cover scene, per shape: wide frames look down the maze from over the
+// board's middle; tall and square ones rake across it toward the ball.
+const COVER_SCENE = { level: 'w3_10', skin: 'ember', trail: 'flame', at: 3.0 };
+const COVER_SHOT = {
+    landscape: { ...COVER_SCENE, at: 4.2, cam: over(3.2, 2.6, 0.3), logo: 'left' },   // 4.2 s: the marble out in the open
+    tall: { ...COVER_SCENE, cam: raking(1.6, 5.0, 0.5), logo: 'top' }
+};
 
 async function covers(browser, base) {
     const lv = id => LEVELS.find(l => l.id === id);
-    // A high, raking view across the board toward the ball: walls stand up,
-    // the floor reads, the trail streams behind.
-    const raking = (dist, height, side) => (pos, vel) => {
-        const sp = Math.hypot(vel.x, vel.z) || 1;
-        const dx = vel.x / sp, dz = vel.z / sp;
-        return { px: pos.x - dx * dist + dz * side, py: pos.y + height, pz: pos.z - dz * dist - dx * side, lx: pos.x + dx * 0.9, ly: 0, lz: pos.z + dz * 0.9 };
-    };
     void lv;
     const only = process.argv[3];
-    const jobs = [
-        { name: 'cover-landscape-1920x1080', width: 1920, height: 1080, level: 'w4_10', skin: 'galaxy', trail: 'rainbow', at: 3.4, cam: raking(2.6, 4.2, 1.6), logo: 'left' },
-        { name: 'cover-portrait-800x1200', width: 800, height: 1200, level: 'w3_10', skin: 'ember', trail: 'flame', at: 3.0, cam: raking(1.6, 5.0, 0.5), logo: 'top' },
-        { name: 'cover-square-800x800', width: 800, height: 800, level: 'w1_10', skin: 'stripe', trail: 'comet', at: 3.4, cam: raking(2.2, 4.4, 1.0), logo: 'top' }
+    // One scene for all three (CrazyGames: covers should look alike so the
+    // game is recognised in any format): Magma Works, the ember marble with
+    // its flame trail, framed for each shape.
+    let jobs = [
+        { name: 'cover-landscape-1920x1080', width: 1920, height: 1080, ...COVER_SHOT.landscape },
+        { name: 'cover-portrait-800x1200', width: 800, height: 1200, ...COVER_SHOT.tall },
+        { name: 'cover-square-800x800', width: 800, height: 800, ...COVER_SHOT.tall }
     ];
+    // COVER_JOBS='[{"name":..,"width":..,"height":..,"level":..,"skin":..,"trail":..,"at":..,"rk":[dist,height,side],"logo":..}]'
+    // renders candidate framings instead (for choosing a shot).
+    if (process.env.COVER_JOBS) jobs = JSON.parse(process.env.COVER_JOBS).map(j => ({ ...j, cam: j.over ? over(...j.over) : raking(...j.rk) }));
     for (const j of jobs) if (!only || j.name.includes(only)) await cover(browser, base, j);
 }
 
@@ -384,56 +411,108 @@ async function landing(browser, base) {
 async function video(browser, base, { name, width, height, cinematic }) {
     // CAPTURE_TINY=1: render at a fifth of the size, to check motion quickly.
     if (process.env.CAPTURE_TINY) { width = Math.round(width / 5); height = Math.round(height / 5); name += '-tiny'; }
-    const dir = path.join(TMP, name);
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.mkdirSync(dir, { recursive: true });
-    let n = 0;
-    // CAPTURE_DRY=1: run the simulation at full size but write no frames --
-    // a quick check that the autopilot gets through (the log counts stalls).
-    const put = async (dbg) => { if (!process.env.CAPTURE_DRY) await frameTo(dbg, path.join(dir, `f${String(n).padStart(5, '0')}.jpg`)); n++; };
-
-    // Two worlds, long enough to follow: Toy Box and Foundry, level 10 (their
-    // looks fully arrived, every trap in play).
-    const segs = [
-        { level: 'w4_10', seconds: 9.0, skin: 'galaxy', trail: 'rainbow' },
-        { level: 'w5_10', seconds: 9.0, skin: 'eight', trail: 'gold' }
+    // CrazyGames' preview video (2026-10-08 spec): at most 20 s, no audio,
+    // opening on the static cover, then the most exciting moments. So: the
+    // cover (0.8 s), four worlds at their level 10 -- ice, lava, toys,
+    // foundry, every trap in play -- joined `skip` seconds in, where the
+    // marble is already moving, each in a different marble and trail, then
+    // the wordmark (1.6 s). About 18.4 s.
+    //
+    // Each piece is rendered into its own folder (TMP/<name>/p<k>) and the
+    // video is assembled from them, so one clip can be redone alone:
+    // CAPTURE_ONLY=2,3 re-renders just those pieces and keeps the rest. The
+    // autopilot is not perfectly repeatable from run to run, so every clip's
+    // speed is checked and a clip where the marble stops for 0.75 s or more
+    // is reported as STALLED -- redo it before using the video.
+    let segs = [
+        { level: 'w2_10', skip: 1.2, seconds: 4.0, skin: 'prism', trail: 'aurora' },
+        { level: 'w3_10', skip: 1.2, seconds: 4.0, skin: 'ember', trail: 'flame' },
+        { level: 'w4_10', skip: 1.2, seconds: 4.0, skin: 'galaxy', trail: 'rainbow' },
+        { level: 'w5_10', skip: 1.2, seconds: 4.0, skin: 'eight', trail: 'gold' }
     ];
-    for (const s of segs) {
+    // VIDEO_SEGS='[{"level":..,"skip":..,"seconds":..,"skin":..,"trail":..}]' tries other clips.
+    if (process.env.VIDEO_SEGS) segs = JSON.parse(process.env.VIDEO_SEGS);
+    const pieces = ['cover', ...segs, 'end'];
+    const only = process.env.CAPTURE_ONLY ? process.env.CAPTURE_ONLY.split(',').map(Number) : null;
+    const dir = path.join(TMP, name);
+    if (!only) fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    const dry = !!process.env.CAPTURE_DRY;
+    const fresh = (k) => { const d = path.join(dir, 'p' + k); fs.rmSync(d, { recursive: true, force: true }); fs.mkdirSync(d, { recursive: true }); return d; };
+    const frameName = (d, n) => path.join(d, `f${String(n).padStart(5, '0')}.jpg`);
+    const hold = (d, file, count) => { for (let i = 0; i < count; i++) fs.copyFileSync(file, frameName(d, i)); };
+    let stalled = [];
+
+    for (let k = 0; k < pieces.length; k++) {
+        if (only && !only.includes(k)) continue;
+        const piece = pieces[k];
+        const d = fresh(k);
+        if (piece === 'cover') {
+            const still = path.join(TMP, `${name}-cover.jpg`);
+            await cover(browser, base, { name, width, height, ...(width > height ? COVER_SHOT.landscape : COVER_SHOT.tall), out: still });
+            hold(d, still, Math.round(FPS * 0.8));
+            continue;
+        }
+        if (piece === 'end') {
+            // The wordmark on the solar system (no tagline: CrazyGames wants
+            // no promotional text in the video).
+            const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor() });
+            await page.evaluate(() => document.getElementById('tab_worlds').click());
+            await page.clock.runFor(300);
+            const bg = path.join(TMP, `${name}-end.png`);
+            await frameTo(dbg, bg, 'image/png');
+            await page.close();
+            const p2 = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+            await p2.goto(`${base}scripts/marketing/cover.html?bg=/__tmp/${path.basename(bg)}&logo=center&w=${width}&h=${height}`);
+            await p2.waitForTimeout(400);
+            // JPEG, like every other frame: the encoder reads the sequence as JPEG.
+            const card = path.join(TMP, `${name}-endcard.jpg`);
+            await p2.screenshot({ path: card, type: 'jpeg', quality: 93 });
+            await p2.close();
+            hold(d, card, Math.round(FPS * 1.6));
+            continue;
+        }
+        const s = piece;
         const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor(s) });
-        const chase = makeChaseCam(width > height ? { lv: LEVELS.find(l => l.id === s.level) } : { back: 2.2, up: 6.6, lv: LEVELS.find(l => l.id === s.level) });
+        const lv = LEVELS.find(l => l.id === s.level);
+        const chase = makeChaseCam(width > height ? { lv } : { back: 2.2, up: 6.6, lv });
         if (!cinematic) await dbg('cameraOverride', null);
-        const res = await runLevel(page, dbg, s.level, s.seconds * SCALE, async (i, st) => {
+        const skipFrames = Math.round(s.skip * FPS);
+        const speeds = [];
+        let n = 0;
+        const res = await runLevel(page, dbg, s.level, s.skip + s.seconds * SCALE, async (i, st) => {
+            if (i < skipFrames) return;
+            speeds.push(Math.hypot(st.vel.x, st.vel.z));
             if (cinematic) await dbg('cameraOverride', chase(st.pos));
-            await put(dbg);
+            if (!dry) await frameTo(dbg, frameName(d, n));
+            n++;
         });
-        console.log(`  ${s.level}: ${res.frames} frames${res.won ? ', won' : ''}, stalls ${res.stalls || 0}`);
         await page.close();
+        // The longest run of near-still frames in the clip itself.
+        let run = 0, worst = 0;
+        for (const v of speeds) { run = v < 0.4 ? run + 1 : 0; worst = Math.max(worst, run); }
+        const bad = worst >= FPS * 0.75;
+        if (bad) stalled.push(k);
+        console.log(`  piece ${k} ${s.level}: ${n} frames${res.won ? ', won' : ''}, longest stop ${(worst / FPS).toFixed(2)} s${bad ? '  STALLED -- redo with CAPTURE_ONLY=' + k : ''}`);
+        if (process.env.CAPTURE_SPEEDLOG) console.log('    speed per 0.25s:', speeds.filter((_, i) => i % Math.round(FPS / 4) === 0).map(v => v.toFixed(1)).join(' '));
     }
 
-    // End card: the wordmark on the solar system, held for two seconds.
-    {
-        const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor() });
-        await page.evaluate(() => document.getElementById('tab_worlds').click());
-        await page.clock.runFor(300);
-        const bg = path.join(TMP, `${name}-end.png`);
-        await frameTo(dbg, bg, 'image/png');
-        await page.close();
-        const p2 = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
-        await p2.goto(`${base}scripts/marketing/cover.html?bg=/__tmp/${path.basename(bg)}&logo=center&tag=1&w=${width}&h=${height}`);
-        await p2.waitForTimeout(400);
-        // JPEG, like every other frame: the encoder reads the sequence as JPEG.
-        const card = path.join(dir, 'endcard.jpg');
-        await p2.screenshot({ path: card, type: 'jpeg', quality: 93 });
-        await p2.close();
-        for (let i = 0; i < FPS * 2.2; i++) { fs.copyFileSync(card, path.join(dir, `f${String(n).padStart(5, '0')}.jpg`)); n++; }
+    if (dry) { console.log('dry run: no video written'); return; }
+    // Assemble: every piece's frames, in order, into one numbered sequence.
+    const all = path.join(dir, 'all');
+    fs.rmSync(all, { recursive: true, force: true });
+    fs.mkdirSync(all);
+    let total = 0;
+    for (let k = 0; k < pieces.length; k++) {
+        const d = path.join(dir, 'p' + k);
+        if (!fs.existsSync(d)) throw new Error(`piece ${k} was never rendered: run without CAPTURE_ONLY first`);
+        for (const f of fs.readdirSync(d).sort()) { fs.linkSync(path.join(d, f), frameName(all, total)); total++; }
     }
-
-    if (process.env.CAPTURE_DRY) { console.log('dry run: no video written'); return; }
     const out = path.join(OUT, `${name}.mp4`);
-    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', path.join(dir, 'f%05d.jpg'),
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', path.join(all, 'f%05d.jpg'),
         '-vf', `scale=${width}:${height}:flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '24', '-maxrate', '6M', '-bufsize', '12M',
         '-movflags', '+faststart', '-an', out]);
-    console.log('wrote', `marketing/${name}.mp4`, `(${(n / FPS).toFixed(1)}s, ${(fs.statSync(out).size / 1e6).toFixed(1)} MB)`);
+    console.log('wrote', `marketing/${name}.mp4`, `(${(total / FPS).toFixed(1)}s, ${(fs.statSync(out).size / 1e6).toFixed(1)} MB)${stalled.length ? '  -- STALLED pieces: ' + stalled.join(',') : ''}`);
 }
 
 (async () => {
@@ -453,7 +532,7 @@ async function video(browser, base, { name, width, height, cinematic }) {
         if (what === 'covers') await covers(browser, base);
         if (what === 'landing') await landing(browser, base);
         if (what === 'video' || what === 'video-landscape') await video(browser, base, { name: 'video-landscape-1920x1080', width: 1920, height: 1080, cinematic: true });
-        if (what === 'video' || what === 'video-portrait') await video(browser, base, { name: 'video-portrait-1080x1920', width: 1080, height: 1920, cinematic: true });
+        if (what === 'video' || what === 'video-portrait') await video(browser, base, { name: 'video-portrait-1080x1620', width: 1080, height: 1620, cinematic: true });
     } finally {
         await browser.close();
         server.close();
