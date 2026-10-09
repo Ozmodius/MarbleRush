@@ -2,6 +2,7 @@ import { DAILY_CALENDAR, CHARGES, MISSIONS_BONUS, LOOKS, LEVEL_REWARDS } from '.
 import { rewardFor } from './playerLevel.js';
 import { adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { sfx } from './sfx.js';
+import { rewardText } from './daily.js';
 
 // THE HOME PANELS: REWARDS -- one card from the side rail with a tab each for
 // the 7-day calendar, the day's three missions and the achievements -- and
@@ -56,15 +57,20 @@ function rewardWords(reward) {
 // --- the calendar -----------------------------------------------------------
 function renderDaily(message) {
     const s = ctx.store.dailyStatus();
+    // Claimed today: tomorrow's tile is marked (after day 7, a new week's
+    // day 1 -- the tiles are all done, so no tile is marked).
+    const t = s.claimed ? ctx.store.tomorrowDaily() : null;
     const grid = $('dailyGrid');
     grid.innerHTML = '';
     DAILY_CALENDAR.forEach((reward, i) => {
         const n = i + 1;
         const done = n < s.day || (n === s.day && s.claimed);
         const today = n === s.day;
-        const tile = h('div', 'daily-tile' + (done ? ' is-claimed' : '') + (today && !s.claimed ? ' is-today' : '') + (n === DAILY_CALENDAR.length ? ' is-big' : ''));
+        const tomorrow = !!(t && n === t.day && t.day > s.day);
+        const tile = h('div', 'daily-tile' + (done ? ' is-claimed' : '') + (today && !s.claimed ? ' is-today' : '') + (tomorrow ? ' is-tomorrow' : '') + (n === DAILY_CALENDAR.length ? ' is-big' : ''));
         tile.append(h('span', 'daily-day', 'DAY ' + n), rewardBits(reward));
         if (done) tile.append(h('span', 'daily-check', '✓'));
+        if (tomorrow) tile.append(h('span', 'daily-tomorrow', 'TOMORROW'));
         grid.append(tile);
     });
     const claim = $('dailyClaimBtn');
@@ -73,17 +79,27 @@ function renderDaily(message) {
     const dbl = $('dailyDoubleBtn');
     dbl.hidden = !(s.canDouble && adsAvailable());
     $('dailyDoubleText').textContent = '×2 COINS  +' + fmt(s.reward.coins || 0);
-    $('dailyNote').textContent = message
-        || (s.canClaim
-            ? (s.restarted ? 'Your streak started over. Come back every day to reach day 7!' : `Day ${s.day} of ${DAILY_CALENDAR.length}. Come back every day for bigger rewards.`)
-            : `Next reward in ${untilTomorrow()}. Don't break the streak!`);
+    $('dailyNote').textContent = message || dailyNoteText(s, t);
+}
+
+// The calendar's line: what today is, what the streak is worth keeping for,
+// and -- once claimed -- exactly what tomorrow brings and when.
+function dailyNoteText(s, t) {
+    const last = DAILY_CALENDAR.length;
+    const big = rewardText(DAILY_CALENDAR[last - 1]);
+    if (!s.canClaim) return `Day ${t.day} tomorrow: ${rewardText(t.reward)}, in ${untilTomorrow()}.`;
+    if (s.restarted) return `Your streak started over. Every day in a row to day ${last}: ${big}!`;
+    if (s.day === last) return `Day ${last}! The big one: ${big}.`;
+    if (s.day > 1) return `Day ${s.day} in a row! Keep going to day ${last}: ${big}.`;
+    return `Day 1 of ${last}. Come back every day: day ${last} pays ${big}.`;
 }
 
 function claimDaily() {
     const out = ctx.store.claimDaily();
     if (!out.ok) return;
     try { sfx.coin(); } catch (_) { /* ignore */ }
-    renderDaily(`Day ${out.day}: ${rewardWords(out.reward)}!`);
+    const t = ctx.store.tomorrowDaily();
+    renderDaily(`Day ${out.day}: ${rewardWords(out.reward)}! Tomorrow, day ${t.day}: ${rewardText(t.reward)}.`);
     renderTabBadges();
     ctx.onChange();
 }

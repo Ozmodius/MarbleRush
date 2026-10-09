@@ -99,6 +99,11 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   mission, prize, the daily maze unlocked -- goes on the line under it
   (`#mazeStatus2`), never over it. Space/Enter on the CLEARED panel is NEXT
   (REPLAY when there is none). EXPLORE IT dresses as a secondary button there.
+- **Today's daily reward can be claimed from the CLEARED panel** (the DAY n
+  GIFT button, 2026-10-09): new players boot into level 1 and may never see
+  home, so without it they never claimed day 1 or started a streak. Every
+  claim -- there or in the calendar -- names tomorrow's reward
+  (`daily.tomorrowDaily`, `rewardText`); the calendar marks tomorrow's tile.
 - **Nothing renders behind the landing site** (`sceneHost.setCovered`): the
   spinning home planet cost a visitor's CPU and battery while they read it.
 - **The privacy policy lives in the game** (`privacy.js`, an in-game panel

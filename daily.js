@@ -11,7 +11,7 @@
 // (docs/PLAN.md: nothing is competitive); the rules just keep the HONEST game
 // from double-paying.
 
-import { DAILY_CALENDAR, MISSIONS, MISSIONS_PER_DAY, MISSIONS_BONUS, DAILY_MAZE } from './shopCatalog.js';
+import { DAILY_CALENDAR, MISSIONS, MISSIONS_PER_DAY, MISSIONS_BONUS, DAILY_MAZE, CHARGES } from './shopCatalog.js';
 
 const copy = p => JSON.parse(JSON.stringify(p));
 
@@ -89,6 +89,26 @@ export function dailyStatus(progress, now) {
         // A streak that was running and is about to restart: worth saying.
         restarted: !claimed && !continues && (d.streak || 0) > 0
     };
+}
+
+// What tomorrow brings, for saying so (2026-10-09): the calendar day after
+// today's -- once today is claimed, the streak goes on to it; before then it
+// is the day after today's claim. After day 7 the week starts again.
+export function tomorrowDaily(progress, now) {
+    const s = dailyStatus(progress, now);
+    const day = (s.day % DAILY_CALENDAR.length) + 1;
+    return { day, reward: DAILY_CALENDAR[day - 1], big: day === DAILY_CALENDAR.length };
+}
+
+// A reward in words: "80 coins", "50 coins + Shield", "300 coins + 3 power-ups".
+export function rewardText(reward) {
+    const parts = [];
+    if (reward && reward.coins) parts.push(`${reward.coins} coins`);
+    const charges = Object.entries((reward && reward.charges) || {});
+    const n = charges.reduce((t, [, k]) => t + k, 0);
+    if (n === 1) parts.push(CHARGES[charges[0][0]] ? CHARGES[charges[0][0]].name : charges[0][0]);
+    else if (n > 1) parts.push(`${n} power-ups`);
+    return parts.join(' + ');
 }
 
 export function claimDaily(progress, now) {
