@@ -348,10 +348,12 @@ export function initDailyUi({ store, onChange }) {
     const closeLevel = () => { closeDailyPanels(); maybeAutoOpenDaily(); };
     tap('levelCloseBtn', closeLevel);
     tap('levelOkBtn', closeLevel);
-    // A tap on the dimmed backdrop (not the card) closes too.
+    // A tap on the dimmed backdrop (not the card) closes too -- the level-up
+    // card exactly as its OK does, so the calendar still follows it (it used
+    // to be skipped when the card was dismissed by a tap beside it).
     for (const id of PANELS) {
         const e = $(id);
-        if (e) e.addEventListener('click', (ev) => { if (ev.target === e) closeDailyPanels(); });
+        if (e) e.addEventListener('click', (ev) => { if (ev.target === e) { if (id === 'levelPanel') closeLevel(); else closeDailyPanels(); } });
     }
     renderDailyButtons();
 }

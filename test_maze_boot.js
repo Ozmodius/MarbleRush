@@ -290,6 +290,11 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(prog.wallet === 120 + 1 + 60 && prog.xp === 120, `a first clear with one coin pays 121 and its level-up 60: wallet ${prog.wallet}, xp ${prog.xp}`);
         check(/CLEARED/.test(await page.textContent('#mazeStatus')), 'the status line reports the clear');
         check(await page.isVisible('#mazeWalkBtn'), 'a rolled clear offers EXPLORE IT');
+        // The level-up goes on the line UNDER the result, and the result stays.
+        await page.waitForFunction(() => /LEVEL UP/.test(document.getElementById('mazeStatus2').textContent), null, { timeout: 5000 }).catch(() => {});
+        check(/LEVEL UP!  YOU ARE LEVEL 2/.test(await page.textContent('#mazeStatus2')) && /CLEARED/.test(await page.textContent('#mazeStatus')),
+            `a level-up is told under the result, which stays: "${await page.textContent('#mazeStatus')}" / "${await page.textContent('#mazeStatus2')}"`);
+        check((await page.textContent('#mazeNextBtn')).includes('NEXT') && await page.isHidden('#mazeNextBtn .key-hint'), 'a touch device shows no SPACE hint on NEXT');
         // That clear was silver, 5s off gold: the near-miss line says so.
         check(await page.isVisible('#mazeNearMiss') && /^\d+\.\ds FASTER FOR GOLD$/.test((await page.textContent('#mazeNearText')).trim())
             && (await page.textContent('#mazeReplayBtn')).trim() === 'REPLAY',
@@ -833,6 +838,42 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check((await wdbg('walk')).on === false && (await wdbg('walk')).fov !== 90, 'leaving the walk puts the camera back');
         await wCtx.close();
 
+        // --- between levels on a computer (keyboard, no touch) ---------------
+        // Two levels cleared: the third clear opens the daily maze and says so
+        // under the result; NEXT shows SPACE; Space moves on even with REPLAY
+        // focused from an earlier click.
+        {
+            const kCtx = await browser.newContext({ viewport: { width: 907, height: 510 } });
+            await kCtx.addInitScript((s) => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('marbleRush.progress.v1', JSON.stringify(s)); } },
+                { v: 1, wallet: 0, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {} });
+            const kp = await kCtx.newPage();
+            kp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push('[keys] ' + e.message); });
+            const kdbg = (fn, ...args) => kp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
+            await kp.goto(base);
+            // homeUp taps; this page has a mouse only.
+            await kp.waitForFunction(() => window.__cloudSync !== undefined, null, { timeout: 30000 });
+            await kp.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
+            if (await kp.isVisible('#rewardsPanel')) await kp.click('#rewardsCloseBtn');
+            check((await kdbg('dailyMaze')).locked, 'with two levels cleared the daily maze is still locked');
+            await kdbg('startLevelForTest', levels[2].id);
+            await kp.waitForFunction(() => window.__mazeDebug.phase() === 'ready');
+            check(/PRESS SPACE/.test(await kp.textContent('#mazeStatus')), `a computer is told to press Space: ${await kp.textContent('#mazeStatus')}`);
+            await kp.keyboard.press('Space');
+            await kp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            await kdbg('ageRun', levels[2].goldMs + 2000);
+            check(await kdbg('warpToGoal'), 'the third level clears');
+            await kp.waitForFunction(() => /DAILY MAZE UNLOCKED/.test(document.getElementById('mazeStatus2').textContent), null, { timeout: 8000 }).catch(() => {});
+            check(/DAILY MAZE UNLOCKED/.test(await kp.textContent('#mazeStatus2')) && /CLEARED/.test(await kp.textContent('#mazeStatus')),
+                `the clear that opens the daily maze says so under the result: "${await kp.textContent('#mazeStatus')}" / "${await kp.textContent('#mazeStatus2')}"`);
+            check(await kp.isVisible('#mazeNextBtn .key-hint'), 'NEXT shows SPACE on a computer');
+            await kp.focus('#mazeReplayBtn');
+            await kp.keyboard.press('Space');
+            await kp.waitForFunction((id) => window.__mazeDebug.phase() === 'ready' && document.getElementById('mazeLevelName').textContent.trim() === id, levels[3].name, { timeout: 8000 }).catch(() => {});
+            check((await kp.textContent('#mazeLevelName')).trim() === levels[3].name && await kp.isHidden('#mazeStatus2.is-on'),
+                `Space on the CLEARED panel is NEXT, even with REPLAY focused: now on "${await kp.textContent('#mazeLevelName')}"`);
+            await kCtx.close();
+        }
+
         // --- cloud save and leaderboards, against the real API ---------------
         // server/app.js on an in-memory store; the page is pointed at it the
         // way a developer would (localStorage 'planetilt.api'). Device 1 has
@@ -995,6 +1036,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
             // Device 3 plays as a guest (features.guestPlay): past the front door
             // with no account, remembered on the device, an account offered on
             // Gear later; signing out of that account starts at the door again.
+            // Devices 1 and 2 are done: closed now, so three pages rendering
+            // in software do not starve device 3's save upload on this machine.
+            await d1.c.close();
+            await d2.c.close();
             let d3 = null;
             if (!crazyBuild) {
                 d3 = await cloudDevice({ v: 1, wallet: 321, xp: 0, highestIndex: 1, cleared: { w1_01: { bestMs: 88000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {} }, { before: async (pg) => {
@@ -1029,8 +1074,6 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 await d3.pg.waitForSelector('#landing', { state: 'visible', timeout: 30000 });
                 check(true, 'signing out forgets the guest choice: the front door again');
             }
-            await d1.c.close();
-            await d2.c.close();
             if (d3) await d3.c.close();
         } finally { apiServer.close(); }
 

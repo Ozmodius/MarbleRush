@@ -1,5 +1,5 @@
 import { features, initPlatform, loadingStart, loadingStop, loadSave, writeSave, onAdBusy, apiBase, getPlatformUserToken, onPlatformAuthChange, isPlatformLoginAvailable, showPlatformLogin } from './platform.js';
-import { initSceneHost } from './sceneHost.js';
+import { initSceneHost, setCovered } from './sceneHost.js';
 import { createProgressStore } from './progressStore.js';
 import * as game from './mazeGame.js';
 import { initShopUi } from './shopUi.js';
@@ -53,7 +53,7 @@ async function boot() {
 
     const sync = createCloudSync({ store, api: apiBase(), getCrazyToken: getPlatformUserToken, onRemoteChange: progressChanged });
     const privacy = initPrivacy({ online: !!sync.enabled, isNew: game.isNewPlayer });
-    game.setClearListener(initCloudUi({ sync, login: { available: isPlatformLoginAvailable, show: showPlatformLogin } }));
+    game.setClearListener(initCloudUi({ sync, login: { available: isPlatformLoginAvailable, show: showPlatformLogin }, cover: setCovered }));
     game.setRunListener((ev) => { if (ev && ev.type === 'start') privacy.runStarted(); sync.track(ev); });
     store.onAction(name => sync.track({ type: 'act', name }));
     onPlatformAuthChange(() => sync.reconnect());

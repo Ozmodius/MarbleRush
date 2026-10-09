@@ -205,10 +205,10 @@ export function createCloudSync({
             remember(r.token, r.player);
             acct = r.account || null;
             adopt(r.save, joined);
-            const pushed = pushNow().catch(() => { /* it goes up with the next save */ }).then(() => {
+            const pushed = pushNow().then(() => {
                 status = 'synced';
                 for (const fn of listeners) { try { fn(status, me); } catch (_) { /* ignore */ } }
-            });
+            }, () => { schedulePush(); });   // failed: the ordinary push retries it
             let waited = null;
             await Promise.race([pushed, new Promise((res) => { waited = setTimer(res, SIGNIN_PUSH_WAIT_MS); })]);
             if (waited) clearTimer(waited);

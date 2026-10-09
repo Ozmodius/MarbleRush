@@ -295,3 +295,21 @@ CrazyGames' requirements):
 - *No ad for backing out of an unplayed level.*
 - *Sign-in no longer waits on a slow save upload* (at most 2.5 s, then the
   upload finishes in the background).
+
+Between levels (2026-10-09, Oz's go-ahead, item 2 of the CrazyGames
+growth list -- session length):
+- Measured first: a clear to the next level's START is two taps with no
+  popups, a fall restarts by itself in ~1.5 s, levels build in under 0.75 s.
+  What was wrong was on the CLEARED screen.
+- *The result stays*: a level-up, mission, prize or trial-marble line used to
+  replace "CLEARED 11.3s 🥇 +144" after 1.4 s, so the first three clears of a
+  new player (all level-ups) barely showed their time or pay. They now go on
+  a second line under it, one after another.
+- *The daily maze is announced* on the clear that unlocks it: NEXT-to-NEXT
+  players never pass home, where it lives.
+- *NEXT is the one bright button*: EXPLORE IT is secondary-styled there.
+  Space/Enter is NEXT on a computer, with a SPACE chip on the button.
+- *Dismissing the level-up card by tapping beside it* now goes on to the
+  calendar like its OK does (it skipped it).
+- *The 3D scene pauses under the web's landing site*, and a failed save upload
+  after sign-in is retried instead of being called synced.

@@ -436,6 +436,8 @@ function inRun() { return active && phase === 'running'; }
 function keyboardFirst() {
     try { return !!(window.matchMedia && window.matchMedia('(pointer: fine)').matches) && !(navigator.maxTouchPoints > 0); } catch (_) { return false; }
 }
+// CSS shows keyboard hints (NEXT's "SPACE") only on such a computer.
+try { if (typeof document !== 'undefined' && keyboardFirst()) document.documentElement.classList.add('kbd-first'); } catch (_) { /* no DOM */ }
 function readyHint() {
     if (keyboardFirst()) return walkMode ? 'PRESS SPACE TO START, THEN FIND THE EXIT' : 'PRESS SPACE OR AN ARROW KEY TO START';
     return walkMode ? 'TAP START, THEN FIND THE EXIT' : 'TAP START, THEN TILT';
@@ -443,6 +445,23 @@ function readyHint() {
 
 if (typeof window !== 'undefined') {
     window.addEventListener('keydown', (e) => {
+        // On the CLEARED panel, Space or Enter moves on: NEXT when there is a
+        // next level, else REPLAY -- the keyboard player's hands stay put.
+        if (active && phase === 'won' && !e.repeat && (e.code === 'Space' || e.code === 'Enter')) {
+            const t0 = e.target;
+            if (t0 && (t0.tagName === 'INPUT' || t0.tagName === 'TEXTAREA' || t0.isContentEditable)) return;
+            if (document.querySelector('.modal:not([hidden])')) return;
+            const vis = (id) => { const b = el(id); return b && b.style.display !== 'none' && !b.hidden && b.offsetParent !== null; };
+            const go = vis('mazeNextBtn') ? 'mazeNextBtn' : vis('mazeReplayBtn') ? 'mazeReplayBtn' : null;
+            if (!go) return;
+            // A button left focused by an earlier click would take the key
+            // itself (Space presses it on keyup): it loses focus first, so the
+            // key means NEXT whatever was last clicked.
+            e.preventDefault();
+            if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+            el(go).click();
+            return;
+        }
         // On the ready screen a keyboard starts the run too: Space or Enter,
         // or (rolling) the first arrow/WASD press -- a desktop player's hand
         // is already on them. Not while a dialog is up or START is hidden.
@@ -1442,6 +1461,7 @@ function win() {
     // makes a coin down a risky branch a choice.
     // The daily maze is off the ladder and pays by its own rules.
     const coinsTaken = pickupState ? pickupState.coins : 0;
+    const dailyWasLocked = !!(store && !walkMode && !isDaily(level) && store.dailyMaze().locked);
     const result = !store ? null
         : walkMode ? store.recordWalkClear(level.id, ms, coinsTaken)
         : isDaily(level) ? store.recordDailyClear(level.id, ms, coinsTaken)
@@ -1464,6 +1484,7 @@ function win() {
         try { clearListener(info); } catch (e) { console.warn('[maze] clear listener:', e && e.message); }
     }
     emitRun('clear', { ms, tier: (result && result.tier) || null, coins: coinsTaken, coinsOf: Array.isArray(level.coins) ? level.coins.length : 0 });
+    if (result && dailyWasLocked && !store.dailyMaze().locked) result.dailyUnlocked = true;
     showClearResult(result, ms);
     showNearMiss(result);
     lastClear = result && result.accepted && result.earned > 0 ? result : null;
@@ -1474,7 +1495,7 @@ function win() {
     // A trial that cleared: say where the marble can be had for keeps.
     if (trialMarble) {
         const m = MARBLES[trialMarble.id];
-        setTimeout(() => { if (phase === 'won' && trialMarble) setStatus('KEEP ' + m.name.toUpperCase() + '?  GEAR  ' + formatBearings(m.price)); }, 2200);
+        status2Later('KEEP ' + m.name.toUpperCase() + '?  GEAR  ' + formatBearings(m.price), 2200);
     }
     showWinStar(true);
     if (walkHud) walkHud.show(false);
@@ -1566,6 +1587,20 @@ function setStatus(text) {
     if (!e) return;
     e.textContent = text || '';
     e.classList.toggle('is-ready', phase === 'ready');   // above START, off the board's top
+    if (phase !== 'won') setStatus2('');
+}
+// The line under the result after a clear. Each message replaces the one
+// before it there, never the result above.
+let status2Timers = [];
+function setStatus2(text) {
+    const e = el('mazeStatus2');
+    if (!text) status2Timers.forEach(clearTimeout), status2Timers = [];
+    if (!e) return;
+    e.textContent = text || '';
+    e.classList.toggle('is-on', !!text);
+}
+function status2Later(text, ms) {
+    status2Timers.push(setTimeout(() => { if (phase === 'won') setStatus2(text); }, ms));
 }
 function renderCoins() {
     const e = el('mazeCoins');
@@ -1579,7 +1614,7 @@ function renderPowerups() {
     if (pickupState.shield) live.push('SHIELD');
     if (pickupState.slowmoMs > 0) live.push(`SLOW ${Math.ceil(pickupState.slowmoMs / 1000)}`);
     if (pickupState.magnetMs > 0) live.push(`MAGNET ${Math.ceil(pickupState.magnetMs / 1000)}`);
-    e.textContent = live.join('  ');
+    e.textContent = phase === 'won' ? '' : live.join('  ');
     // One tap button per bought power-up still held, with its count.
     for (const kind of ['slowmo', 'magnet']) {
         const b = el('mazeUse_' + kind);
@@ -2354,21 +2389,27 @@ function showClearResult(res, ms) {
     // re-run would read as the game being broken.
     const paid = res.earned > 0 ? '   +' + formatBearings(res.earned) : '';
     setStatus('CLEARED  ' + formatTime(res.runMs) + (icon ? '  ' + icon : '') + beaten + paid);
-    // Status lines queue after the CLEARED line, a beat apart.
-    let beat = res.prize ? 2800 : 1400;
+    // What else the clear brought goes on the line UNDER the result, one
+    // after another a beat apart (it used to replace the result 1.4 s in, so
+    // a clear that levelled up never showed its time or pay for long).
+    // The last one stays.
+    let beat = 700;
+    if (res.prize) { status2Later('PRIZE  ' + prizeName(res.prize), beat); beat += 1600; }
     if (res.levelUps && res.levelUps.length) {
         const L = res.levelUps[res.levelUps.length - 1].level;
-        setTimeout(() => { if (phase === 'won') setStatus('LEVEL UP!  YOU ARE LEVEL ' + L); }, beat);
-        beat += 1400;
+        status2Later('LEVEL UP!  YOU ARE LEVEL ' + L, beat);
+        beat += 1600;
     }
     if (res.missionsDone && res.missionsDone.length) {
-        // A finished daily mission, after a beat: claimed on the home screen.
+        // A finished daily mission: claimed on the home screen.
         const names = res.missionsDone.map(id => MISSIONS[id] ? MISSIONS[id].text.toUpperCase() : id);
-        setTimeout(() => { if (phase === 'won') setStatus('MISSION DONE  ' + names.join('  ·  ')); }, beat);
+        status2Later('MISSION DONE  ' + names.join('  ·  '), beat);
+        beat += 1600;
     }
+    // The clear that opens the daily maze says so: a player going from NEXT
+    // to NEXT never passes the home screen where it lives.
+    if (res.dailyUnlocked) status2Later('DAILY MAZE UNLOCKED  ·  ON HOME', beat);
     if (res.prize) {
-        // Its own line, after a beat, so it is not lost in the time and pay.
-        setTimeout(() => { if (phase === 'won') setStatus('PRIZE  ' + prizeName(res.prize)); }, 1400);
         try { uiSfx.open(); } catch (e) { /* ignore */ }
     }
 }
