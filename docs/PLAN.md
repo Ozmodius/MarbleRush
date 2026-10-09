@@ -325,3 +325,19 @@ growth list -- day-1 retention):
   today is claimed, and its line says what tomorrow pays and when, how many
   days in a row the streak has run, and what day 7 is worth.
 - *The daily maze's clear says a new one comes tomorrow.*
+
+The first minute (2026-10-09, Oz's go-ahead, item 4 of the CrazyGames
+growth list -- conversion):
+- *Measured first*: real play data is too thin to show where players stop
+  (28 players, almost no runs), so the levels were measured: level 1's
+  shortest route runs along a hole's edge, and levels 2-3 alike. Medals are
+  generous (bronze under 2.25x gold: 27 s on level 1).
+- *The beginner's shield*: until levels 1-3 are each first cleared, every
+  attempt starts shielded, free. The seeded levels and their gold times are
+  untouched; a bought shield is kept; the ad shield is not offered there.
+- *The no-sensor hint speaks the device*: "DRAG ON THE SCREEN TO TILT" on a
+  phone whose motion was refused or never arrives (it said "ARROW KEYS, WASD
+  OR DRAG"), keys first on a computer.
+- *Quick first retries*: a first connect that fails retries in 3 s, then
+  10 s, then every 30 s (it waited 30 s) -- a busy phone compiling the scene
+  at boot can miss the request timeout.

@@ -104,6 +104,16 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   home, so without it they never claimed day 1 or started a streak. Every
   claim -- there or in the calendar -- names tomorrow's reward
   (`daily.tomorrowDaily`, `rewardText`); the calendar marks tomorrow's tile.
+- **The first three levels forgive a first fall** (the beginner's shield,
+  2026-10-09): until levels 1-3 are each first cleared, every attempt at
+  them starts shielded, free (a bought shield is left unspent; no ad shield
+  is offered there). Their shortest routes run along a hole's edge, and the
+  levels are seeded and verified, so forgiveness is added rather than
+  editing them. With no tilt sensor steering, the hint is in the device's
+  words (`manualHintText`: a phone is told to drag).
+- **A failed first connect retries in 3 s, then 10 s, then every 30 s**
+  (`cloudSync.js` RETRY_STEPS_MS): a busy phone at boot can miss the 10 s
+  request timeout, and a 30 s wait left a new player unsaved.
 - **Nothing renders behind the landing site** (`sceneHost.setCovered`): the
   spinning home planet cost a visitor's CPU and battery while they read it.
 - **The privacy policy lives in the game** (`privacy.js`, an in-game panel

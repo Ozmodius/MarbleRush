@@ -23,6 +23,11 @@
 
 export const CLOUD_KEY = 'planetilt.cloud.v1';
 const RETRY_MS = 30e3;
+// After a failed connect: soon, then sooner-or-later, then every RETRY_MS. A
+// first request can miss its TIMEOUT_MS while the device itself is busy
+// (a cheap phone or Chromebook compiling the 3D scene at boot), and waiting
+// a full RETRY_MS then left a fresh player unsaved for half a minute.
+const RETRY_STEPS_MS = [3e3, 10e3];
 const TIMEOUT_MS = 10e3;
 // How long signing in (or making an account) waits for the save to go up
 // before it reports done; the push finishes in the background after that.
@@ -61,7 +66,7 @@ export function createCloudSync({
     let status = base ? 'idle' : 'off';
     let acct = null, mailOn = false;       // the account, if signed in to one
     const listeners = new Set();
-    let adopting = false, pushTimer = null, retryTimer = null, connecting = null;
+    let adopting = false, pushTimer = null, retryTimer = null, connecting = null, retries = 0;
     const pending = [];          // scores that could not be sent yet
 
     const setStatus = (s) => {
@@ -142,7 +147,9 @@ export function createCloudSync({
 
     const scheduleRetry = () => {
         if (retryTimer || !base) return;
-        retryTimer = setTimer(() => { retryTimer = null; connect(); }, RETRY_MS);
+        const wait = retries < RETRY_STEPS_MS.length ? RETRY_STEPS_MS[retries] : RETRY_MS;
+        retries++;
+        retryTimer = setTimer(() => { retryTimer = null; connect(); }, wait);
     };
 
     // Session, pull, push, catch-up. One at a time; a call while one runs
@@ -160,6 +167,7 @@ export function createCloudSync({
                 await pushNow();
                 await backfill();
                 await flushScores();
+                retries = 0;
                 setStatus('synced');
                 return true;
             } catch (e) {
