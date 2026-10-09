@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// Build the CrazyGames bundle: dist/crazygames/ and dist/planetilt-crazygames.zip.
+// Build the CrazyGames bundle: dist/crazygames/ and
+// dist/planetilt-crazygames-v<version>-<commit>.zip (version from package.json,
+// commit from git, "-dirty" when built from uncommitted changes).
 //
 // THE BUNDLE IS FLAT -- no folders (CLAUDE.md). CrazyGames' drag-and-drop
 // upload can drop subfolders, and a game missing its scripts is a black
@@ -34,7 +36,18 @@ const esbuild = require('esbuild');
 const ROOT = path.join(__dirname, '..');
 const WEB = process.argv.includes('--web');
 const OUT = path.join(ROOT, 'dist', WEB ? 'web' : 'crazygames');
-const ZIP = WEB ? null : path.join(ROOT, 'dist', 'planetilt-crazygames.zip');
+// The zip is named for what is in it, so an upload can always be traced to
+// its code: package.json's version (bump it for each CrazyGames upload) and
+// the commit it was built from.
+const VERSION = require(path.join(ROOT, 'package.json')).version;
+function commitTag() {
+    try {
+        const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
+        const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: ROOT, encoding: 'utf8' }).trim();
+        return sha ? '-' + sha + (dirty ? '-dirty' : '') : '';
+    } catch (_) { return ''; }   // not a git checkout: the version alone
+}
+const ZIP = WEB ? null : path.join(ROOT, 'dist', `planetilt-crazygames-v${VERSION}${commitTag()}.zip`);
 
 // The cloud save / leaderboard server (server/), when PLANETILT_API_URL is
 // set at build time; without it the game builds exactly as before, no server.
@@ -93,7 +106,8 @@ async function build() {
 
     const kb = f => (fs.statSync(path.join(OUT, f)).size / 1024).toFixed(0) + ' KB';
     if (ZIP) {
-        fs.rmSync(ZIP, { force: true });
+        // Older builds' zips go, so dist/ holds just the one to upload.
+        for (const f of fs.readdirSync(path.join(ROOT, 'dist'))) if (/^planetilt-crazygames.*\.zip$/.test(f)) fs.rmSync(path.join(ROOT, 'dist', f), { force: true });
         // -j: junk paths, so the zip is flat whatever the working directory.
         execFileSync('zip', ['-q', '-j', ZIP, ...entries.map(e => path.join(OUT, e.name))]);
         console.log('Built ' + path.relative(ROOT, ZIP) + ' (' + (fs.statSync(ZIP).size / 1024).toFixed(0) + ' KB):');

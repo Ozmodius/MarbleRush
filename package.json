@@ -1,6 +1,6 @@
 {
   "name": "planetilt",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "PlaneTilt: a tilt-controlled marble maze for CrazyGames.",
   "license": "UNLICENSED",
