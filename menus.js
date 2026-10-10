@@ -7,6 +7,7 @@ import { sfx } from './sfx.js';
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { captiveFor, isRescueLevel, VILLAIN } from './rescue.js';
 import { fuelGate, fuelCount, launchNeed } from './fuel.js';
+import { isSurveyed } from './survey.js';
 import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, showLevelUps } from './dailyUi.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
@@ -271,6 +272,7 @@ function renderSites(home) {
             + (lv.index === nextIdx ? ' is-next' : '') + (lv.id === home.level.id && !home.locked ? ' is-picked' : '');
         if (tier) b.dataset.tier = tier; else delete b.dataset.tier;
         if ((p.fuel || []).includes(lv.id)) b.classList.add('has-fuel');
+        if (isSurveyed(p, lv.id)) b.classList.add('is-surveyed');
         const cap = isRescueLevel(lv) ? captiveFor(lv.world) : null;
         if (cap) {
             b.classList.add('is-rescue');
@@ -400,6 +402,7 @@ function renderSheet(w) {
         b.className = 'level-node' + (c ? ' is-cleared' : '') + (open ? '' : ' is-locked') + (!walk && lv.index === nextIdx ? ' is-next' : '');
         if (tier) b.dataset.tier = tier;
         if (!walk && (p.fuel || []).includes(lv.id)) b.classList.add('has-fuel');
+        if (!walk && isSurveyed(p, lv.id)) b.classList.add('is-surveyed');
         // Floor 10 holds a friend (rescue.js): a caged dot, or a free one.
         const cap = !walk && isRescueLevel(lv) ? captiveFor(lv.world) : null;
         if (cap) {
@@ -439,7 +442,8 @@ function renderSheet(w) {
         if (!walk && w.levels.length && w.state !== 'coming') {
             const have = fuelCount(p, w.n), need = launchNeed(w.n + 1), next = ctx.game.worldsInfo().find(x => x.n === w.n + 1);
             const ic = document.createElement('span'); ic.className = 'fuel-icon';
-            fuelEl.append(ic, document.createTextNode(`Fuel cells ${have} / ${w.levels.length}, one hidden in each maze's deepest dead end.` + (next && next.levels.length ? ` ${worldName(w.n + 1)} needs ${need}.` : '')));
+            const surveyedN = w.levels.filter(l => isSurveyed(p, l.id)).length;
+            fuelEl.append(ic, document.createTextNode(`Fuel cells ${have} / ${w.levels.length}, one hidden in each maze's deepest dead end.` + (next && next.levels.length ? ` ${worldName(w.n + 1)} needs ${need}.` : '') + `  Surveyed ${surveyedN} / ${w.levels.length}.`));
         }
     }
 

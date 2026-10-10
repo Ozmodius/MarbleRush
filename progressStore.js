@@ -75,6 +75,9 @@ export function freshProgress() {
         // Fuel cells found (fuel.js): the ids of the levels whose cell has
         // been banked. A planet's count flies the ship to the next.
         fuel: [],
+        // The survey (survey.js): the best share of each level's floor a
+        // clear has covered, in whole percent, by level id.
+        survey: {},
         // The Labyrinth (walkMode.js): best walk per level, explorer kit
         // owned, and the comfort settings.
         walks: {}, explorer: [], comfort: defaultComfort(),
@@ -151,6 +154,11 @@ export function parseProgress(text) {
         if (id && !p.marbles.includes(id)) p.marbles.push(id);
     }
     p.fuel = Array.isArray(raw.fuel) ? [...new Set(raw.fuel.filter(isLadderId))].sort() : [];
+    p.survey = {};
+    if (raw.survey && typeof raw.survey === 'object') for (const [id, v] of Object.entries(raw.survey)) {
+        const n = Math.floor(Number(v));
+        if (isLadderId(id) && Number.isFinite(n) && n > 0) p.survey[id] = Math.min(100, n);
+    }
     return p;
 }
 
@@ -361,6 +369,7 @@ export function mergeProgress(a, b) {
     for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer', 'achievements', 'rescued', 'fuel']) p[key] = union(p[key], older[key]);
     p.rescued.sort((a, b) => a - b);
     p.fuel.sort();
+    for (const [id, n] of Object.entries(older.survey || {})) p.survey[id] = Math.max(p.survey[id] || 0, n);
     for (const [id, n] of Object.entries(older.upgrades)) p.upgrades[id] = Math.max(p.upgrades[id] || 0, n);
     // A prize only the older save has earned brings its uses with it.
     for (const id of older.prizes) if (!newer.prizes.includes(id) && older.prizeUses[id]) p.prizeUses[id] = older.prizeUses[id];
@@ -447,6 +456,17 @@ export function recordFuel(progress, levelId) {
     const p = JSON.parse(JSON.stringify(progress));
     p.fuel = [...(p.fuel || []), levelId].sort();
     return { progress: p, ok: true };
+}
+
+// A clear's survey of `levelId` (survey.js): kept if it beats the best.
+// { progress, ok, best, before }.
+export function recordSurvey(progress, levelId, pct) {
+    const n = Math.min(100, Math.floor(Number(pct)));
+    const before = ((progress.survey || {})[levelId]) || 0;
+    if (!isLadderId(levelId) || !Number.isFinite(n) || n <= before) return { progress, ok: false, best: before, before };
+    const p = JSON.parse(JSON.stringify(progress));
+    p.survey = { ...(p.survey || {}), [levelId]: n };
+    return { progress: p, ok: true, best: n, before };
 }
 
 // Choosing among marbles already owned is free.
@@ -667,6 +687,11 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             apply(out);
             if (out.ok) act('rescue:w' + world);
             return { ok: out.ok, reason: out.reason || null, marble: out.marble || null };
+        },
+        recordSurvey: (levelId, pct) => {
+            const out = recordSurvey(progress, levelId, pct);
+            apply(out);
+            return { ok: out.ok, best: out.best, before: out.before };
         },
         recordFuel: levelId => {
             const out = recordFuel(progress, levelId);
