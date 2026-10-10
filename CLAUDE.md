@@ -171,6 +171,15 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   planet's first level (never Sawturn's -- a new player's first screen keeps
   its how-to), floor 9 warning the cage is near, a freed friend pointing to
   the next planet.
+- **Fuel cells fly the ship** (`fuel.js`, the user's call, 2026-10-10): one
+  in every ladder level's deepest dead end, found by the shared spot finder
+  (`levelSpots.js`, which the rescue's cage uses too -- never written into
+  `mazeLevels.json`; `test_fuel.js` proves each safe, reachable also 50%
+  wider, a real detour). Banked by a clear (like coins), kept for good
+  (`fuel` in the save, merged by union). A planet's first level needs the
+  planet before's cells: 3 for Slipstonia, 5 for Magmars, 7 after
+  (`fuelGate`, inside `isUnlocked`). A planet already played on is never
+  shut, fuel or not. Gold times are untouched: a gold run need not fetch it.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

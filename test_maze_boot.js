@@ -814,6 +814,7 @@ const failures = [];
         check(/FRIENDS RESCUED 0 \/ 5/.test(await rp.textContent('#homeRescueText')) && await rp.locator('#homeRescueFriends .rescue-friend.is-caged').count() === 5,
             `home's tracker shows all five friends caged: ${await rp.textContent('#homeRescueText')}`);
         check(/COINS/.test(await rp.textContent('.home-stats')) && !/GOLD/.test(await rp.textContent('.home-stats')), 'the coin counter says COINS, not GOLD');
+        check(/FUEL 0 \/ 10\s+·\s+3 TO FLY ON/.test(await rp.textContent('#homeWorldFuel')), `home shows the planet's fuel and what the ship needs: ${await rp.textContent('#homeWorldFuel')}`);
         await rp.waitForFunction(() => [...document.querySelectorAll('#homeSites .home-site')].every(b => b.style.visibility !== 'hidden'), null, { polling: 100, timeout: 15000 }).catch(() => {});
         const sites = await rp.$$eval('#homeSites .home-site', bs => bs.map(b => ({ id: b.dataset.level, picked: b.classList.contains('is-picked'), off: b.disabled, x: parseFloat(b.style.left), y: parseFloat(b.style.top) })));
         check(sites.length === 10 && sites.filter(x => x.picked).map(x => x.id).join() === 'w1_10' && sites.every(x => !x.off),
@@ -855,6 +856,9 @@ const failures = [];
         await rdbg('holdShow', 0);              // and drawn, held
         let sh = await rdbg('show');
         check(sh.kind === 'drop' && sh.drawn.y > sh.body.y + 2 && Math.abs(sh.body.x - levels[4].start.x) < 1e-6, `a level opens on the drop, the body already on the start: ${JSON.stringify(sh)}`);
+        // FUEL CELLS (fuel.js): every level hides one, not yet found here.
+        const cell5 = await rdbg('fuel');
+        check(cell5 && !cell5.found && !cell5.taken && cell5.shown && await rp.isVisible('#mazeFuel') && !/is-found/.test(await rp.getAttribute('#mazeFuel', 'class')), `a level hides a fuel cell, the HUD's cell dim: ${JSON.stringify(cell5)}`);
         // EACH WORLD'S SKY (backdrop3d.js): its planet far below, the ground
         // drawn once into a texture rather than shaded every frame.
         check(JSON.stringify(await rdbg('levelSky')) === '{"baked":true}', `the level hangs over its planet, the ground baked once: ${JSON.stringify(await rdbg('levelSky'))}`);
@@ -899,6 +903,11 @@ const failures = [];
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running' && !window.__mazeDebug.rescue().freed, null, { polling: 100, timeout: 15000 }).catch(() => {});
         check(!(await rdbg('rescue')).freed && await rdbg('goalLocked'), 'a fall cages Pip again and locks the exit');
         await rdbg('placeBall', cage.x, cage.z);
+        // Take floor 10's fuel cell on the way out: banked by the clear.
+        const cell10 = await rdbg('fuel');
+        await rdbg('placeBall', cell10.x, cell10.z);
+        check((await rdbg('fuel')).taken && /FUEL CELL!/.test(await rp.textContent('#mazeStatus')) && /is-taken/.test(await rp.getAttribute('#mazeFuel', 'class')), 'rolling into the cell takes it');
+        check(!((await rdbg('progress')).fuel || []).includes('w1_10'), 'but it is not banked before the clear');
         await rdbg('ageRun', Math.round(r10.goldMs * 1.2));
         await rdbg('holdShow', 0);
         check(await rdbg('warpToGoal'), 'with Pip freed, the exit clears the level');
@@ -911,10 +920,16 @@ const failures = [];
         check(sh.kind === null && !sh.shipShown && !sh.drawn.visible, `and flies off with it, the board left empty: ${JSON.stringify(sh)}`);
         let rprog = await rdbg('progress');
         check((rprog.rescued || []).join() === '1' && rprog.marbles.includes('pip') && rprog.marble === 'classic', `Pip joins the player's marbles, Rolle still selected: ${JSON.stringify({ r: rprog.rescued, m: rprog.marbles, s: rprog.marble })}`);
+        check((rprog.fuel || []).join() === 'w1_10', `the clear banks the cell: ${JSON.stringify(rprog.fuel)}`);
         const joined = await rp.waitForFunction(() => /PIP JOINS YOU/.test(document.getElementById('mazeStatus2').textContent) && /CLEARED/.test(document.getElementById('mazeStatus').textContent), null, { polling: 100, timeout: 8000 }).then(() => true, () => false);
         check(joined, 'the CLEARED line stays and the line under it says Pip joins you');
         const pipSays = await rp.waitForFunction(() => /PIP: THE BARON FLED TO SLIPSTONIA/.test(document.getElementById('mazeStatus2').textContent), null, { polling: 100, timeout: 20000 }).then(() => true, () => false);
         check(pipSays, 'then Pip says where the Baron went');
+        // One cell of Sawturn's is not enough to fly to Slipstonia: no NEXT,
+        // and the line under the result says what the ship needs.
+        check(await rp.isHidden('#mazeNextBtn'), 'short of fuel, the CLEARED panel has no NEXT');
+        const shipSays = await rp.waitForFunction(() => /SHIP NEEDS 3 FUEL CELLS FOR SLIPSTONIA\s+·\s+1 FOUND/.test(document.getElementById('mazeStatus2').textContent), null, { polling: 100, timeout: 25000 }).then(() => true, () => false);
+        check(shipSays, 'and says the ship needs 3 cells for Slipstonia, 1 found');
         await rdbg('startLevelForTest', 'w1_10', { story: true });
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
         check((await rdbg('rescue')) === null && !(await rdbg('goalLocked')) && await rp.isHidden('#storyPanel'), 'once rescued, floor 10 is a plain level');
