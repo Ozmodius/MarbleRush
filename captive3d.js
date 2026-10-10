@@ -124,6 +124,7 @@ export function buildCage(spot, look, ballRadius, tracked = []) {
     let freedAt = -1;            // seconds (the page clock) the bars flew; -1 caged
     let lastSeconds = 0;
     let followX = spot.x, followZ = spot.z, facing = 0, rolled = 0;
+    let beamK = 0, beamTo = null;     // riding the ship's beam: how far up, to where
 
     function home() {
         friendHolder.position.set(0, fr, 0);
@@ -142,6 +143,8 @@ export function buildCage(spot, look, ballRadius, tracked = []) {
         for (const b of bars) { b.position.copy(b.userData.home); b.rotation.set(0, 0, 0); }
         top.position.y = H; for (const m of straps) m.position.y = H; cog.position.y = H + r * 0.1; knob.position.y = H + r * 0.24;
         home();
+        beamK = 0; beamTo = null;
+        friendHolder.visible = true;
         api.freed = false;
     }
 
@@ -210,6 +213,14 @@ export function buildCage(spot, look, ballRadius, tracked = []) {
             friendHolder.position.set(followX - spot.x, fr + hop, followZ - spot.z);
             friendHolder.rotation.y = facing;
             friend.rotation.x = rolled;
+            // Up Rolle's ship's beam (levelShow.js), beside him into the dome.
+            if (beamK > 0 && beamTo) {
+                const k = beamK;
+                friendHolder.position.set(
+                    friendHolder.position.x + (beamTo.x - spot.x - friendHolder.position.x) * k,
+                    friendHolder.position.y + (beamTo.y - friendHolder.position.y) * k,
+                    friendHolder.position.z + (beamTo.z - spot.z - friendHolder.position.z) * k);
+            }
         },
         // The cage is reached: open it.
         free() {
@@ -233,6 +244,10 @@ export function buildCage(spot, look, ballRadius, tracked = []) {
                 if (path.length > 400) path.splice(0, path.length - 400);
             }
         },
+        // k 0..1 up the ship's beam toward (x, y, z) in the board's frame.
+        beam(k, x, y, z) { beamK = k > 0 ? Math.min(1, k) : 0; beamTo = beamK ? { x, y, z } : null; },
+        // Gone with the ship.
+        hide() { friendHolder.visible = false; },
         reset
     };
     // The friend starts on the cage's spot: the first stretch of path begins
