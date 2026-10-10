@@ -155,6 +155,7 @@ function renderHome() {
     const lv = home.level;
     renderWorldNav(home);
     renderSites(home);
+    renderRescue();
 
     // Medals by best time, across every level (progressStore.js tierForMs).
     const medals = { gold: 0, silver: 0, bronze: 0 };
@@ -262,6 +263,30 @@ function renderSites(home) {
         b.setAttribute('aria-label', `Level ${i + 1}, ${lv.name}${c ? ', cleared' + (tier ? ', ' + tier : '') : ''}${open ? '' : ', locked'}${cap && !(p.rescued || []).includes(lv.world) ? ', ' + cap.name + ' is caged here' : ''}`);
     });
 }
+// THE RESCUE TRACKER under the logo: Rolle's five friends (rescue.js),
+// behind bars until freed, and the count. Tapping it opens the Worlds map,
+// where each planet's sheet says who is held there.
+function renderRescue() {
+    const box = $('homeRescueFriends'), text = $('homeRescueText');
+    if (!box || !text) return;
+    const p = ctx.store.get();
+    const worlds = [];
+    for (let w = 1; w <= LAUNCH_WORLDS; w++) { const c = captiveFor(w); if (c) worlds.push([w, c]); }
+    const freed = worlds.filter(([w]) => (p.rescued || []).includes(w)).length;
+    box.innerHTML = '';
+    for (const [w, c] of worlds) {
+        const d = document.createElement('i');
+        const isFree = (p.rescued || []).includes(w);
+        d.className = 'rescue-friend ' + (isFree ? 'is-freed' : 'is-caged');
+        d.style.setProperty('--m', c.swatch);
+        d.title = isFree ? `${c.name}, freed` : `${c.name}, held on ${worldName(w)}`;
+        box.append(d);
+    }
+    text.textContent = freed === worlds.length ? 'ALL FRIENDS RESCUED!' : `FRIENDS RESCUED ${freed} / ${worlds.length}`;
+    $('homeRescue').classList.toggle('is-all', freed === worlds.length);
+    $('homeRescue').setAttribute('aria-label', `${freed} of ${worlds.length} friends rescued from ${VILLAIN}. Open the worlds map.`);
+}
+
 // Each frame on home: the buttons ride their sites (the planet slides in on
 // a swipe).
 function placeSites() {
@@ -446,6 +471,7 @@ export function initMenus({ store, game }) {
     go('homeGoldChip', 'store');
     go('homeChargeChip', 'store');
     go('homeMedalChip', 'worlds');
+    go('homeRescue', 'worlds');
     for (const [id, mode] of [['modeRoll', 'roll'], ['modeWalk', 'walk']]) {
         const b = $(id);
         if (b) b.addEventListener('click', (e) => {
