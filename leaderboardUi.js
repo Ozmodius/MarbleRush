@@ -114,6 +114,12 @@ const setGuestChosen = (on) => {
 };
 let guestThisVisit = false;   // chose guest though storage refused to keep it
 let gate = false;
+// The front door's last few moves, for a test that finds it stuck open.
+const gateLog = [];
+const noteGate = (what) => {
+    try { const me = sync && sync.player(); gateLog.push(`${what} ${me ? me.kind : 'none'} ${sync ? sync.status() : '-'}`); if (gateLog.length > 12) gateLog.shift(); } catch (_) { /* ignore */ }
+};
+if (typeof window !== 'undefined') window.__gateLog = () => gateLog.slice();
 const landing = () => $('landing');
 const needsAccount = () => {
     const me = sync && sync.player();
@@ -132,6 +138,7 @@ function playAsGuest() {
 }
 function openGate() {
     if (gate) return;
+    noteGate('open');
     gate = true;
     if (landing()) {
         landing().hidden = false;
@@ -147,6 +154,7 @@ function openGate() {
     acctView('register');
 }
 function closeGate() {
+    noteGate('close');
     gate = false;
     if (landing()) landing().hidden = true;
     cover(false);

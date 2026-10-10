@@ -2,10 +2,17 @@ import * as THREE from 'three';
 import { makeFloorMaterial, makeBallMaterial } from './mazeTheme3d.js';
 import { applySurface } from './mazeSurface3d.js';
 import { applySkin } from './skins3d.js';
+import { buildShip } from './ship3d.js';
+import { siteAngles, sitePoint, trailArc } from './homeSites.js';
 
-// THE HOME SCREEN'S PLANET: the current world as a big marble, turning slowly
-// in space, with the player's chosen marble orbiting it as a moon, and the
-// system's sun burning in the distance behind it.
+// THE HOME SCREEN'S PLANET: the current world as a big marble in space, with
+// Rolle's ship (ship3d.js) circling it -- the player's chosen marble riding
+// in its dome -- and the system's sun burning in the distance behind it.
+//
+// Its face carries the world's ten levels as landing sites on a trail
+// (homeSites.js), floor 10 at the summit; menus.js puts a button on each.
+// So the sites stay where the buttons are, the ground holds still (a slow
+// sway) while the clouds drift over it.
 //
 // The planet wears the world's own floor surface (mazeTheme3d.js), so Magma
 // Works is basalt split by glowing lava seams and the Workshop is warm wood-
@@ -17,7 +24,9 @@ import { applySkin } from './skins3d.js';
 // surface turns with the planet instead of swimming over it.
 
 const PLANET_R = 3;
-const MOON_ORBIT = 4.7;
+const MOON_ORBIT = 4.7;          // the ship's orbit
+const SITE_LIFT = 0.1;           // sites and trail sit just over the clouds
+const SHIP_SCALE = 0.62;
 
 // Seeded so the stars sit in the same places every visit.
 export function starfield(count, seed) {
@@ -91,7 +100,7 @@ export function atmosphere(color) {
 // Build the planet for `theme` (a resolved theme) with the marble `look`
 // (shopCatalog.js; null = Classic, wearing the theme's marble colour).
 // Everything allocated is pushed onto `tracked` for disposal.
-export function buildPlanet(theme, look, tracked = [], skin = 'plain') {
+export function buildPlanet(theme, look, tracked = [], skin = 'plain', { sites: siteCount = 10 } = {}) {
     const group = new THREE.Group();
     // The planet and its moon ride in their own group, so a swipe to the
     // next world can slide them in while the sun and the stars stay put.
@@ -128,14 +137,65 @@ export function buildPlanet(theme, look, tracked = [], skin = 'plain') {
         tracked.push(cloudGeo, cloudMat);
     }
 
-    // The moon: the marble the player will roll next.
-    const moonGeo = new THREE.SphereGeometry(0.5, 48, 32);
+    // Rolle's ship on its orbit, the marble the player will roll next in the
+    // dome (scaled so the marble is the size it always was beside the planet).
+    const shipTracked = [];
+    const ship = buildShip(shipTracked);
+    tracked.push(...shipTracked);
+    const moonGeo = new THREE.SphereGeometry(0.3, 40, 28);
     const moonMat = applySkin(makeBallMaterial(theme, look), skin);
     const moon = new THREE.Mesh(moonGeo, moonMat);
+    moon.position.y = 0.3;
+    ship.group.add(moon);
+    ship.setPose({ x: 0, y: 0, z: 0, visible: true });
+    ship.setBeam(0);
+    const shipHolder = new THREE.Group();
+    shipHolder.scale.setScalar(SHIP_SCALE * 1.25);
+    shipHolder.add(ship.group);
     const orbit = new THREE.Group();
     orbit.rotation.set(0.28, 0, 0.12);
-    orbit.add(moon);
+    orbit.add(shipHolder);
     world.add(orbit);
+
+    // THE LANDING SITES: a pad at each level's place, a dashed trail joining
+    // them, and a beacon over the one PLAY lands on (select).
+    const angles = siteAngles(siteCount);
+    const sitesGroup = new THREE.Group();
+    world.add(sitesGroup);
+    const sitePos = angles.map(a => { const q = sitePoint(a, PLANET_R, SITE_LIFT); return new THREE.Vector3(q.x, q.y, q.z); });
+    const trailPts = [];
+    for (let i = 1; i < angles.length; i++) {
+        const arc = trailArc(angles[i - 1], angles[i], PLANET_R, SITE_LIFT, 14);
+        for (const q of (i === 1 ? arc : arc.slice(1))) trailPts.push(new THREE.Vector3(q.x, q.y, q.z));
+    }
+    // The trail as beads (a WebGL line is one pixel wide): every other arc
+    // point, skipping the ones under a site's button.
+    const beads = trailPts.filter((p, k) => k % 2 === 1 && sitePos.every(q => q.distanceTo(p) > 0.3));
+    const trailGeo = new THREE.SphereGeometry(0.045, 8, 6);
+    const trailMat = new THREE.MeshBasicMaterial({ color: 0xfff1c9, transparent: true, opacity: 0.85 });
+    const trail = new THREE.InstancedMesh(trailGeo, trailMat, Math.max(1, beads.length));
+    const _m4 = new THREE.Matrix4();
+    beads.forEach((p, k) => trail.setMatrixAt(k, _m4.makeTranslation(p.x, p.y, p.z)));
+    trail.count = beads.length;
+    trail.instanceMatrix.needsUpdate = true;
+    sitesGroup.add(trail);
+    const padGeo = new THREE.CircleGeometry(0.17, 24);
+    const padMat = new THREE.MeshBasicMaterial({ color: 0xfff1c9, transparent: true, opacity: 0.55, depthWrite: false });
+    const _n = new THREE.Vector3(), _z = new THREE.Vector3(0, 0, 1);
+    for (const p of sitePos) {
+        const pad = new THREE.Mesh(padGeo, padMat);
+        pad.position.copy(p);
+        pad.quaternion.setFromUnitVectors(_z, _n.copy(p).normalize());
+        sitesGroup.add(pad);
+    }
+    // The beacon: a ring of light round the chosen site, pulsing outward.
+    const beaconGeo = new THREE.RingGeometry(0.22, 0.3, 32);
+    const beaconMat = new THREE.MeshBasicMaterial({ color: 0xffd66e, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+    beacon.visible = false;
+    sitesGroup.add(beacon);
+    tracked.push(trailGeo, trailMat, padGeo, padMat, beaconGeo, beaconMat);
+    let chosen = -1;
 
     const starGeo = starfield(500, 1337);
     const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.12, sizeAttenuation: true, transparent: true, opacity: 0.8 });
@@ -151,12 +211,35 @@ export function buildPlanet(theme, look, tracked = [], skin = 'plain') {
         world,
         sun: sun.group,
         radius: MOON_ORBIT + 0.6,
+        ship,
+        // The sites, in the world group's frame (it slides on a swipe):
+        // world-space points for projecting the buttons onto (sitesWorld).
+        siteCount: sitePos.length,
+        siteWorld(i, out) { return sitesGroup.localToWorld(out.copy(sitePos[i])); },
+        // The site PLAY lands on: the beacon stands over it (-1: none).
+        select(i) {
+            chosen = Number.isInteger(i) && i >= 0 && i < sitePos.length ? i : -1;
+            beacon.visible = chosen >= 0;
+            if (chosen >= 0) {
+                beacon.position.copy(sitePos[chosen]);
+                beacon.quaternion.setFromUnitVectors(_z, _n.copy(sitePos[chosen]).normalize());
+            }
+        },
         tick(seconds) {
-            planet.rotation.y = seconds * 0.12;
-            if (clouds) clouds.rotation.y = seconds * 0.16;
+            // The ground holds still under the sites (a slow sway); the
+            // clouds drift on.
+            planet.rotation.y = 0.9 + Math.sin(seconds * 0.25) * 0.05;
+            if (clouds) clouds.rotation.y = seconds * 0.05;
+            // The ship's orbit: round the planet, banked into the turn.
             const a = seconds * 0.35;
-            moon.position.set(Math.cos(a) * MOON_ORBIT, 0, Math.sin(a) * MOON_ORBIT);
+            shipHolder.position.set(Math.cos(a) * MOON_ORBIT, Math.sin(seconds * 0.9) * 0.08, Math.sin(a) * MOON_ORBIT);
+            shipHolder.rotation.set(0, -a, 0.22);
+            ship.tick(seconds);
             moon.rotation.y = seconds * 1.4;
+            const pulse = (seconds * 0.9) % 1;
+            beacon.scale.setScalar(1 + pulse * 1.6);
+            beaconMat.opacity = 0.75 * (1 - pulse);
+            trailMat.opacity = 0.75 + 0.12 * Math.sin(seconds * 1.3);
             sun.tick(seconds);
         }
     };

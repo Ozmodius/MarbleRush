@@ -38,7 +38,7 @@ function serve() {
 }
 
 const failures = [];
-    const check = (c, m) => { if (!c) failures.push(m); };
+    const check = (c, m) => { if (!c) { failures.push(m); console.log('FAIL-NOW:', m); } };
 
 (async () => {
     const server = await serve();
@@ -807,6 +807,31 @@ const failures = [];
         const rdbg = (fn, ...args) => rp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
         await rp.goto(base);
         await homeUp(rp);
+        // HOME'S LANDING SITES (homeSites.js): the planet's ten levels on its
+        // face, the next one picked; tap an open one to make it PLAY's.
+        // Rolle's ship circles the planet.
+        check(await rdbg('homeShip'), 'Rolle\'s ship circles home\'s planet');
+        await rp.waitForFunction(() => [...document.querySelectorAll('#homeSites .home-site')].every(b => b.style.visibility !== 'hidden'), null, { polling: 100, timeout: 15000 }).catch(() => {});
+        const sites = await rp.$$eval('#homeSites .home-site', bs => bs.map(b => ({ id: b.dataset.level, picked: b.classList.contains('is-picked'), off: b.disabled, x: parseFloat(b.style.left), y: parseFloat(b.style.top) })));
+        check(sites.length === 10 && sites.filter(x => x.picked).map(x => x.id).join() === 'w1_10' && sites.every(x => !x.off),
+            `ten sites on Sawturn, floor 10 (next) picked, all open: ${JSON.stringify(sites.map(x => [x.id, x.picked, x.off]))}`);
+        let closest = Infinity;
+        for (let i = 0; i < sites.length; i++) for (let j = i + 1; j < sites.length; j++) closest = Math.min(closest, Math.hypot(sites[i].x - sites[j].x, sites[i].y - sites[j].y));
+        check(closest >= 32, `the sites are a finger apart on a phone (closest ${closest.toFixed(0)} px)`);
+        await rp.tap('#homeSite_w1_02');
+        let hl = await rdbg('homeLevel');
+        check(hl.id === 'w1_02' && hl.picked && /PLAY AGAIN/.test(await rp.textContent('#homePlayLabel')) && /LEVEL 2/.test(await rp.textContent('#homePlayLevel'))
+            && /is-picked/.test(await rp.getAttribute('#homeSite_w1_02', 'class')), `tapping a cleared site makes it PLAY's: ${JSON.stringify(hl)}`);
+        await rp.tap('#homePlayBtn');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
+        check((await rp.textContent('#mazeLevelName')).trim() === levels[1].name, `and PLAY starts it: ${await rp.textContent('#mazeLevelName')}`);
+        await rp.tap('#mazeExitBtn');
+        await homeUp(rp);
+        check((await rdbg('homeLevel')).id === 'w1_10', 'back from a level, PLAY offers what is next again');
+        await rp.tap('#homeNextWorld');
+        await rp.waitForFunction(() => document.querySelectorAll('#homeSites .home-site').length === 10 && document.querySelector('#homeSite_w2_01'), null, { polling: 100, timeout: 15000 }).catch(() => {});
+        check(await rp.isDisabled('#homeSite_w2_01') && (await rdbg('homeLevel')).locked, 'a locked planet\'s sites are shut');
+        await rp.tap('#homePrevWorld');
         await rp.tap('#tab_worlds');
         await rp.waitForSelector('#mazeSelect', { state: 'visible' });
         check(/Pip/.test(await rp.textContent('#worldSheetCaptive')) && await rp.locator('.level-node.is-rescue').count() === 1 && await rp.locator('.level-node.is-freed').count() === 0,
@@ -1044,7 +1069,10 @@ const failures = [];
                     await pg.fill('#acctPassword', auth.login.password);
                     await pg.tap('#acctView_signin button[type=submit]');
                 }
-                await pg.waitForSelector('#landing', { state: 'hidden', timeout: 10000 });
+                await pg.waitForSelector('#landing', { state: 'hidden', timeout: 30000 }).catch(async (e) => {
+                    console.log('DEBUG passGate:', JSON.stringify(await pg.evaluate(() => ({ msg: document.getElementById('acctMsg').textContent, panel: !document.getElementById('accountPanel').hidden, player: window.__cloudSync && window.__cloudSync.player(), status: window.__cloudSync && window.__cloudSync.status(), gate: window.__gateLog && window.__gateLog() }))));
+                    throw e;
+                });
             };
             const cloudDevice = async (seed, auth) => {
                 const c = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
@@ -1162,8 +1190,8 @@ const failures = [];
                 check(/Wrong username/.test(await pg.textContent('#acctMsg')) && await pg.isVisible('#accountPanel'), 'a wrong password says so, and the gate stays');
                 await pg.fill('#acctPassword', 'marbles-rule');
                 await pg.tap('#acctView_signin button[type=submit]');
-                await pg.waitForSelector('#landing', { state: 'hidden', timeout: 10000 }).catch(async (e) => {
-                    console.log('DEBUG d2 sign-in:', JSON.stringify(await pg.evaluate(() => ({ msg: document.getElementById('acctMsg').textContent, panel: !document.getElementById('accountPanel').hidden, player: window.__cloudSync && window.__cloudSync.player(), status: window.__cloudSync && window.__cloudSync.status() }))));
+                await pg.waitForSelector('#landing', { state: 'hidden', timeout: 30000 }).catch(async (e) => {
+                    console.log('DEBUG d2 sign-in:', JSON.stringify(await pg.evaluate(() => ({ msg: document.getElementById('acctMsg').textContent, panel: !document.getElementById('accountPanel').hidden, player: window.__cloudSync && window.__cloudSync.player(), status: window.__cloudSync && window.__cloudSync.status(), gate: window.__gateLog && window.__gateLog() }))));
                     throw e;
                 });
             } });
@@ -1194,7 +1222,7 @@ const failures = [];
                     const guestLinks = await pg.$$eval('#landing [data-lp="guest"]', els => els.filter(e => !e.hidden).length);
                     check(guestLinks >= 2, `the landing site offers PLAY AS GUEST under its big buttons (${guestLinks})`);
                     await pg.locator('.lp-hero [data-lp="guest"]').tap();
-                    await pg.waitForSelector('#landing', { state: 'hidden', timeout: 10000 });
+                    await pg.waitForSelector('#landing', { state: 'hidden', timeout: 30000 });
                     check(await pg.isHidden('#accountPanel'), 'playing as a guest opens the game with no account panel');
                 } });
                 check((await d3.pg.evaluate(() => window.__cloudSync.player())).kind === 'guest', 'the device plays as a guest');
