@@ -156,6 +156,13 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   (memory only; back from a level, PLAY offers what is next again). A swipe
   that starts on a site is still a swipe. Rolle's ship (`ship3d.js`) circles
   the planet with the player's marble in its dome.
+- **Each world's sky is its planet far below** (`backdrop3d.js`, the user's
+  call, 2026-10-10): round the board, the planet's own surface (home's
+  planet material, on a sphere cap faced at the equator -- the patterns snow
+  over the poles) under that world's weather (clouds, snow, embers, bubbles,
+  sparks). The ground's shader is the planet's and costly, so it is drawn
+  ONCE per level into a texture (`bake`); only a couple of hundred weather
+  points move per frame. Rolling only; walking keeps the plain sky.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

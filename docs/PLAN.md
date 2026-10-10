@@ -312,7 +312,11 @@ world's floor 10 count.
   sites on a beaded trail winding up to floor 10 at the summit (where the
   friend is caged), each ringed in its medal; tap one to pick what PLAY
   starts, a ring of light pulsing round it. Up/Down keys walk the sites.
-- *Next, as agreed*: world backgrounds -- its own PR.
+- *World skies* (built 2026-10-10): each level hangs high over its planet --
+  the planet's surface far below (forest and sea, ice, lava, a toy panel,
+  steel plate) under its weather: clouds over Sawturn, snow over
+  Slipstonia, embers and smoke over Magmars, bubbles and confetti over
+  Bouncelot, sparks and steam over Gearth.
 
 ## Open questions
 
