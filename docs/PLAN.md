@@ -302,9 +302,13 @@ world's floor 10 count.
 - *The prize*: the friend joins as a playable marble, never sold or tried by
   ad, and bound by the same rule as every marble (control and forgiveness,
   never top speed or size). Saved as `rescued` (worlds), merged by union.
-- *Next, as agreed*: a drop-in between levels (the marble falls onto the new
-  start; on floor 10 into its ship), the ship orbiting home's planet with a
-  level select there, then world backgrounds -- each its own PR.
+- *Between levels* (built 2026-10-09, `levelShow.js`): each level opens on
+  the marble dropping onto its start (a bounce, a thud from the floor's own
+  impact sound); a planet's first level on Rolle's ship, a little saucer
+  with a glass dome, beaming him down; a cleared floor 10 on the ship
+  beaming him (and a freed friend) up and flying off over the board.
+- *Next, as agreed*: the ship orbiting home's planet with a level select
+  there, then world backgrounds -- each its own PR.
 
 ## Open questions
 

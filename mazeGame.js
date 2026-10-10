@@ -18,6 +18,8 @@ import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from 
 import { buildLevelProps } from './mazeProps3d.js';
 import { captiveFor, captiveSpot, isRescueLevel, CAPTIVE_REACH, storyCard, readyLine, lockedLine, freedLine, joinedLine } from './rescue.js';
 import { buildCage } from './captive3d.js';
+import { drop as dropPose, shipDrop as shipDropPose, shipPickup as shipPickupPose, openingShow, closingShow, SHIP_DOME_Y, DROP_MS, SHIP_DROP_MS, SHIP_PICKUP_MS } from './levelShow.js';
+import { buildShip } from './ship3d.js';
 import { sfx as uiSfx } from './sfx.js';
 import { createMazeAudio } from './mazeAudio.js';
 import { wallForLevel, floorForLevel } from './soundModel.js';
@@ -307,6 +309,14 @@ let trialMarble = null;
 // { world, spot, captive, cage, freed, atGoal, unlockedAt }, or null.
 let rescue = null;
 let goalMesh = null;
+// BETWEEN LEVELS (levelShow.js): the show playing now -- the marble dropping
+// onto the start, or Rolle's ship bringing it or taking it away -- or null.
+// Drawing only: the ball's body never moves for it, and START (restart) ends
+// it at once. { kind, ms, spot: {x, z}, side, from: {x, z}, thud, chimed }
+let show = null;
+let ship = null;                 // the ship (ship3d.js), on a planet's first level and floor 10
+const SHOW_THUD = {};
+let showHeldAt = null;            // tests and screenshots: hold the show at this age (ms)            // the drop's landing, as its own sound source
 
 // The win star floats above the board centre, well clear of the 0.55-high walls
 // so it reads as hanging over the maze rather than sitting in it.
@@ -754,6 +764,14 @@ function buildLevelMeshes(lv, theme) {
     group.add(goal);
     goalMesh = goal;
     // A rescue level's cage, and its exit drawn locked (lockGoal).
+    // Rolle's ship, on the levels it flies to and from.
+    if (openingShow(lv, { walk: walkMode }) === 'shipDrop' || closingShow(lv, { walk: walkMode }) === 'shipPickup') {
+        const tracked = [];
+        ship = buildShip(tracked);
+        tracked.forEach(track);
+        ship.setPose({ x: 0, y: 0, z: 0, visible: false });
+        group.add(ship.group);
+    }
     if (rescue) {
         const tracked = [];
         rescue.cage = buildCage(rescue.spot, rescue.captive.look, lv.ballRadius, tracked);
@@ -1013,6 +1031,7 @@ function step() {
     tickSurfaces(now / 1000);
     if (props) props.tick(now / 1000);
     if (rescue && rescue.cage) rescue.cage.tick(now / 1000);
+    if (ship) ship.tick(now / 1000);
     tickGoal(now);
     advance(elapsedMs);
 }
@@ -1099,6 +1118,7 @@ function advance(elapsedMs) {
         ballMesh.position.lerp(prevBallPos, 1 - a);
         ballMesh.quaternion.slerp(prevBallQuat, 1 - a);
     }
+    drawShow(elapsedMs);
     if (trail) trail.update(ballBody.position, elapsedMs);
     if (rescue && rescue.cage) rescue.cage.track(ballMesh.position.x, ballMesh.position.z, phase === 'running' || phase === 'won');
     if (walkMode) {
@@ -1310,6 +1330,76 @@ function showWinStar(show) {
 }
 
 function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+// --- the shows between levels (levelShow.js) ------------------------------------
+function beginShow(kind, spot) {
+    show = kind ? { kind, ms: 0, spot: { x: spot.x, z: spot.z }, side: spot.x >= 0 ? 1 : -1,
+        from: ballBody ? { x: ballBody.position.x, z: ballBody.position.z } : { x: spot.x, z: spot.z }, thud: false, chimed: false } : null;
+    if (show && (kind === 'shipDrop' || kind === 'shipPickup') && !ship) show = kind === 'shipDrop' ? { ...show, kind: 'drop' } : null;
+}
+function endShow() {
+    show = null;
+    if (ship) { ship.setPose({ x: 0, y: 0, z: 0, visible: false }); ship.setBeam(0); }
+    if (rescue && rescue.cage && rescue.cage.beam) rescue.cage.beam(0);
+    if (ballMesh) { ballMesh.scale.set(1, 1, 1); if (!walkMode) ballMesh.visible = true; }
+}
+function showThud() {
+    if (!audio || !level) return;
+    // The real floor-impact sound (mazeAudio.hit), at a firm landing's speed.
+    try { audio.hit(SHOW_THUD, floorForLevel(level), 3.2, ballBody.position.x, ballBody.position.z); } catch (_) { /* silent */ }
+}
+// Each frame, after the ball is drawn where the physics has it: the show
+// moves the DRAWN ball (and the ship) and nothing else.
+function drawShow(dt) {
+    if (!show || !ballMesh || !level) return;
+    show.ms = showHeldAt !== null ? showHeldAt : show.ms + dt;
+    const r = level.ballRadius, rest = FLOOR_Y + r + 0.02;
+    const at = (x, y, z) => ballMesh.position.set(x, rest + y, z);
+    if (show.kind === 'drop') {
+        const d = dropPose(show.ms);
+        ballMesh.position.y += d.y;
+        const sq = d.squash, wide = 1 / Math.sqrt(sq);
+        ballMesh.scale.set(wide, sq, wide);
+        if (d.landed && !show.thud) { show.thud = true; showThud(); }
+        if (d.done) endShow();
+        return;
+    }
+    const sx = show.spot.x, sz = show.spot.z;
+    if (show.kind === 'shipDrop') {
+        const p = shipDropPose(show.ms, show.side);
+        ship.setPose({ ...p.ship, x: sx + p.ship.x, y: rest + p.ship.y, z: sz + p.ship.z });
+        ship.setBeam(p.beam, p.ship.y + 0.02);
+        if (p.ball.inShip) at(sx + p.ship.x, p.ball.y, sz + p.ship.z);
+        else at(sx, p.ball.y, sz);
+        if (p.beam > 0 && !show.chimed) { show.chimed = true; if (audio) audio.event('pickup', { x: sx, z: sz }); }
+        if (p.landed && !show.thud) { show.thud = true; showThud(); }
+        if (p.done) endShow();
+        return;
+    }
+    if (show.kind === 'shipPickup') {
+        // Away over the board's far (top) edge, drifting toward its middle.
+        const p = shipPickupPose(show.ms, show.side, { x: -sx * 0.7, y: 7, z: -level.size.d / 2 - 9 - sz });
+        ship.setPose({ ...p.ship, x: sx + p.ship.x, y: rest + p.ship.y, z: sz + p.ship.z });
+        ship.setBeam(p.beam, p.ship.y + 0.02);
+        const domeX = sx + p.ship.x, domeY = p.ship.y + SHIP_DOME_Y, domeZ = sz + p.ship.z;
+        if (p.ball.inShip) at(domeX + 0.1, domeY, domeZ);
+        else {
+            // Up the beam, drawn in from wherever the ball stopped on the exit.
+            const k = p.rise;
+            at(show.from.x + (sx + 0.1 - show.from.x) * k, p.ball.y, show.from.z + (sz - show.from.z) * k);
+        }
+        // A freed friend rides up beside Rolle.
+        if (rescue && rescue.cage && rescue.cage.beam) rescue.cage.beam(p.rise, domeX - 0.17, rest + domeY - 0.04, domeZ);
+        if (p.rise >= 1 && !show.chimed) { show.chimed = true; if (audio) audio.event('pickup', { x: sx, z: sz }); }
+        if (p.done) {
+            // Gone with the ship: the board stays empty under the CLEARED panel.
+            ship.setPose({ x: 0, y: 0, z: 0, visible: false });
+            ballMesh.visible = false;
+            if (rescue && rescue.cage && rescue.cage.hide) rescue.cage.hide();
+            show = null;
+        }
+    }
+}
 
 // The exit of a rescue level, locked: grey and dim until the friend is
 // freed, then its own colour again with a pop (tickGoal).
@@ -1630,7 +1720,11 @@ function win() {
         const m = MARBLES[trialMarble.id];
         status2Later('KEEP ' + m.name.toUpperCase() + '?  GEAR  ' + formatBearings(m.price), 2200);
     }
-    showWinStar(true);
+    // A planet's floor 10: Rolle's ship comes for the marble (levelShow.js),
+    // in place of the star.
+    const closing = closingShow(level, { walk: walkMode });
+    if (closing === 'shipPickup' && ship) beginShow('shipPickup', level.goal);
+    else showWinStar(true);
     if (walkHud) walkHud.show(false);
     showEl('mazeWinPanel', true);
     showEl('mazeReplayBtn', true);
@@ -1693,6 +1787,8 @@ function restart() {
     // A run is gameplay; the level select, the CLEARED panel and the menu are
     // breaks (platform.js -- no-op on the web).
     setGameplayActive(true);
+    // A show between levels never holds up play: START ends it where it is.
+    endShow();
     revivedThisAttempt = false;
     closeFallOffer();
     showEl('mazeDoubleBtn', false);
@@ -2163,6 +2259,8 @@ function startLevel(levelId, opts = {}) {
     phase = 'ready';
     lastStepTime = 0;
     simCarryMs = 0; prevBallValid = false;
+    // The way in: the marble drops onto the start, or the ship brings it.
+    beginShow(openingShow(lv, { walk: walkMode }), lv.start);
     smoothed = null;
     setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : rescue ? readyLine(rescue.world) : readyHint());
     freeShieldTaken = false;
@@ -2204,6 +2302,8 @@ function teardownLevel() {
     props = null;
     rescue = null;
     goalMesh = null;
+    show = null;
+    ship = null;
     closeStory();
     forest = null;
     planet = null;
@@ -2256,6 +2356,14 @@ window.__mazeDebug = {
     // The rescue on this level: where the cage is, whether it is open.
     rescue: () => (rescue ? { world: rescue.world, x: rescue.spot.x, z: rescue.spot.z, freed: rescue.freed, captive: rescue.captive.id, cage: !!rescue.cage, cageShown: !!(rescue.cage && rescue.cage.group.visible) } : null),
     goalLocked: () => !!(goalMesh && rescue && !rescue.freed),
+    // The show between levels: which, how far in, and where the DRAWN ball is
+    // (the body never moves for it).
+    show: () => ({ kind: show ? show.kind : null, ms: show ? show.ms : 0, ship: !!ship, shipShown: !!(ship && ship.group.visible),
+        drawn: ballMesh ? { x: ballMesh.position.x, y: ballMesh.position.y, z: ballMesh.position.z, visible: ballMesh.visible } : null,
+        body: ballBody ? { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z } : null,
+        lengths: { drop: DROP_MS, shipDrop: SHIP_DROP_MS, shipPickup: SHIP_PICKUP_MS } }),
+    // Hold the show at an age (ms), drawn at once; null lets it run on.
+    holdShow: (ms) => { showHeldAt = Number.isFinite(ms) ? ms : null; if (show && active && world) advance(0); return show ? show.ms : null; },
     ballPos: () => (ballBody ? { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z } : null),
     gravity: () => (world ? { x: world.gravity.x, y: world.gravity.y, z: world.gravity.z } : null),
     // The last orientation reading the module actually received. Lets a test

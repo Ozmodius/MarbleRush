@@ -140,6 +140,13 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   above and is never sold or tried by ad. Display names are the cast
   (Rolle, Sterling, Bumper, Glint, Pip, Flurry, Cinder, Bobble, Rivet); ids
   never change.
+- **Between levels, a short show, never a wait** (`levelShow.js`, the
+  user's call, 2026-10-09): every level opens on the marble dropping onto
+  the start, a planet's first level on Rolle's ship (`ship3d.js`) beaming it
+  down, and a cleared floor 10 ends on the ship beaming it up and flying off
+  over the board. All drawing: the ball's body is on the start (or the exit)
+  throughout, START ends a show at once, and every show is under three
+  seconds (`test_level_show.js`). Timed by frame time, never the wall clock.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

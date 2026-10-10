@@ -329,6 +329,8 @@ const failures = [];
         check((await page.textContent('#levelTitle')).trim() === 'LEVEL UP!' && (await page.textContent('#levelBig')).trim() === '2'
             && /60 coins/.test(await page.textContent('#levelRewards')), 'home shows the level-up and what it paid');
         await page.tap('#levelOkBtn');
+        // A starved page can drop the tap: once more if the card stayed up.
+        await page.waitForSelector('#levelPanel', { state: 'hidden', timeout: 8000 }).catch(() => page.tap('#levelOkBtn'));
         // With a level cleared, NICE! goes on to the calendar (its first time
         // this session): day 1 on the DAILY tab.
         await page.waitForSelector('#rewardsPanel', { state: 'visible' }).catch(async (e) => {
@@ -817,6 +819,28 @@ const failures = [];
             'Gear shows Pip caged: no price, no TRY, rescued on floor 10');
         check(/RESCUE ON FLOOR 10/.test(await rp.locator('.marble-card', { has: rp.locator('.marble-name', { hasText: /^Rivet$/ }) }).locator('.marble-action').textContent()),
             'every friend is on their own planet\'s floor 10');
+        // BETWEEN LEVELS (levelShow.js): a level opens on the marble dropping
+        // onto the start (drawn only: the body is at rest on it), a planet's
+        // first level on Rolle's ship bringing it; START ends either at once.
+        await rdbg('holdShow', 0);              // a starved page's few long frames would end it unseen
+        await rdbg('startLevelForTest', 'w1_05');
+        await rdbg('holdShow', 0);              // and drawn, held
+        let sh = await rdbg('show');
+        check(sh.kind === 'drop' && sh.drawn.y > sh.body.y + 2 && Math.abs(sh.body.x - levels[4].start.x) < 1e-6, `a level opens on the drop, the body already on the start: ${JSON.stringify(sh)}`);
+        await rdbg('holdShow', null);
+        await rdbg('advanceFrames', Math.ceil(sh.lengths.drop / (1000 / 60)) + 2);
+        sh = await rdbg('show');
+        check(sh.kind === null && Math.abs(sh.drawn.y - sh.body.y) < 1e-6 && sh.drawn.visible, `the drop lands where the body is (${JSON.stringify(sh)})`);
+        await rdbg('holdShow', 0);
+        await rdbg('startLevelForTest', 'w1_01');
+        await rdbg('holdShow', 0);
+        sh = await rdbg('show');
+        await rdbg('holdShow', null);
+        check(sh.kind === 'shipDrop' && sh.shipShown, `a planet's first level opens on the ship: ${JSON.stringify({ k: sh.kind, s: sh.shipShown })}`);
+        await rp.tap('#mazeStartBtn');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100 });
+        sh = await rdbg('show');
+        check(sh.kind === null && !sh.shipShown && Math.abs(sh.drawn.x - sh.body.x) < 0.05 && Math.abs(sh.drawn.y - sh.body.y) < 0.05, `START ends the show where the ball really is: ${JSON.stringify(sh)}`);
         check(await rdbg('startLevelForTest', 'w1_10', { story: true }), 'floor 10 starts');
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
         check(await rp.isVisible('#storyPanel') && (await rp.textContent('#storyTitle')).trim() === 'ROLLE TO THE RESCUE' && (await rp.textContent('#storyGoBtn')).trim() === 'FREE PIP!',
@@ -840,7 +864,15 @@ const failures = [];
         check(!(await rdbg('rescue')).freed && await rdbg('goalLocked'), 'a fall cages Pip again and locks the exit');
         await rdbg('placeBall', cage.x, cage.z);
         await rdbg('ageRun', Math.round(r10.goldMs * 1.2));
+        await rdbg('holdShow', 0);
         check(await rdbg('warpToGoal'), 'with Pip freed, the exit clears the level');
+        await rdbg('holdShow', 0);
+        sh = await rdbg('show');
+        await rdbg('holdShow', null);
+        check(sh.kind === 'shipPickup' && sh.shipShown, `floor 10 cleared: Rolle's ship comes for the marble: ${JSON.stringify({ k: sh.kind, s: sh.shipShown })}`);
+        await rdbg('advanceFrames', Math.ceil(sh.lengths.shipPickup / (1000 / 60)) + 2);
+        sh = await rdbg('show');
+        check(sh.kind === null && !sh.shipShown && !sh.drawn.visible, `and flies off with it, the board left empty: ${JSON.stringify(sh)}`);
         let rprog = await rdbg('progress');
         check((rprog.rescued || []).join() === '1' && rprog.marbles.includes('pip') && rprog.marble === 'classic', `Pip joins the player's marbles, Rolle still selected: ${JSON.stringify({ r: rprog.rescued, m: rprog.marbles, s: rprog.marble })}`);
         const joined = await rp.waitForFunction(() => /PIP JOINS YOU/.test(document.getElementById('mazeStatus2').textContent) && /CLEARED/.test(document.getElementById('mazeStatus').textContent), null, { polling: 100, timeout: 8000 }).then(() => true, () => false);
