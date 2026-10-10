@@ -2027,6 +2027,7 @@ export function playLevel(id) {
 // if the world is still locked.
 let homeWorldN = null;                 // null: the world the ladder is in
 let planetSlide = null;                // { from, t0 }: the planet sliding in
+let planetSlideFrom = 0;               // where the last slide started (tests: a slide outruns a slow page's reads)
 const PLANET_SLIDE_X = 9, PLANET_SLIDE_MS = 380;
 export function homeWorld() {
     const n = homeWorldN || (nextLevel() ? nextLevel().world : 1);
@@ -2051,6 +2052,7 @@ export function setHomeWorld(n, dir = 0) {
     if (phase === 'menu' && backdrop === 'planet') {
         buildShowcase('planet');
         planetSlide = dir ? { from: dir * PLANET_SLIDE_X, t0: performance.now() } : null;
+        planetSlideFrom = planetSlide ? planetSlide.from : 0;
         slidePlanet();
         requestRender();
     }
@@ -2247,6 +2249,7 @@ window.__mazeDebug = {
     homeWorld: () => homeWorld(),
     homeLevel: () => { const h = homeLevel(); return h && { world: h.world, id: h.level.id, locked: h.locked, done: h.done }; },
     planetX: () => (planet && planet.world ? planet.world.position.x : null),
+    planetSlideFrom: () => planetSlideFrom,
     hasSun: () => !!(planet && planet.sun),
     active: () => active,
     phase: () => phase,

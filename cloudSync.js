@@ -110,12 +110,16 @@ export function createCloudSync({
         let crazyToken = null;
         try { crazyToken = await getCrazyToken(); } catch (_) { crazyToken = null; }
         let r;
+        const sent = token;
         try { r = await req('POST', '/v1/session', { token, crazyToken }); }
         catch (e) {
             // A CrazyGames token the server cannot check: carry on as the guest.
             if (!crazyToken || e.status !== 401 && e.status !== 501) throw e;
             r = await req('POST', '/v1/session', { token });
         }
+        // Signed in (or out) while this was out: that is who this device is
+        // now, and an older session's answer must not undo it.
+        if (token !== sent) return false;
         const joined = !me || me.id !== r.player.id;
         remember(r.token, r.player);
         return joined;

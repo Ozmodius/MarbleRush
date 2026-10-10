@@ -125,7 +125,7 @@ const failures = [];
             await swipe(300, 90);
             const h2 = await page.evaluate(() => window.__mazeDebug.homeLevel());
             check(h2 && h2.world === 2 && h2.locked, `a swipe left brings in world 2, locked for a new player: ${JSON.stringify(h2)}`);
-            check(await page.evaluate(() => window.__mazeDebug.planetX()) > 0, 'the new planet slides in from the right');
+            check(await page.evaluate(() => window.__mazeDebug.planetSlideFrom()) > 0, 'the new planet slides in from the right');
             check(!/WORLD/.test(await page.textContent('.home-play')), 'home never says "World n"');
             check(await page.isDisabled('#homePlayBtn') && (await page.textContent('#homePlayLabel')).trim() === 'LOCKED'
                 && /Finish Sawturn/.test(await page.textContent('#homeGoal')), 'a locked world greys PLAY out and says what opens it');

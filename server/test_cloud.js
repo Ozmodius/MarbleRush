@@ -112,6 +112,29 @@ check((await C.sync.submitScore(`roll:${lv(0).id}`, okMs(0))) === null, 'an offl
     late.close();
 }
 
+// A reconnect still out when a sign-in lands must not undo it: its older
+// session answer (the guest) comes back after the account's, and the device
+// stays the account.
+{
+    let slow = false;
+    const fetchSlow = async (url, opts) => {
+        if (slow && /\/v1\/session$/.test(url)) { slow = false; const res = await fetch(url, opts); await wait(250); return res; }
+        return fetch(url, opts);
+    };
+    const mem = new Map();
+    const store = createProgressStore({ load: async k => mem.get(k) || null, save: (k, v) => { mem.set(k, v); return true; } }, levels, payouts);
+    await store.load();
+    const G = { store, sync: createCloudSync({ store, api, storage: storage(), debounceMs: 20, fetchImpl: fetchSlow }) };
+    await G.sync.start();
+    check(G.sync.player() && G.sync.player().kind !== 'account', 'a device starts as a guest');
+    slow = true;
+    const out = G.sync.reconnect();              // the guest's session, answered late
+    const reg = await G.sync.register({ username: 'RaceWinner', email: 'race@example.com', password: 'longenough' });
+    await out;
+    check(reg.ok && G.sync.player() && G.sync.player().kind === 'account' && G.sync.player().name === 'RaceWinner',
+        `a sign-in that lands while a reconnect is out stays signed in: ${JSON.stringify(G.sync.player())}`);
+}
+
 server.close();
 console.log(`cloud sync: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
