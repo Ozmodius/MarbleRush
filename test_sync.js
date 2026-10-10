@@ -53,6 +53,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const rp = S.parseProgress(JSON.stringify(ra));
     check(rp.rescued.join() === '1,3' && rp.marbles.includes('pip') && rp.marbles.includes('cinder'), `a rescued friend's marble is owned after the merge: ${rp.marbles}`);
 
+    // Fuel cells found on either side stay found.
+    const fu = S.mergeProgress({ ...a, fuel: ['w1_03'] }, { ...b, fuel: ['w1_01', 'w1_03'] });
+    check(fu.fuel.join() === 'w1_01,w1_03', `fuel cells found on either side stay found: ${fu.fuel}`);
+
     // 3. daily
     check(m.daily.last === '2026-10-06' && m.daily.streak === 3, 'the later daily claim wins');
     const ma = S.mergeProgress({ ...a, missions: { date: '2026-10-06', ids: ['clears', 'coins', 'gold'], counts: { clears: 2 }, claimed: [], bonus: false } },
