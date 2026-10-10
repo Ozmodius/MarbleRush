@@ -307,8 +307,12 @@ world's floor 10 count.
   impact sound); a planet's first level on Rolle's ship, a little saucer
   with a glass dome, beaming him down; a cleared floor 10 on the ship
   beaming him (and a freed friend) up and flying off over the board.
-- *Next, as agreed*: the ship orbiting home's planet with a level select
-  there, then world backgrounds -- each its own PR.
+- *Home* (built 2026-10-09): Rolle's ship circles the planet, the player's
+  marble in its dome. The planet's face is the level select: ten landing
+  sites on a beaded trail winding up to floor 10 at the summit (where the
+  friend is caged), each ringed in its medal; tap one to pick what PLAY
+  starts, a ring of light pulsing round it. Up/Down keys walk the sites.
+- *Next, as agreed*: world backgrounds -- its own PR.
 
 ## Open questions
 

@@ -147,6 +147,15 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   over the board. All drawing: the ball's body is on the start (or the exit)
   throughout, START ends a show at once, and every show is under three
   seconds (`test_level_show.js`). Timed by frame time, never the wall clock.
+- **Home's planet is the level select** (`homeSites.js`, the user's call,
+  2026-10-09): its ten levels are landing sites on a trail up the planet's
+  face, floor 10 at the summit, a button on each (menus.js, placed where
+  mazeGame.js projects them). Every site faces the camera and sits a finger
+  apart (`test_home_sites.js`), so the ground holds still (a slow sway) and
+  only the clouds drift. Tapping an open site makes it what PLAY starts
+  (memory only; back from a level, PLAY offers what is next again). A swipe
+  that starts on a site is still a swipe. Rolle's ship (`ship3d.js`) circles
+  the planet with the player's marble in its dome.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

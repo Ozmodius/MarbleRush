@@ -1994,8 +1994,10 @@ function buildShowcase(kind) {
         const theme = resolveMazeTheme(planetThemeOverride || lv.theme);
         // Space, tinted by the world: its backdrop colour, much darker.
         scene.background = new THREE.Color(theme.backdropColor).multiplyScalar(0.45);
-        planet = buildPlanet(theme, ballSpec.look, tracked, prog.skin);
+        planet = buildPlanet(theme, ballSpec.look, tracked, prog.skin, { sites: allLevels.filter(l => l.world === lv.world).length || 10 });
         mazeGroup = planet.group;
+        // The beacon over the site PLAY lands on.
+        planet.select(allLevels.filter(l => l.world === lv.world).indexOf(lv));
     }
     tracked.forEach(track);
     scene.add(mazeGroup);
@@ -2012,6 +2014,7 @@ function enterMenus(tab) {
         const played = level.world, next = nextLevel();
         const done = allLevels.filter(l => l.world === played).every(l => progressNow().cleared[l.id]);
         homeWorldN = done && next && next.world > played ? next.world : played;
+        homePick = {};       // back from a level: PLAY offers what is next again
     }
     keepAwake(false);   // the menus let the phone sleep as usual (wakeLock.js)
     const want = tab === 'worlds' ? 'system' : 'planet';
@@ -2122,6 +2125,7 @@ export function playLevel(id) {
 // the player came back to it, its first if it is all beaten -- and nothing
 // if the world is still locked.
 let homeWorldN = null;                 // null: the world the ladder is in
+let homePick = {};                     // world -> the level id picked at its landing sites (memory only)
 let planetSlide = null;                // { from, t0 }: the planet sliding in
 let planetSlideFrom = 0;               // where the last slide started (tests: a slide outruns a slow page's reads)
 const PLANET_SLIDE_X = 9, PLANET_SLIDE_MS = 380;
@@ -2136,10 +2140,43 @@ export function homeLevel() {
     const prog = progressNow(), next = nextLevel();
     const open = lvls.filter(l => isUnlocked(prog, l));
     if (!open.length) return { world: n, level: lvls[0], locked: true, done: false };
+    // A landing site the player tapped (homeSites.js): any open level.
+    const picked = homePick[n] && lvls.find(l => l.id === homePick[n]);
+    if (picked && isUnlocked(prog, picked)) return { world: n, level: picked, locked: false, done: !!prog.cleared[picked.id], picked: true };
     if (next && next.world === n && !prog.cleared[next.id]) return { world: n, level: next, locked: false, done: false };
     const todo = open.find(l => !prog.cleared[l.id]);
     return { world: n, level: todo || lvls[0], locked: false, done: !todo };
 }
+// HOME'S LANDING SITES (homeSites.js, planet3d.js): pick the level PLAY
+// starts by its site. Only an open level of the world on screen; false
+// otherwise (a locked site does nothing).
+export function pickHomeLevel(id) {
+    const n = homeWorld();
+    const lvls = allLevels.filter(l => l.world === n);
+    const lv = lvls.find(l => l.id === id);
+    if (!lv || !isUnlocked(progressNow(), lv)) return false;
+    homePick[n] = id;
+    if (planet && planet.select) planet.select(lvls.indexOf(lv));
+    requestRender();
+    return true;
+}
+// Where each site of the world on screen is, in page pixels, for menus.js's
+// buttons: [{ i, id, x, y }] (empty when home's planet is not up).
+const _site = new THREE.Vector3();
+export function homeSites() {
+    const r = getRenderer(), camera = getCamera();
+    if (!planet || !planet.siteWorld || backdrop !== 'planet' || !r || !camera) return [];
+    const lvls = allLevels.filter(l => l.world === homeWorld());
+    const rect = r.domElement.getBoundingClientRect();
+    camera.updateMatrixWorld();
+    const out = [];
+    for (let i = 0; i < Math.min(lvls.length, planet.siteCount); i++) {
+        planet.siteWorld(i, _site).project(camera);
+        out.push({ i, id: lvls[i].id, x: rect.left + (_site.x + 1) / 2 * rect.width, y: rect.top + (1 - _site.y) / 2 * rect.height });
+    }
+    return out;
+}
+
 // Show world n on home (dir: +1 it came from the right, -1 the left).
 export function setHomeWorld(n, dir = 0) {
     n = Math.max(1, Math.min(LAUNCH_WORLDS, n));
@@ -2347,7 +2384,8 @@ window.__mazeDebug = {
     // Home's world picker: which world is shown, what PLAY would start, and
     // where the planet is (0 once it has slid home).
     homeWorld: () => homeWorld(),
-    homeLevel: () => { const h = homeLevel(); return h && { world: h.world, id: h.level.id, locked: h.locked, done: h.done }; },
+    homeLevel: () => { const h = homeLevel(); return h && { world: h.world, id: h.level.id, locked: h.locked, done: h.done, picked: !!h.picked }; },
+    homeShip: () => !!(planet && planet.ship && planet.ship.group.visible),
     planetX: () => (planet && planet.world ? planet.world.position.x : null),
     planetSlideFrom: () => planetSlideFrom,
     hasSun: () => !!(planet && planet.sun),

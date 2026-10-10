@@ -582,6 +582,58 @@ html, body {
   background: radial-gradient(circle at 35% 30%, #ffffff, #ffd77a 35%, #e0782a 75%, #8a3c10);
   box-shadow: 0 0 0.18em rgba(255, 190, 90, 0.7);
 }
+/* Home's landing sites: a button over each level's place on the planet
+   (menus.js placeSites puts them where mazeGame projects the sites). */
+.home-sites { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.home-site {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  translate: -50% -50%;
+  pointer-events: auto;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: rgba(12, 9, 7, 0.68);
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  transition: scale 160ms ease, background 160ms ease;
+}
+.home-site.is-cleared { background: rgba(18, 52, 34, 0.78); border-color: var(--good); }
+.home-site[data-tier="gold"] { border-color: #e3b02e; }
+.home-site[data-tier="silver"] { border-color: #b9c2cc; }
+.home-site[data-tier="bronze"] { border-color: #c27a3e; }
+.home-site.is-next { border-color: var(--accent); }
+.home-site.is-locked { opacity: 0.5; cursor: default; }
+.home-site:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.home-site.is-picked {
+  scale: 1.28;
+  z-index: 1;
+  color: #2a1a05;
+  background: #ffd66e;
+  border-color: #fff4cf;
+  box-shadow: 0 0 0 4px rgba(255, 214, 110, 0.3), 0 3px 10px rgba(0, 0, 0, 0.55);
+}
+/* Floor 10: the friend caged there (or freed), as on the Worlds sheet. */
+.home-site.is-rescue::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: repeating-linear-gradient(90deg, transparent 0 3px, #2c2e33 3px 5px), radial-gradient(circle at 35% 30%, #fff, var(--m) 55%);
+  box-shadow: 0 0 0 1.5px #2c2e33;
+}
+.home-site.is-rescue.is-freed::after { background: radial-gradient(circle at 35% 30%, #fff, var(--m) 55%); box-shadow: 0 0 0 1.5px #ffd66e; }
 .home-play {
   position: absolute;
   left: 0;

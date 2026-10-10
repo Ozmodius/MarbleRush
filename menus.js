@@ -154,6 +154,7 @@ function renderHome() {
     if (!home) return;
     const lv = home.level;
     renderWorldNav(home);
+    renderSites(home);
 
     // Medals by best time, across every level (progressStore.js tierForMs).
     const medals = { gold: 0, silver: 0, bronze: 0 };
@@ -208,6 +209,70 @@ function renderWorldNav(home) {
     }
     $('homePrevWorld').disabled = n <= 1;
     $('homeNextWorld').disabled = n >= LAUNCH_WORLDS;
+}
+
+// THE LANDING SITES: a button over each level's place on the planet
+// (homeSites.js; mazeGame.js projects them), ringed in its medal like the
+// Worlds sheet's nodes, the next level glowing, locked ones dim, floor 10
+// with its caged (or freed) friend. Tapping an open one makes it what PLAY
+// starts; the beacon on the planet moves there.
+let sitesWorld = null;
+let swipedAt = -1e9;             // a swipe that began on a site is not a tap on it
+function renderSites(home) {
+    const box = $('homeSites');
+    if (!box) return;
+    const p = ctx.store.get();
+    const lvls = ctx.game.getLevels().filter(l => l.world === home.world);
+    const nextIdx = (p.highestIndex || 0) + 1;
+    if (sitesWorld !== home.world || box.childElementCount !== lvls.length) {
+        sitesWorld = home.world;
+        box.innerHTML = '';
+        lvls.forEach((lv, i) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.id = 'homeSite_' + lv.id;
+            b.dataset.level = lv.id;
+            b.textContent = String(i + 1);
+            b.style.visibility = 'hidden';     // placed on the next frame
+            b.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (b.disabled || performance.now() - swipedAt < 400) return;
+                if (ctx.game.pickHomeLevel(lv.id)) renderHome();
+            });
+            box.append(b);
+        });
+    }
+    lvls.forEach((lv, i) => {
+        const b = $('homeSite_' + lv.id);
+        if (!b) return;
+        const c = p.cleared[lv.id];
+        const tier = c ? tierForMs(lv, c.bestMs) : null;
+        const open = isUnlocked(p, lv);
+        b.className = 'home-site' + (c ? ' is-cleared' : '') + (open ? '' : ' is-locked')
+            + (lv.index === nextIdx ? ' is-next' : '') + (lv.id === home.level.id && !home.locked ? ' is-picked' : '');
+        if (tier) b.dataset.tier = tier; else delete b.dataset.tier;
+        const cap = isRescueLevel(lv) ? captiveFor(lv.world) : null;
+        if (cap) {
+            b.classList.add('is-rescue');
+            if ((p.rescued || []).includes(lv.world)) b.classList.add('is-freed');
+            b.style.setProperty('--m', cap.swatch);
+        }
+        b.disabled = !open;
+        b.setAttribute('aria-pressed', String(lv.id === home.level.id && !home.locked));
+        b.setAttribute('aria-label', `Level ${i + 1}, ${lv.name}${c ? ', cleared' + (tier ? ', ' + tier : '') : ''}${open ? '' : ', locked'}${cap && !(p.rescued || []).includes(lv.world) ? ', ' + cap.name + ' is caged here' : ''}`);
+    });
+}
+// Each frame on home: the buttons ride their sites (the planet slides in on
+// a swipe).
+function placeSites() {
+    if (current !== 'home') return;
+    for (const s of ctx.game.homeSites()) {
+        const b = $('homeSite_' + s.id);
+        if (!b) continue;
+        b.style.left = s.x + 'px';
+        b.style.top = s.y + 'px';
+        b.style.visibility = '';
+    }
 }
 
 // Move home to the next (+1) or previous (-1) world, sliding the new planet
@@ -364,6 +429,16 @@ export function initMenus({ store, game }) {
         if (document.querySelector('.modal.is-up')) return;
         if (e.code === 'ArrowLeft') stepHomeWorld(-1);
         else if (e.code === 'ArrowRight') stepHomeWorld(1);
+        // Up and down walk the landing sites (open ones only).
+        else if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+            const home = ctx.game.homeLevel();
+            if (!home || home.locked) return;
+            const lvls = ctx.game.getLevels().filter(l => l.world === home.world);
+            const d = e.code === 'ArrowUp' ? 1 : -1;
+            for (let i = lvls.indexOf(home.level) + d; i >= 0 && i < lvls.length; i += d) {
+                if (ctx.game.pickHomeLevel(lvls[i].id)) { e.preventDefault(); renderHome(); break; }
+            }
+        }
     });
     // The HUD chips go where their thing is: more gold and power-ups in the
     // store, medals on the worlds map.
@@ -391,6 +466,7 @@ export function initMenus({ store, game }) {
     // The FREE countdown and the store badge tick while the menus are up.
     setInterval(() => { if (current === 'home') renderFreeCoins(); if (current) renderBadges(); }, 1000);
     onFrame(placeLabels);
+    onFrame(placeSites);
     // On the canvas while WORLDS is up: a drag sideways spins the solar
     // system (and coasts when let go); a tap picks the planet under it. A
     // drag past DRAG_PX is never also a tap.
@@ -405,14 +481,21 @@ export function initMenus({ store, game }) {
         canvas.addEventListener('pointerdown', (e) => {
             if (current === 'home') swipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
         });
+        // A swipe can start on a landing site's button too (they cover the
+        // planet), and then it is a swipe, not a tap on that site.
+        const sitesBox = $('homeSites');
+        if (sitesBox) sitesBox.addEventListener('pointerdown', (e) => {
+            if (current === 'home') swipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        });
         const swipeEnd = (e) => {
             if (!swipe || e.pointerId !== swipe.id) return;
             const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
             swipe = null;
             if (current !== 'home' || Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+            swipedAt = performance.now();
             stepHomeWorld(dx < 0 ? 1 : -1);
         };
-        canvas.addEventListener('pointerup', swipeEnd);
+        window.addEventListener('pointerup', swipeEnd);
         canvas.addEventListener('pointercancel', () => { swipe = null; });
         canvas.addEventListener('pointerdown', (e) => {
             if (current !== 'worlds') return;
