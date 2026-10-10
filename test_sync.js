@@ -47,6 +47,12 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(m2.wallet === 120, 'whichever order they meet in');
     check(JSON.stringify({ ...m, savedAt: 0 }) === JSON.stringify({ ...m2, savedAt: 0 }), 'merging is order-independent');
 
+    // Friends rescued on either side stay rescued, with their marbles.
+    const ra = S.mergeProgress({ ...a, rescued: [3], marbles: [...a.marbles, 'cinder'] }, { ...b, rescued: [1] });
+    check(ra.rescued.join() === '1,3', `friends rescued on either side stay rescued: ${ra.rescued}`);
+    const rp = S.parseProgress(JSON.stringify(ra));
+    check(rp.rescued.join() === '1,3' && rp.marbles.includes('pip') && rp.marbles.includes('cinder'), `a rescued friend's marble is owned after the merge: ${rp.marbles}`);
+
     // 3. daily
     check(m.daily.last === '2026-10-06' && m.daily.streak === 3, 'the later daily claim wins');
     const ma = S.mergeProgress({ ...a, missions: { date: '2026-10-06', ids: ['clears', 'coins', 'gold'], counts: { clears: 2 }, claimed: [], bonus: false } },

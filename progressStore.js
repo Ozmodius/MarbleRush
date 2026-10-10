@@ -68,6 +68,9 @@ export function freshProgress() {
         dailyMaze: null,
         // Ball cam (mazeGame.js): the closer camera that follows the ball.
         ballCam: false,
+        // Friends freed from the Baron (rescue.js): the worlds whose floor-10
+        // captive the player has rescued. Each one's marble is in `marbles`.
+        rescued: [],
         // The Labyrinth (walkMode.js): best walk per level, explorer kit
         // owned, and the comfort settings.
         walks: {}, explorer: [], comfort: defaultComfort(),
@@ -134,6 +137,15 @@ export function parseProgress(text) {
     p.comfort = cleanComfort(raw.comfort);
     p.missions = daily.parseMissions(raw.missions);
     p.achievements = parseAchievements(raw.achievements);
+    p.rescued = Array.isArray(raw.rescued)
+        ? [...new Set(raw.rescued.filter(w => Number.isInteger(w) && Object.values(MARBLES).some(m => m.rescue === w)))].sort((a, b) => a - b)
+        : [];
+    // A friend freed is always in the marbles (a save from before a friend's
+    // marble existed, or merged in pieces, can lack it).
+    for (const w of p.rescued) {
+        const id = Object.keys(MARBLES).find(k => MARBLES[k].rescue === w);
+        if (id && !p.marbles.includes(id)) p.marbles.push(id);
+    }
     return p;
 }
 
@@ -338,7 +350,8 @@ export function mergeProgress(a, b) {
         const n = p.walks[id];
         p.walks[id] = n ? { bestMs: Math.min(n.bestMs, w.bestMs), coins: Math.max(n.coins, w.coins), gold: n.gold || w.gold } : w;
     }
-    for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer', 'achievements']) p[key] = union(p[key], older[key]);
+    for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer', 'achievements', 'rescued']) p[key] = union(p[key], older[key]);
+    p.rescued.sort((a, b) => a - b);
     for (const [id, n] of Object.entries(older.upgrades)) p.upgrades[id] = Math.max(p.upgrades[id] || 0, n);
     // A prize only the older save has earned brings its uses with it.
     for (const id of older.prizes) if (!newer.prizes.includes(id) && older.prizeUses[id]) p.prizeUses[id] = older.prizeUses[id];
@@ -403,7 +416,19 @@ function purchase(progress, price, give, reason) {
 export function buyMarble(progress, id) {
     const m = MARBLES[id];
     return purchase(progress, m ? m.price : NaN, p => { p.marbles.push(id); p.marble = id; },
-        !m ? 'unknown' : progress.marbles.includes(id) ? 'owned' : null);
+        !m ? 'unknown' : progress.marbles.includes(id) ? 'owned' : m.rescue ? 'rescue' : null);
+}
+
+// A friend freed from world `world`'s floor 10 (rescue.js): remembered, and
+// their marble joins the player's. Freeing one already free changes nothing.
+export function recordRescue(progress, world) {
+    const id = Object.keys(MARBLES).find(k => MARBLES[k].rescue === world);
+    if (!id) return { progress, ok: false, reason: 'unknown' };
+    if ((progress.rescued || []).includes(world)) return { progress, ok: false, reason: 'freed', marble: id };
+    const p = JSON.parse(JSON.stringify(progress));
+    p.rescued = [...(p.rescued || []), world].sort((a, b) => a - b);
+    if (!p.marbles.includes(id)) p.marbles.push(id);
+    return { progress: p, ok: true, marble: id };
 }
 
 // Choosing among marbles already owned is free.
@@ -619,6 +644,12 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         },
         // Shop actions: each returns { ok, reason } and saves on success.
         buyMarble: id => did(apply(buyMarble(progress, id)), 'buy:marble:' + id),
+        recordRescue: world => {
+            const out = recordRescue(progress, world);
+            apply(out);
+            if (out.ok) act('rescue:w' + world);
+            return { ok: out.ok, reason: out.reason || null, marble: out.marble || null };
+        },
         selectMarble: id => apply(selectMarble(progress, id)),
         buyUpgrade: id => did(apply(buyUpgrade(progress, id)), 'buy:upgrade:' + id),
         buyLook: (kind, id) => did(apply(buyLook(progress, kind, id)), `buy:${kind}:${id}`),

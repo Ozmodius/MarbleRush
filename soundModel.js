@@ -84,7 +84,9 @@ export const MARBLE_VOICES = {
     rubber:  { ping: [], bright: 0.35, damp: 0.4, weight: 1.1, roll: 0.75, hit: 0.7,
                hard: 0.1, rollRing: [] }
 };
-export function marbleVoice(id) { return MARBLE_VOICES[id] || MARBLE_VOICES.classic; }
+// The rescued friends speak with the voice of what they are made of.
+const VOICE_OF = { pip: 'classic', flurry: 'glass', cinder: 'classic', bobble: 'rubber', rivet: 'steel' };
+export function marbleVoice(id) { return MARBLE_VOICES[id] || MARBLE_VOICES[VOICE_OF[id]] || MARBLE_VOICES.classic; }
 
 // --- blending: a level fades from its theme to its themeTo -------------------
 const lerp = (a, b, t) => a + (b - a) * t;

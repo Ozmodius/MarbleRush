@@ -224,6 +224,7 @@
     </div>
     <p id="worldSheetNote" class="world-sheetnote"></p>
     <div id="mazeSelectList" class="level-grid"></div>
+    <p id="worldSheetCaptive" class="world-sheetprize world-sheetcaptive"></p>
     <p id="worldSheetPrize" class="world-sheetprize"></p>
   </div>
 </section>
@@ -470,6 +471,21 @@
       <p id="achievementsNote" class="modal-note"></p>
       <div id="achievementsList" class="missions-list"></div>
     </div>
+  </div>
+</div>
+
+<!-- THE RESCUE: a floor 10's story card (rescue.js, mazeGame.js openStory) -->
+<div id="storyPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="storyTitle" hidden>
+  <div class="modal-card story-card">
+    <button id="storyCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+    <h2 id="storyTitle" class="modal-title">ROLLE TO THE RESCUE</h2>
+    <div class="story-scene" aria-hidden="true">
+      <span class="story-marble story-hero"><i></i><i></i></span>
+      <span class="story-arrow">➜</span>
+      <span class="story-cage"><span id="storyCaptive" class="story-marble"><i></i><i></i></span><span class="story-cog"></span></span>
+    </div>
+    <div id="storyLines" class="story-lines"></div>
+    <div class="modal-actions"><button id="storyGoBtn" class="maze-btn maze-btn-big" type="button">FREE!</button></div>
   </div>
 </div>
 

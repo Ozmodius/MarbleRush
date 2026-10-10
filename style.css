@@ -333,6 +333,16 @@ html, body {
 .profile-statvalue { font-size: 1.2rem; font-variant-numeric: tabular-nums; }
 .profile-statlabel { font-size: 0.72rem; color: var(--ink-dim); letter-spacing: 0.06em; }
 .marble-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.marble-card.is-captive .marble-swatch { position: relative; filter: saturate(0.7) brightness(0.8); }
+.marble-card.is-captive .marble-swatch::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 6px;
+  border: 2px solid #4a4d55;
+  background: repeating-linear-gradient(90deg, transparent 0 5px, #4a4d55 5px 7px);
+}
+.marble-card.is-captive .marble-blurb { color: #ffb38a; }
 .marble-card {
   display: flex;
   flex-direction: column;
@@ -830,6 +840,18 @@ html, body {
 .world-sheetnote { margin: 0; font-size: 0.75rem; font-weight: 500; color: var(--ink-dim); min-height: 1.2em; }
 .world-sheetprize { margin: 0; font-size: 0.7rem; font-weight: 500; color: var(--ink-dim); display: flex; align-items: center; gap: 8px; }
 .world-sheetprize:empty { display: none; }
+.world-sheetcaptive { color: #ffb38a; }
+.captive-dot, .level-node.is-rescue::after {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: repeating-linear-gradient(90deg, transparent 0 3px, #2c2e33 3px 5px), radial-gradient(circle at 35% 30%, #fff, var(--m) 55%);
+  box-shadow: 0 0 0 1.5px #2c2e33;
+}
+.captive-dot.is-freed, .level-node.is-rescue.is-freed::after { background: radial-gradient(circle at 35% 30%, #fff, var(--m) 55%); box-shadow: 0 0 0 1.5px #ffd66e; }
+.level-node.is-rescue { position: relative; }
+.level-node.is-rescue::after { content: ''; position: absolute; right: -3px; bottom: -3px; }
 /* One row of ten small nodes: the sheet stays a strip under the solar system. */
 .level-grid { display: grid; grid-template-columns: repeat(10, minmax(0, 34px)); justify-content: space-between; gap: 4px; }
 .level-node {
@@ -1063,6 +1085,51 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
 @media (prefers-reduced-motion: reduce) {
   .modal, .modal-card, .daily-tile.is-today, .side-badge, .side-daily .side-icon { animation: none !important; }
 }
+
+/* The rescue's story card: Rolle, and the friend behind the Baron's bars. */
+.story-card .modal-title { padding: 0 34px; }
+.story-scene { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 14px 0 8px; }
+.story-marble {
+  position: relative;
+  display: block;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, var(--m, #e8e8e8) 45%, color-mix(in srgb, var(--m, #e8e8e8) 55%, #000));
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.35), 0 10px 20px rgba(0, 0, 0, 0.45);
+}
+.story-marble i { position: absolute; top: 34%; width: 8px; height: 10px; border-radius: 50%; background: #15161a; }
+.story-marble i:first-child { left: 34%; }
+.story-marble i:last-child { right: 34%; }
+.story-hero { --m: #f2f2f2; animation: story-roll 1.6s ease-in-out infinite; }
+@keyframes story-roll { 0%, 100% { translate: 0 0; } 50% { translate: 6px -4px; } }
+.story-arrow { font-size: 1.4rem; color: #ffd66e; opacity: 0.8; }
+.story-cage { position: relative; display: grid; place-items: center; width: 84px; height: 84px; }
+.story-cage .story-marble { width: 50px; height: 50px; animation: story-rattle 0.9s ease-in-out infinite; }
+@keyframes story-rattle { 0%, 100% { translate: 0 0; } 25% { translate: -3px 0; } 75% { translate: 3px -2px; } }
+.story-cage::after {
+  content: '';
+  position: absolute;
+  inset: 4px 6px 0;
+  border-radius: 12px 12px 6px 6px;
+  border: 4px solid #4a4d55;
+  background: repeating-linear-gradient(90deg, transparent 0 9px, #4a4d55 9px 13px);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.3);
+}
+.story-cog {
+  position: absolute;
+  z-index: 1;
+  top: -10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #1a130e 0 22%, #c8973a 23% 58%, transparent 59%), conic-gradient(from 0deg, #c8973a 0 10%, transparent 10% 20%, #c8973a 20% 30%, transparent 30% 40%, #c8973a 40% 50%, transparent 50% 60%, #c8973a 60% 70%, transparent 70% 80%, #c8973a 80% 90%, transparent 90%);
+  animation: story-tick 2s steps(10) infinite;
+}
+@keyframes story-tick { to { rotate: 360deg; } }
+.story-lines { display: flex; flex-direction: column; gap: 8px; margin: 8px 4px 0; text-align: center; font-size: 0.92rem; line-height: 1.4; color: var(--ink); text-wrap: balance; }
+.story-lines p { margin: 0; }
+.story-lines p.story-villain { color: #ffb38a; }
 
 /* The level card: the number in a burst, what this level gave, what is next. */
 .level-burst { display: grid; place-items: center; margin: 8px 0 4px; }

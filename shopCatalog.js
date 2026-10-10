@@ -20,30 +20,69 @@
 //   response    tilt sensitivity multiplier: full tilt with less lean
 // `look` is the ball's material. Classic has none: it wears the world theme's
 // marble colour, which each theme picks to stand out on its own floor.
+//
+// THE CAST (the user's call, 2026-10-09): every marble is a character from
+// MarbleTopia. Rolle (the Classic marble) is the hero; Baron Von Ratchet has
+// kidnapped five of his friends to power his planets (rescue.js). The friends
+// are never sold: each has `rescue: <world>` instead of a price, and joins
+// the player when freed from that world's floor 10. They obey the same rule.
+// The ids are what the save holds -- names are display only, so renaming a
+// character never touches a player's save.
 export const MARBLES = {
     classic: {
-        name: 'Classic', price: 0,
-        blurb: 'Rolls the way every level was tuned.',
+        name: 'Rolle', price: 0,
+        blurb: 'The hero of MarbleTopia. Rolls the way every level was tuned.',
         stats: { grip: 0.28, bounce: 0.12, damping: 0.02, spin: 0.22, response: 1.0 },
         look: null, swatch: '#f2f2f2'
     },
     steel: {
-        name: 'Steel', price: 600,
-        blurb: 'Heavy and steady. Sheds speed fast, so it stops where you meant.',
+        name: 'Sterling', price: 600,
+        blurb: 'A steel knight. Heavy and steady: sheds speed fast, so it stops where you meant.',
         stats: { grip: 0.3, bounce: 0.05, damping: 0.09, spin: 0.4, response: 0.9 },
         look: { color: '#c3ccd6', metalness: 0.9, roughness: 0.22 }, swatch: '#aeb8c4'
     },
     rubber: {
-        name: 'Rubber', price: 900,
-        blurb: 'Grips the floor and thuds off walls. Takes corners tight.',
+        name: 'Bumper', price: 900,
+        blurb: 'Made of rubber and good cheer. Grips the floor, thuds off walls, takes corners tight.',
         stats: { grip: 0.48, bounce: 0.03, damping: 0.04, spin: 0.3, response: 1.0 },
         look: { color: '#e0563f', metalness: 0.0, roughness: 0.85 }, swatch: '#e0563f'
     },
     glass: {
-        name: 'Glass', price: 1500,
-        blurb: 'Answers the smallest lean. For players with a light touch.',
+        name: 'Glint', price: 1500,
+        blurb: 'Clear glass, quick wits. Answers the smallest lean: for a light touch.',
         stats: { grip: 0.26, bounce: 0.12, damping: 0.03, spin: 0.22, response: 1.35 },
         look: { color: '#bfeaff', metalness: 0.1, roughness: 0.04, emissive: '#2a6f8a', emissiveIntensity: 0.25 }, swatch: '#9fdcf5'
+    },
+    // Rolle's friends, one held on each planet's floor 10 (rescue.js).
+    pip: {
+        name: 'Pip', rescue: 1,
+        blurb: 'Freed from Sawturn. Small, brave and grippy: takes corners without fuss.',
+        stats: { grip: 0.36, bounce: 0.08, damping: 0.03, spin: 0.26, response: 1.0 },
+        look: { color: '#d58b3a', metalness: 0.05, roughness: 0.42 }, swatch: '#d58b3a'
+    },
+    flurry: {
+        name: 'Flurry', rescue: 2,
+        blurb: 'Freed from Slipstonia. Light on the lean and cool on ice.',
+        stats: { grip: 0.3, bounce: 0.1, damping: 0.025, spin: 0.22, response: 1.15 },
+        look: { color: '#eef6ff', metalness: 0.05, roughness: 0.28, emissive: '#7fb6ff', emissiveIntensity: 0.18 }, swatch: '#dceeff'
+    },
+    cinder: {
+        name: 'Cinder', rescue: 3,
+        blurb: 'Freed from Magmars. Slow to stir and quick to settle: a warm, steady roll.',
+        stats: { grip: 0.3, bounce: 0.06, damping: 0.07, spin: 0.35, response: 0.95 },
+        look: { color: '#3a1610', metalness: 0.1, roughness: 0.5, emissive: '#ff5a1f', emissiveIntensity: 0.55 }, swatch: '#a8381c'
+    },
+    bobble: {
+        name: 'Bobble', rescue: 4,
+        blurb: 'Freed from Bouncelot. Soft toy plastic that shrugs off a bump.',
+        stats: { grip: 0.4, bounce: 0.05, damping: 0.035, spin: 0.28, response: 1.05 },
+        look: { color: '#9b5cff', metalness: 0.0, roughness: 0.32 }, swatch: '#9b5cff'
+    },
+    rivet: {
+        name: 'Rivet', rescue: 5,
+        blurb: 'Freed from Gearth. Brass-heavy and steady as a rail.',
+        stats: { grip: 0.32, bounce: 0.06, damping: 0.08, spin: 0.42, response: 0.95 },
+        look: { color: '#c9a24a', metalness: 0.85, roughness: 0.28 }, swatch: '#c9a24a'
     }
 };
 export const MARBLE_IDS = Object.keys(MARBLES);

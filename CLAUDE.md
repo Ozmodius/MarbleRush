@@ -129,6 +129,17 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   model when the build script is written.
 - **One codebase, two platforms**: only `platform.js` may know which platform
   it is on (it also holds the API URL, `apiBase()`).
+- **The rescue** (`rescue.js`, the user's call, 2026-10-09; docs/PLAN.md):
+  each world's floor 10 holds a friend of Rolle's (the classic marble) in a
+  cage, and the exit stays locked until the ball rolls into it. The cage's
+  spot is COMPUTED from the level (`captiveSpot`), never written into
+  `mazeLevels.json`; `test_rescue.js` proves each one safe, reachable (also
+  50% wider) and off the route -- if it disagrees with rescue.js, the test is
+  right. The freed friend is drawing only (`captive3d.js`: no body, follows
+  the ball's own path). A rescued friend's marble obeys the marble rule
+  above and is never sold or tried by ad. Display names are the cast
+  (Rolle, Sterling, Bumper, Glint, Pip, Flurry, Cinder, Bobble, Rivet); ids
+  never change.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

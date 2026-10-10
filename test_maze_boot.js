@@ -38,7 +38,7 @@ function serve() {
 }
 
 const failures = [];
-const check = (c, m) => { if (!c) failures.push(m); };
+    const check = (c, m) => { if (!c) failures.push(m); };
 
 (async () => {
     const server = await serve();
@@ -60,8 +60,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const autoOpened = await pg.evaluate(() => window.__mazeDebug.phase() === 'ready' && !Object.keys(window.__mazeDebug.progress().cleared || {}).length);
         if (autoOpened && await pg.isVisible('#mazeStartBtn')) await pg.tap('#mazeExitBtn');
         await pg.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
-        if (await pg.isVisible('#levelPanel')) await pg.tap('#levelOkBtn');
-        if (await pg.isVisible('#rewardsPanel')) await pg.tap('#rewardsCloseBtn');
+        // A level-up card or the calendar can slide in a few frames after
+        // home shows: let frames pass and close whatever arrives, twice over.
+        for (let k = 0; k < 3; k++) {
+            if (await pg.isVisible('#levelPanel')) await pg.tap('#levelOkBtn');
+            if (await pg.isVisible('#rewardsPanel')) await pg.tap('#rewardsCloseBtn');
+            if (k < 2) await pg.evaluate(() => new Promise(r => { let n = 12; const f = () => (--n ? requestAnimationFrame(f) : r()); requestAnimationFrame(f); setTimeout(r, 3000); }));
+        }
         await pg.waitForSelector('#rewardsPanel', { state: 'hidden' });
         await pg.waitForSelector('#levelPanel', { state: 'hidden' });
     };
@@ -632,10 +637,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check((await shop.textContent('#storeWallet')).trim() === '1,720', 'the store wallet updates after buying');
         await shop.tap('#tab_gear');
         await shop.waitForSelector('#profileView', { state: 'visible' });
-        await shop.locator('.marble-card', { has: shop.locator('.marble-name', { hasText: 'Rubber' }) }).locator('.marble-action').tap();
+        await shop.locator('.marble-card', { has: shop.locator('.marble-name', { hasText: 'Bumper' }) }).locator('.marble-action').tap();
         sp = await sdbg('progress');
         check(sp.marble === 'rubber' && sp.marbles.includes('rubber') && sp.wallet === 1720 - 900, `buying Rubber selects it: ${sp.marble}, wallet ${sp.wallet}`);
-        check((await shop.textContent('#profileMarbleName')).trim() === 'Rubber', 'the profile shows Rubber as the next marble');
+        check((await shop.textContent('#profileMarbleName')).trim() === 'Bumper', 'the profile shows Bumper (rubber) as the next marble');
         check(await shop.isHidden('#cloudSection'), 'with no server configured, Gear has no cloud save card');
         await shop.tap('#tab_home');
 
@@ -781,6 +786,77 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(tomorrow.lv.id !== dlv.id && !tomorrow.paid, `tomorrow brings a new maze, unpaid: ${tomorrow.lv.id}`);
         await dCtx.close();
 
+        // --- the rescue: a friend caged on floor 10 (rescue.js) --------------
+        // Nine levels in, the Worlds sheet and Gear say who the Baron holds;
+        // floor 10 opens on the story, the exit stays shut until the cage is
+        // reached, a fall cages them again, and a clear with them freed gives
+        // their marble for good -- and the level is plain after that.
+        check(true, 'rescue section');
+        const rCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+        await rCtx.addInitScript(() => {
+            if (sessionStorage.getItem('seeded')) return;
+            sessionStorage.setItem('seeded', '1');
+            const cleared = {};
+            for (let i = 1; i <= 9; i++) cleared['w1_0' + i] = { bestMs: 99000, coins: 0 };
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 0, xp: 900, highestIndex: 9, cleared, goldClaimed: [], prizes: [], charges: {} }));
+        });
+        const rp = await rCtx.newPage();
+        rp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
+        const rdbg = (fn, ...args) => rp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
+        await rp.goto(base);
+        await homeUp(rp);
+        await rp.tap('#tab_worlds');
+        await rp.waitForSelector('#mazeSelect', { state: 'visible' });
+        check(/Pip/.test(await rp.textContent('#worldSheetCaptive')) && await rp.locator('.level-node.is-rescue').count() === 1 && await rp.locator('.level-node.is-freed').count() === 0,
+            `the Worlds sheet names the caged friend and marks floor 10: ${await rp.textContent('#worldSheetCaptive')}`);
+        await rp.tap('#tab_gear', { timeout: 90000 });   // the solar system is slow to let go of a starved page
+        await rp.waitForSelector('#profileView', { state: 'visible' });
+        const pipCard = rp.locator('.marble-card', { has: rp.locator('.marble-name', { hasText: /^Pip$/ }) });
+        check(await pipCard.count() === 1 && /is-captive/.test(await pipCard.getAttribute('class')) && await pipCard.locator('.marble-action').isDisabled()
+            && /RESCUE ON FLOOR 10/.test(await pipCard.locator('.marble-action').textContent()) && await pipCard.locator('.maze-btn-ad').count() === 0,
+            'Gear shows Pip caged: no price, no TRY, rescued on floor 10');
+        check(/RESCUE ON FLOOR 10/.test(await rp.locator('.marble-card', { has: rp.locator('.marble-name', { hasText: /^Rivet$/ }) }).locator('.marble-action').textContent()),
+            'every friend is on their own planet\'s floor 10');
+        check(await rdbg('startLevelForTest', 'w1_10', { story: true }), 'floor 10 starts');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
+        check(await rp.isVisible('#storyPanel') && (await rp.textContent('#storyTitle')).trim() === 'ROLLE TO THE RESCUE' && (await rp.textContent('#storyGoBtn')).trim() === 'FREE PIP!',
+            'the first floor 10 opens on the story card');
+        check(/FIND PIP'S CAGE/.test(await rp.textContent('#mazeStatus')), `the ready line sends you for the cage: ${await rp.textContent('#mazeStatus')}`);
+        const cage = await rdbg('rescue');
+        check(cage && cage.captive === 'pip' && cage.cage && !cage.freed && await rdbg('goalLocked'), `Pip is caged and the exit locked: ${JSON.stringify(cage)}`);
+        await rp.tap('#storyGoBtn');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100, timeout: 10000 }).catch(() => {});
+        check(await rp.isHidden('#storyPanel') && (await rdbg('phase')) === 'running', 'its button starts the run');
+        const r10 = levels.find(l => l.id === 'w1_10');
+        await rdbg('ageRun', Math.round(r10.goldMs * 1.2));
+        check(!(await rdbg('warpToGoal')) && (await rdbg('phase')) === 'running' && /FREE PIP FIRST/.test(await rp.textContent('#mazeStatus')),
+            `the locked exit does not end the run, and says why: ${await rp.textContent('#mazeStatus')}`);
+        await rdbg('placeBall', cage.x, cage.z);
+        const freed = await rdbg('rescue');
+        check(freed.freed && !(await rdbg('goalLocked')) && /PIP IS FREE/.test(await rp.textContent('#mazeStatus')), `rolling into the cage frees Pip and opens the exit: ${JSON.stringify(freed)}`);
+        // A fall puts Pip back in the cage, the exit shut again.
+        await rdbg('placeBall', r10.holes[0].x, r10.holes[0].z);
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running' && !window.__mazeDebug.rescue().freed, null, { polling: 100, timeout: 15000 }).catch(() => {});
+        check(!(await rdbg('rescue')).freed && await rdbg('goalLocked'), 'a fall cages Pip again and locks the exit');
+        await rdbg('placeBall', cage.x, cage.z);
+        await rdbg('ageRun', Math.round(r10.goldMs * 1.2));
+        check(await rdbg('warpToGoal'), 'with Pip freed, the exit clears the level');
+        let rprog = await rdbg('progress');
+        check((rprog.rescued || []).join() === '1' && rprog.marbles.includes('pip') && rprog.marble === 'classic', `Pip joins the player's marbles, Rolle still selected: ${JSON.stringify({ r: rprog.rescued, m: rprog.marbles, s: rprog.marble })}`);
+        const joined = await rp.waitForFunction(() => /PIP JOINS YOU/.test(document.getElementById('mazeStatus2').textContent) && /CLEARED/.test(document.getElementById('mazeStatus').textContent), null, { polling: 100, timeout: 8000 }).then(() => true, () => false);
+        check(joined, 'the CLEARED line stays and the line under it says Pip joins you');
+        await rdbg('startLevelForTest', 'w1_10', { story: true });
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
+        check((await rdbg('rescue')) === null && !(await rdbg('goalLocked')) && await rp.isHidden('#storyPanel'), 'once rescued, floor 10 is a plain level');
+        await rp.tap('#mazeExitBtn');
+        await homeUp(rp);
+        await rp.tap('#tab_gear');
+        await rp.waitForSelector('#profileView', { state: 'visible' });
+        check(!/is-captive/.test(await pipCard.getAttribute('class')) && /SELECT/.test(await pipCard.locator('.marble-action').textContent()), 'Gear offers Pip to roll as');
+        await pipCard.locator('.marble-action').tap();
+        check((await rdbg('progress')).marble === 'pip' && (await rp.textContent('#profileMarbleName')).trim() === 'Pip', 'and Pip can be selected');
+        await rCtx.close();
+
         // --- the Labyrinth: walking a level in first person ------------------
         const wCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
         await wCtx.addInitScript(() => {
@@ -886,8 +962,9 @@ const check = (c, m) => { if (!c) failures.push(m); };
             await kp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             await kdbg('ageRun', levels[2].goldMs + 2000);
             check(await kdbg('warpToGoal'), 'the third level clears');
-            await kp.waitForFunction(() => /DAILY MAZE UNLOCKED/.test(document.getElementById('mazeStatus2').textContent), null, { timeout: 8000 }).catch(() => {});
-            check(/DAILY MAZE UNLOCKED/.test(await kp.textContent('#mazeStatus2')) && /CLEARED/.test(await kp.textContent('#mazeStatus')),
+            // Timer polling: a starved page's animation frames are too few to poll on.
+            const unlockedSaid = await kp.waitForFunction(() => /DAILY MAZE UNLOCKED/.test(document.getElementById('mazeStatus2').textContent) && /CLEARED/.test(document.getElementById('mazeStatus').textContent), null, { polling: 100, timeout: 25000 }).then(() => true, () => false);
+            check(unlockedSaid,
                 `the clear that opens the daily maze says so under the result: "${await kp.textContent('#mazeStatus')}" / "${await kp.textContent('#mazeStatus2')}"`);
             check(await kp.isVisible('#mazeNextBtn .key-hint'), 'NEXT shows SPACE on a computer');
             // The day's gift, claimed from the panel: paid, the streak started,
@@ -987,11 +1064,14 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 await pg.fill('#regEmail', 'tilt@example.com');
                 await pg.fill('#regPassword', 'marbles-rule');
                 await pg.tap('#acctView_register button[type=submit]');
-                await pg.waitForFunction(() => document.getElementById('acctMsg').textContent.length > 0, null, { polling: 100, timeout: 30000 });
+                await pg.waitForFunction(() => document.getElementById('acctMsg').textContent.length > 0, null, { polling: 100, timeout: 30000 }).catch(async (e) => {
+                    console.log('DEBUG d1 short name:', JSON.stringify(await pg.evaluate(() => ({ msg: document.getElementById('acctMsg').textContent, panel: !document.getElementById('accountPanel').hidden, form: !document.getElementById('acctView_register').hidden, user: document.getElementById('regUsername').value, disabled: document.querySelector('#acctView_register button[type=submit]').disabled, st: window.__cloudSync && window.__cloudSync.status() }))));
+                    throw e;
+                });
                 check(/at least 3/.test(await pg.textContent('#acctMsg')) && await pg.isVisible('#accountPanel'), 'a too-short username is explained, and the gate stays');
                 await pg.fill('#regUsername', 'TiltTester');
                 await pg.tap('#acctView_register button[type=submit]');
-                await pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 10000 });
+                await pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 30000 });
                 check(await pg.isHidden('#landing'), 'creating an account opens the game');
             } });
             await d1.pg.tap('#tab_gear');
@@ -1102,7 +1182,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
                 await d3.pg.fill('#regEmail', 'guest@example.com');
                 await d3.pg.fill('#regPassword', 'marbles-rule');
                 await d3.pg.tap('#acctView_register button[type=submit]');
-                await d3.pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 10000 });
+                await d3.pg.waitForSelector('#accountPanel', { state: 'hidden', timeout: 30000 });
                 check(/^Signed in as TurnedPro/.test(await d3.pg.textContent('#acctWho')) && (await d3.dbg('progress')).cleared.w1_01 && (await d3.dbg('progress')).wallet === 321,
                     'a guest who makes an account keeps their clears and coins');
                 await d3.pg.tap('#acctSignOutBtn');
@@ -1256,13 +1336,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await ad.tap('#tab_gear');
         await ad.waitForSelector('#profileView', { state: 'visible' });
         const tryBtns = ad.locator('.marble-card .maze-btn-ad');
-        check(await tryBtns.count() === 3, `every marble not owned offers TRY (got ${await tryBtns.count()})`);
-        const steelTry = ad.locator('.marble-card', { has: ad.locator('.marble-name', { hasText: /^Steel$/ }) }).locator('.maze-btn-ad');
+        check(await tryBtns.count() === 3, `every marble for sale not owned offers TRY, never a caged friend (got ${await tryBtns.count()})`);
+        const steelTry = ad.locator('.marble-card', { has: ad.locator('.marble-name', { hasText: /^Sterling$/ }) }).locator('.maze-btn-ad');
         await steelTry.tap();
         await ad.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 10000 });
         let tr = await adbg('trial');
         check(tr.ball === 'steel' && tr.trial && tr.trial.id === 'steel', `TRY starts the next level with that marble: ${JSON.stringify(tr)}`);
-        check(/TRYING STEEL/.test(await ad.textContent('#mazeStatus')), 'and says so');
+        check(/TRYING STERLING/.test(await ad.textContent('#mazeStatus')), 'and says so');
         await ad.tap('#mazeStartBtn');
         await ad.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         await adbg('placeBall', levels[1].holes[0].x, levels[1].holes[0].z);
