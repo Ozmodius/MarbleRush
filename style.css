@@ -774,7 +774,7 @@ html, body {
 
 /* The side rail: round reward buttons at the screen edge. DAILY is gold,
    MISSIONS blue, FREE (the ad) green. */
-.home-side { position: absolute; left: 12px; top: 30%; display: flex; flex-direction: column; gap: 14px; }
+.home-side { position: absolute; left: 12px; top: var(--home-top, 30%); display: flex; flex-direction: column; gap: 14px; }
 .side-btn {
   pointer-events: auto;
   display: flex;

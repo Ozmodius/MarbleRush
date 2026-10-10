@@ -2068,12 +2068,46 @@ function computeMenuPose() {
         SYSTEM_LOOKAT.set(0, 0, shift);
         return { pos: _camPos, lookAt: SYSTEM_LOOKAT };
     }
+    // HOME FITS THE PLANET TO THE ROOM IT HAS (2026-10-10, the user's phone:
+    // a browser's bars ate the height, and a planet sized by the screen's
+    // width ran its lower sites over the planet's name). menus.js says where
+    // the free band is -- under the header, over the planet's name -- and the
+    // planet (with its sites) is sized to it and centred in it. The ship's
+    // orbit may pass behind the HUD; the sites never do.
     const r = planet ? planet.radius : 5.3;
-    const dist = Math.max(r / (Math.tan(fov / 2) * aspect), r / Math.tan(fov / 2));
+    const t = Math.tan(fov / 2);
+    const rect = homeBand && getRenderer() ? getRenderer().domElement.getBoundingClientRect() : null;
+    if (rect && rect.height > 0 && homeBand.bottom - homeBand.top > 40) {
+        const H = rect.height, W = rect.width;
+        const top = homeBand.top - rect.top, bottom = homeBand.bottom - rect.top;
+        const Rpx = Math.max(60, Math.min((bottom - top) / 2, W / 2 - (homeBand.side || 0)));
+        const k = Rpx / (H / 2);                         // the planet's NDC half-height
+        const fit = PLANET_FIT_R / Math.sin(Math.atan(k * t));
+        // Never bigger than it always was (the whole orbit in view); smaller
+        // when the band is tight.
+        const dist = Math.max(fit, Math.max(r / (t * aspect), r / t));
+        const n = 1 - 2 * ((top + bottom) / 2) / H;      // where its centre goes, in NDC
+        const ly = -n * dist * t;
+        _menuLook.set(0, ly, 0);
+        _camPos.set(0, ly + dist * 0.18, dist);
+        return { pos: _camPos, lookAt: _menuLook };
+    }
+    const dist = Math.max(r / (t * aspect), r / t);
     _camPos.set(0, dist * 0.18, dist);
     return { pos: _camPos, lookAt: MENU_LOOKAT };
 }
 const MENU_LOOKAT = new THREE.Vector3(0, -0.2, 0);
+const _menuLook = new THREE.Vector3();
+// The planet with its atmosphere and sites (planet3d.js PLANET_R 3, the
+// atmosphere at 1.08 of it), what must fit the band.
+const PLANET_FIT_R = 3 * 1.1;
+// Home's free band in page pixels ({ top, bottom, side }), from menus.js.
+let homeBand = null;
+export function setHomeBand(top, bottom, side = 0) {
+    const was = homeBand;
+    homeBand = Number.isFinite(top) && Number.isFinite(bottom) ? { top, bottom, side } : null;
+    if (!was || !homeBand || Math.abs(was.top - homeBand.top) > 0.5 || Math.abs(was.bottom - homeBand.bottom) > 0.5) requestRender();
+}
 const SYSTEM_LOOKAT = new THREE.Vector3();
 
 // THE SYSTEM'S TAPS AND LABELS (menus.js). Screen points are CSS pixels.
