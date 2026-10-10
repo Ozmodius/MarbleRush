@@ -163,6 +163,14 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   sparks). The ground's shader is the planet's and costly, so it is drawn
   ONCE per level into a texture (`bake`); only a couple of hundred weather
   points move per frame. Rolling only; walking keeps the plain sky.
+- **The interface is a spacecraft's** (the user's call, 2026-10-10): deep
+  navy glass panels with a cyan edge, gold kept for buttons and highlights,
+  every card a raised plate (`--bevel` in style.css). Home carries the rescue
+  tracker (the five friends, caged or freed); the coin counter says COINS
+  (GOLD is a medal). The story speaks in rescue.js's lines: the Baron on a
+  planet's first level (never Sawturn's -- a new player's first screen keeps
+  its how-to), floor 9 warning the cage is near, a freed friend pointing to
+  the next planet.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

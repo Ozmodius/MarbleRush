@@ -147,7 +147,7 @@ const failures = [];
         }
         check(!(await page.$('#homeLevelNum')) && !(await page.$('#homeWorld')), 'the home HUD carries no level info');
         const homeLabels = await page.$$eval('.home-statlabel', els => els.map(e => e.textContent.trim()));
-        check(['GOLD', 'MEDALS', 'POWER-UPS'].every(l => homeLabels.includes(l)), `the home HUD labels gold, medals and power-ups, shows ${homeLabels}`);
+        check(['COINS', 'MEDALS', 'POWER-UPS'].every(l => homeLabels.includes(l)), `the home HUD labels coins, medals and power-ups, shows ${homeLabels}`);
         for (const id of ['shield', 'slowmo', 'magnet']) check((await page.textContent('#homeCharge_' + id)).trim() === '0', `home shows no ${id} on a fresh save`);
         check((await page.textContent('#homeWallet')).trim() === '0', 'home shows the coin balance');
         check(await page.isHidden('#homeFreeCoins') && await page.isHidden('#storeBadge'), 'off CrazyGames, home offers no free-coins ad and the store no badge');
@@ -811,6 +811,9 @@ const failures = [];
         // face, the next one picked; tap an open one to make it PLAY's.
         // Rolle's ship circles the planet.
         check(await rdbg('homeShip'), 'Rolle\'s ship circles home\'s planet');
+        check(/FRIENDS RESCUED 0 \/ 5/.test(await rp.textContent('#homeRescueText')) && await rp.locator('#homeRescueFriends .rescue-friend.is-caged').count() === 5,
+            `home's tracker shows all five friends caged: ${await rp.textContent('#homeRescueText')}`);
+        check(/COINS/.test(await rp.textContent('.home-stats')) && !/GOLD/.test(await rp.textContent('.home-stats')), 'the coin counter says COINS, not GOLD');
         await rp.waitForFunction(() => [...document.querySelectorAll('#homeSites .home-site')].every(b => b.style.visibility !== 'hidden'), null, { polling: 100, timeout: 15000 }).catch(() => {});
         const sites = await rp.$$eval('#homeSites .home-site', bs => bs.map(b => ({ id: b.dataset.level, picked: b.classList.contains('is-picked'), off: b.disabled, x: parseFloat(b.style.left), y: parseFloat(b.style.top) })));
         check(sites.length === 10 && sites.filter(x => x.picked).map(x => x.id).join() === 'w1_10' && sites.every(x => !x.off),
@@ -869,6 +872,11 @@ const failures = [];
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100 });
         sh = await rdbg('show');
         check(sh.kind === null && !sh.shipShown && Math.abs(sh.drawn.x - sh.body.x) < 0.05 && Math.abs(sh.drawn.y - sh.body.y) < 0.05, `START ends the show where the ball really is: ${JSON.stringify(sh)}`);
+        // The story's voices on the ready line (rescue.js).
+        await rdbg('startLevelForTest', 'w1_09');
+        check(/PIP'S CAGE IS ON THE NEXT FLOOR/.test(await rp.textContent('#mazeStatus')), `floor 9 warns the cage is near: ${await rp.textContent('#mazeStatus')}`);
+        await rdbg('startLevelForTest', 'w2_01');
+        check(/^BARON: SLIPSTONIA'S ICE/.test((await rp.textContent('#mazeStatus')).trim()), `the Baron taunts on a planet's first level: ${await rp.textContent('#mazeStatus')}`);
         check(await rdbg('startLevelForTest', 'w1_10', { story: true }), 'floor 10 starts');
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
         check(await rp.isVisible('#storyPanel') && (await rp.textContent('#storyTitle')).trim() === 'ROLLE TO THE RESCUE' && (await rp.textContent('#storyGoBtn')).trim() === 'FREE PIP!',
@@ -905,11 +913,14 @@ const failures = [];
         check((rprog.rescued || []).join() === '1' && rprog.marbles.includes('pip') && rprog.marble === 'classic', `Pip joins the player's marbles, Rolle still selected: ${JSON.stringify({ r: rprog.rescued, m: rprog.marbles, s: rprog.marble })}`);
         const joined = await rp.waitForFunction(() => /PIP JOINS YOU/.test(document.getElementById('mazeStatus2').textContent) && /CLEARED/.test(document.getElementById('mazeStatus').textContent), null, { polling: 100, timeout: 8000 }).then(() => true, () => false);
         check(joined, 'the CLEARED line stays and the line under it says Pip joins you');
+        const pipSays = await rp.waitForFunction(() => /PIP: THE BARON FLED TO SLIPSTONIA/.test(document.getElementById('mazeStatus2').textContent), null, { polling: 100, timeout: 20000 }).then(() => true, () => false);
+        check(pipSays, 'then Pip says where the Baron went');
         await rdbg('startLevelForTest', 'w1_10', { story: true });
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
         check((await rdbg('rescue')) === null && !(await rdbg('goalLocked')) && await rp.isHidden('#storyPanel'), 'once rescued, floor 10 is a plain level');
         await rp.tap('#mazeExitBtn');
         await homeUp(rp);
+        check(/FRIENDS RESCUED 1 \/ 5/.test(await rp.textContent('#homeRescueText')) && await rp.locator('#homeRescueFriends .rescue-friend.is-freed').count() === 1, `home's tracker counts Pip freed: ${await rp.textContent('#homeRescueText')}`);
         await rp.tap('#tab_gear');
         await rp.waitForSelector('#profileView', { state: 'visible' });
         check(!/is-captive/.test(await pipCard.getAttribute('class')) && /SELECT/.test(await pipCard.locator('.marble-action').textContent()), 'Gear offers Pip to roll as');

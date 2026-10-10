@@ -16,7 +16,7 @@ import { CRUSH_HEAD_H } from './foundryProps3d.js';
 import { ARM_Y0, ARM_Y1 } from './toyProps3d.js';
 import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from './mazePickups.js';
 import { buildLevelProps } from './mazeProps3d.js';
-import { captiveFor, captiveSpot, isRescueLevel, CAPTIVE_REACH, storyCard, readyLine, lockedLine, freedLine, joinedLine } from './rescue.js';
+import { captiveFor, captiveSpot, isRescueLevel, CAPTIVE_REACH, storyCard, readyLine, lockedLine, freedLine, joinedLine, baronLine, friendLine, nearLine, RESCUE_FLOOR } from './rescue.js';
 import { buildCage } from './captive3d.js';
 import { drop as dropPose, shipDrop as shipDropPose, shipPickup as shipPickupPose, openingShow, closingShow, SHIP_DOME_Y, DROP_MS, SHIP_DROP_MS, SHIP_PICKUP_MS } from './levelShow.js';
 import { buildShip } from './ship3d.js';
@@ -468,6 +468,16 @@ function keyboardFirst() {
 }
 // CSS shows keyboard hints (NEXT's "SPACE") only on such a computer.
 try { if (typeof document !== 'undefined' && keyboardFirst()) document.documentElement.classList.add('kbd-first'); } catch (_) { /* no DOM */ }
+// The story on a ready screen (rescue.js): the Baron on a planet's first
+// level, a warning on floor 9 while the friend above is still caged. Rolling
+// ladder levels only; '' when the level has nothing to say.
+function storyReadyLine(lv, prog) {
+    if (walkMode || !lv || isDaily(lv) || !Number.isInteger(lv.world) || !Number.isInteger(lv.index)) return '';
+    const floor = lv.index - (lv.world - 1) * 10;
+    if (floor === RESCUE_FLOOR - 1 && captiveFor(lv.world) && !(prog.rescued || []).includes(lv.world)) return nearLine(lv.world);
+    if (floor === 1) return baronLine(lv.world);
+    return '';
+}
 function readyHint() {
     if (keyboardFirst()) return walkMode ? 'PRESS SPACE TO START, THEN FIND THE EXIT' : 'PRESS SPACE OR AN ARROW KEY TO START';
     return walkMode ? 'TAP START, THEN FIND THE EXIT' : 'TAP START, THEN TILT';
@@ -2312,7 +2322,7 @@ function startLevel(levelId, opts = {}) {
     // The way in: the marble drops onto the start, or the ship brings it.
     beginShow(openingShow(lv, { walk: walkMode }), lv.start);
     smoothed = null;
-    setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : rescue ? readyLine(rescue.world) : readyHint());
+    setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : rescue ? readyLine(rescue.world) : storyReadyLine(lv, prog) || readyHint());
     freeShieldTaken = false;
     rewardedThisBreak = false;   // that break is over; this level's are its own
     closeFallOffer();
@@ -2746,7 +2756,11 @@ function showClearResult(res, ms) {
     // a clear that levelled up never showed its time or pay for long).
     // The last one stays.
     let beat = 700;
-    if (res.rescued) { status2Later(joinedLine(res.rescued), beat); beat += 2200; }
+    if (res.rescued) {
+        status2Later(joinedLine(res.rescued), beat); beat += 2200;
+        // The friend's own word: where the Baron went next.
+        if (friendLine(res.rescued)) { status2Later(friendLine(res.rescued), beat); beat += 2400; }
+    }
     if (res.prize) { status2Later('PRIZE  ' + prizeName(res.prize), beat); beat += 1600; }
     if (res.levelUps && res.levelUps.length) {
         const L = res.levelUps[res.levelUps.length - 1].level;

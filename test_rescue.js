@@ -100,6 +100,18 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(R.readyLine(lv.world).includes(cap.toUpperCase()) && R.lockedLine(lv.world).includes(cap.toUpperCase()), `${name}: the ready and locked lines name ${cap}`);
     }
 
+    // The voices: the Baron on planets 2-5, each friend naming the next planet
+    // (or, the last, that all are free), floor 9 naming the friend ahead.
+    const W = await import('./worlds.js');
+    check(R.baronLine(1) === '' && [2, 3, 4, 5].every(w => R.baronLine(w).startsWith('BARON: ')), 'the Baron taunts on planets 2 to 5, not on a new player\'s first screen');
+    for (const w of [1, 2, 3, 4]) {
+        const next = R.captiveFor(w + 1);
+        const line = R.friendLine(w);
+        check(line.startsWith(R.captiveFor(w).name.toUpperCase() + ': ') && (line.includes(W.worldName(w + 1).toUpperCase()) || line.includes(next.name.toUpperCase())), `world ${w}'s friend points the way on: ${line}`);
+    }
+    check(/ALL FREE/.test(R.friendLine(5)), `the last friend says they are all free: ${R.friendLine(5)}`);
+    check([1, 2, 3, 4, 5].every(w => R.nearLine(w).includes(R.captiveFor(w).name.toUpperCase())), 'floor 9 names the friend ahead');
+
     if (failures.length) {
         console.log('FAIL: rescue');
         for (const f of failures) console.log(' - ' + f);
