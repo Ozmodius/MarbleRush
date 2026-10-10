@@ -20,6 +20,7 @@ import { captiveFor, captiveSpot, isRescueLevel, CAPTIVE_REACH, storyCard, ready
 import { buildCage } from './captive3d.js';
 import { drop as dropPose, shipDrop as shipDropPose, shipPickup as shipPickupPose, openingShow, closingShow, SHIP_DOME_Y, DROP_MS, SHIP_DROP_MS, SHIP_PICKUP_MS } from './levelShow.js';
 import { buildShip } from './ship3d.js';
+import { buildBackdrop } from './backdrop3d.js';
 import { sfx as uiSfx } from './sfx.js';
 import { createMazeAudio } from './mazeAudio.js';
 import { wallForLevel, floorForLevel } from './soundModel.js';
@@ -315,6 +316,7 @@ let goalMesh = null;
 // it at once. { kind, ms, spot: {x, z}, side, from: {x, z}, thud, chimed }
 let show = null;
 let ship = null;                 // the ship (ship3d.js), on a planet's first level and floor 10
+let levelSky = null;             // the world far below the board (backdrop3d.js), rolling only
 const SHOW_THUD = {};
 let showHeldAt = null;            // tests and screenshots: hold the show at this age (ms)            // the drop's landing, as its own sound source
 
@@ -568,7 +570,7 @@ function track(obj) { disposables.push(obj); return obj; }
 function disposeAll() {
     for (const o of disposables) {
         try {
-            if (o.isTexture) { o.dispose(); continue; }
+            if (o.isTexture || o.isWebGLRenderTarget || o.isRenderTarget) { o.dispose(); continue; }
             if (o.isMaterial) { o.dispose(); continue; }
             if (o.isBufferGeometry) { o.dispose(); continue; }
             o.traverse && o.traverse(n => {
@@ -1032,6 +1034,7 @@ function step() {
     if (props) props.tick(now / 1000);
     if (rescue && rescue.cage) rescue.cage.tick(now / 1000);
     if (ship) ship.tick(now / 1000);
+    if (levelSky) levelSky.tick(now / 1000);
     tickGoal(now);
     advance(elapsedMs);
 }
@@ -2248,6 +2251,16 @@ function startLevel(levelId, opts = {}) {
     if (menuHandler) menuHandler(null);
     const theme = resolveLevelTheme(lv);
     scene.background = new THREE.Color(theme.backdropColor);
+    // The maze hangs over its planet: the surface far below, its weather
+    // drifting between (backdrop3d.js). Not walking: the camera is inside.
+    if (!walkMode) {
+        const tracked = [];
+        levelSky = buildBackdrop(lv.world, theme, tracked);
+        scene.add(levelSky.group);
+        levelSky.bake(getRenderer());     // its ground drawn once, not every frame
+        tracked.forEach(track);
+        levelSky.tick(0);
+    }
 
     // The rescue: rolling (not walking), a floor 10, the friend not yet free.
     rescue = null;
@@ -2315,6 +2328,8 @@ function teardownLevel() {
     if (audio) { audio.dispose(); audio = null; }
     bodySound.clear();
     if (mazeGroup && scene) scene.remove(mazeGroup);
+    if (levelSky && scene) scene.remove(levelSky.group);
+    levelSky = null;
     disposeAll();
     if (trail) { trail.dispose(); trail = null; }
     if (walkMode) { walkMode = false; setWalkFov(false); document.body.classList.remove('is-walking'); updateWalkVignette(1000); closeComfort(); }
@@ -2386,6 +2401,7 @@ window.__mazeDebug = {
     homeWorld: () => homeWorld(),
     homeLevel: () => { const h = homeLevel(); return h && { world: h.world, id: h.level.id, locked: h.locked, done: h.done, picked: !!h.picked }; },
     homeShip: () => !!(planet && planet.ship && planet.ship.group.visible),
+    levelSky: () => (levelSky && scene && levelSky.group.parent === scene ? { baked: levelSky.baked } : null),
     planetX: () => (planet && planet.world ? planet.world.position.x : null),
     planetSlideFrom: () => planetSlideFrom,
     hasSun: () => !!(planet && planet.sun),

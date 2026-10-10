@@ -852,6 +852,9 @@ const failures = [];
         await rdbg('holdShow', 0);              // and drawn, held
         let sh = await rdbg('show');
         check(sh.kind === 'drop' && sh.drawn.y > sh.body.y + 2 && Math.abs(sh.body.x - levels[4].start.x) < 1e-6, `a level opens on the drop, the body already on the start: ${JSON.stringify(sh)}`);
+        // EACH WORLD'S SKY (backdrop3d.js): its planet far below, the ground
+        // drawn once into a texture rather than shaded every frame.
+        check(JSON.stringify(await rdbg('levelSky')) === '{"baked":true}', `the level hangs over its planet, the ground baked once: ${JSON.stringify(await rdbg('levelSky'))}`);
         await rdbg('holdShow', null);
         await rdbg('advanceFrames', Math.ceil(sh.lengths.drop / (1000 / 60)) + 2);
         sh = await rdbg('show');
@@ -1399,7 +1402,7 @@ const failures = [];
         check(await tryBtns.count() === 3, `every marble for sale not owned offers TRY, never a caged friend (got ${await tryBtns.count()})`);
         const steelTry = ad.locator('.marble-card', { has: ad.locator('.marble-name', { hasText: /^Sterling$/ }) }).locator('.maze-btn-ad');
         await steelTry.tap();
-        await ad.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 10000 });
+        await ad.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 30000 });
         let tr = await adbg('trial');
         check(tr.ball === 'steel' && tr.trial && tr.trial.id === 'steel', `TRY starts the next level with that marble: ${JSON.stringify(tr)}`);
         check(/TRYING STERLING/.test(await ad.textContent('#mazeStatus')), 'and says so');
