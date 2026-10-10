@@ -55,6 +55,27 @@ export const lockedLine = (world) => { const c = captiveFor(world); return c ? `
 export const freedLine = (world) => { const c = captiveFor(world); return c ? `${c.name.toUpperCase()} IS FREE!  NOW ESCAPE` : ''; };
 export const joinedLine = (world) => { const c = captiveFor(world); return c ? `${c.name.toUpperCase()} JOINS YOU!  ROLL AS ${c.name.toUpperCase()} FROM GEAR` : ''; };
 
+// THE STORY'S VOICES (the user's call, 2026-10-10): the Baron taunts Rolle
+// on each planet's first level (not Sawturn's: a new player's first screen
+// keeps its how-to line), a freed friend points to the next planet, and
+// floor 9 warns that the cage is near.
+const TAUNTS = {
+    2: "SLIPSTONIA'S ICE WILL STOP YOU COLD, ROLLE!",
+    3: 'NO MARBLE SURVIVES THE MAGMA WORKS!',
+    4: 'MY TOYS WILL BOUNCE YOU RIGHT OUT!',
+    5: "WELCOME TO MY FOUNDRY. YOU'LL NEVER LEAVE."
+};
+const FRIEND_SAYS = {
+    1: 'THE BARON FLED TO SLIPSTONIA!',
+    2: 'HE DRAGGED CINDER OFF TO MAGMARS!',
+    3: "BOBBLE'S TRAPPED ON BOUNCELOT!",
+    4: "RIVET'S IN HIS FOUNDRY ON GEARTH!",
+    5: "THE BARON GOT AWAY\u2026 BUT WE'RE ALL FREE!"
+};
+export const baronLine = (world) => (TAUNTS[world] ? 'BARON: ' + TAUNTS[world] : '');
+export const friendLine = (world) => { const c = captiveFor(world); return c && FRIEND_SAYS[world] ? `${c.name.toUpperCase()}: ${FRIEND_SAYS[world]}` : ''; };
+export const nearLine = (world) => { const c = captiveFor(world); return c ? `${c.name.toUpperCase()}'S CAGE IS ON THE NEXT FLOOR. HANG ON, ${c.name.toUpperCase()}!` : ''; };
+
 // How close the ball must come to free the captive (centre to centre).
 export const CAPTIVE_REACH = 0.42;
 
