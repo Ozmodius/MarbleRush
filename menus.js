@@ -5,6 +5,7 @@ import { onFrame, getRenderer } from './sceneHost.js';
 import { showBanner, adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { sfx } from './sfx.js';
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
+import { captiveFor, isRescueLevel, VILLAIN } from './rescue.js';
 import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, showLevelUps } from './dailyUi.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
@@ -284,6 +285,13 @@ function renderSheet(w) {
         b.type = 'button';
         b.className = 'level-node' + (c ? ' is-cleared' : '') + (open ? '' : ' is-locked') + (!walk && lv.index === nextIdx ? ' is-next' : '');
         if (tier) b.dataset.tier = tier;
+        // Floor 10 holds a friend (rescue.js): a caged dot, or a free one.
+        const cap = !walk && isRescueLevel(lv) ? captiveFor(lv.world) : null;
+        if (cap) {
+            b.classList.add('is-rescue');
+            if ((p.rescued || []).includes(lv.world)) b.classList.add('is-freed');
+            b.style.setProperty('--m', cap.swatch);
+        }
         b.disabled = !open;
         b.textContent = String(w.levels.indexOf(lv) + 1);
         b.setAttribute('aria-label', `${walk ? 'Explore ' : ''}${lv.name}${c ? (walk ? ', explored' : ', cleared') + (tier ? ', ' + tier : '') : ''}${open ? '' : walk ? ', roll it first' : ', locked'}`);
@@ -294,6 +302,20 @@ function renderSheet(w) {
             if (walk) ctx.game.walkLevel(lv.id); else ctx.game.playLevel(lv.id);
         });
         grid.append(b);
+    }
+
+    // Who the Baron holds here, and whether they are free yet.
+    const capEl = $('worldSheetCaptive');
+    if (capEl) {
+        capEl.innerHTML = '';
+        const cap = !walk && w.levels.some(isRescueLevel) ? captiveFor(w.n) : null;
+        if (cap) {
+            const freed = (p.rescued || []).includes(w.n);
+            const dot = document.createElement('span');
+            dot.className = 'captive-dot' + (freed ? ' is-freed' : '');
+            dot.style.setProperty('--m', cap.swatch);
+            capEl.append(dot, document.createTextNode(freed ? `${cap.name} is free, and rolls with you (Gear).` : `${VILLAIN} has caged ${cap.name} on floor 10. Find the cage before the exit.`));
+        }
     }
 
     const prizeId = (w.levels[w.levels.length - 1] || {}).prize;

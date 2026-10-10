@@ -43,7 +43,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
     }
 
     // 2. prices
-    for (const id of C.MARBLE_IDS) check(id === 'classic' ? C.MARBLES[id].price === 0 : C.MARBLES[id].price > 0, `${id}: bad price`);
+    for (const id of C.MARBLE_IDS) check(id === 'classic' ? C.MARBLES[id].price === 0 : C.MARBLES[id].rescue ? !(C.MARBLES[id].price > 0) : C.MARBLES[id].price > 0, `${id}: bad price`);
     for (const id of C.UPGRADE_IDS) {
         const ps = C.UPGRADES[id].prices;
         check(ps.length === 3 && ps.every((v, i) => v > 0 && (i === 0 || v > ps[i - 1])), `${id}: upgrade tiers must be three rising prices, got ${ps}`);
@@ -123,6 +123,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const back = S.parseProgress(JSON.stringify({ ...lr.progress, skins: ['stripe', 'bogus'], trails: ['flame'], trail: 'bogus' }));
     check(back.skins.join() === 'plain,stripe' && back.skin === 'stripe' && back.trails.join() === 'none,flame' && back.trail === 'none', `looks round-trip and junk is dropped: ${JSON.stringify([back.skins, back.skin, back.trails, back.trail])}`);
     check(C.ballSetup('steel', {}).grip === C.ballSetup('steel', {}).grip, 'ballSetup takes no look at all');
+
+    // Rescued friends (rescue.js) are earned on a floor 10, never bought.
+    const rich = { ...S.freshProgress(), wallet: 1e6 };
+    for (const id of C.MARBLE_IDS.filter(k => C.MARBLES[k].rescue)) {
+        const b = S.buyMarble(rich, id);
+        check(!b.ok && b.reason === 'rescue', `${id}: a rescued friend cannot be bought (got ${JSON.stringify(b.reason)})`);
+    }
 
     if (failures.length) {
         console.error('FAIL: shop\n - ' + failures.join('\n - '));

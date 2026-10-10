@@ -16,6 +16,8 @@ import { CRUSH_HEAD_H } from './foundryProps3d.js';
 import { ARM_Y0, ARM_Y1 } from './toyProps3d.js';
 import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from './mazePickups.js';
 import { buildLevelProps } from './mazeProps3d.js';
+import { captiveFor, captiveSpot, isRescueLevel, CAPTIVE_REACH, storyCard, readyLine, lockedLine, freedLine, joinedLine } from './rescue.js';
+import { buildCage } from './captive3d.js';
 import { sfx as uiSfx } from './sfx.js';
 import { createMazeAudio } from './mazeAudio.js';
 import { wallForLevel, floorForLevel } from './soundModel.js';
@@ -299,6 +301,12 @@ let rewardedThisBreak = false;   // a rewarded ad on this panel stands in for th
 // -- every retry of it -- and never ownership. Memory only, never saved.
 // { id, levelId } -- levelId is null until the trial's level is started.
 let trialMarble = null;
+// THE RESCUE (rescue.js): on a world's floor 10, until its friend is freed,
+// a cage sits off the route and the exit stays locked until the ball rolls
+// through it. Per level, cleared by teardownLevel:
+// { world, spot, captive, cage, freed, atGoal, unlockedAt }, or null.
+let rescue = null;
+let goalMesh = null;
 
 // The win star floats above the board centre, well clear of the 0.55-high walls
 // so it reads as hanging over the maze rather than sitting in it.
@@ -742,7 +750,17 @@ function buildLevelMeshes(lv, theme) {
     const goal = new THREE.Mesh(goalGeo, goalMat);
     goal.rotation.x = -Math.PI / 2;
     goal.position.set(lv.goal.x, FLOOR_Y + 0.015, lv.goal.z);
+    goal.userData.color = goalMat.color.clone();
     group.add(goal);
+    goalMesh = goal;
+    // A rescue level's cage, and its exit drawn locked (lockGoal).
+    if (rescue) {
+        const tracked = [];
+        rescue.cage = buildCage(rescue.spot, rescue.captive.look, lv.ballRadius, tracked);
+        tracked.forEach(track);
+        group.add(rescue.cage.group);
+        lockGoal(true);
+    }
 
     // Belts, coins and pickups. Their geometries, materials and textures go on
     // the disposables list like everything else built here.
@@ -994,6 +1012,8 @@ function step() {
     // should keep breathing on the ready screen and after a fall.
     tickSurfaces(now / 1000);
     if (props) props.tick(now / 1000);
+    if (rescue && rescue.cage) rescue.cage.tick(now / 1000);
+    tickGoal(now);
     advance(elapsedMs);
 }
 
@@ -1080,6 +1100,7 @@ function advance(elapsedMs) {
         ballMesh.quaternion.slerp(prevBallQuat, 1 - a);
     }
     if (trail) trail.update(ballBody.position, elapsedMs);
+    if (rescue && rescue.cage) rescue.cage.track(ballMesh.position.x, ballMesh.position.z, phase === 'running' || phase === 'won');
     if (walkMode) {
         if (walkHud) walkHud.update(ballBody.position.x, ballBody.position.z, walkYaw, elapsedMs);
         walkSpeedNow = Math.hypot(ballBody.velocity.x, ballBody.velocity.z);
@@ -1290,6 +1311,81 @@ function showWinStar(show) {
 
 function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
+// The exit of a rescue level, locked: grey and dim until the friend is
+// freed, then its own colour again with a pop (tickGoal).
+const LOCKED_GOAL = new THREE.Color('#5d6068');
+function lockGoal(locked) {
+    if (!goalMesh) return;
+    goalMesh.material.color.copy(locked ? LOCKED_GOAL : goalMesh.userData.color);
+    goalMesh.scale.setScalar(1);
+}
+function tickGoal(now) {
+    if (!goalMesh || !rescue) return;
+    if (!rescue.freed) {
+        // Locked: a slow, dull throb, so it reads as shut rather than missing.
+        const k = 0.5 + 0.5 * Math.sin(now / 420);
+        goalMesh.material.color.copy(LOCKED_GOAL).multiplyScalar(0.8 + 0.25 * k);
+        return;
+    }
+    const t = (now - rescue.unlockedAt) / 600;
+    goalMesh.material.color.copy(goalMesh.userData.color);
+    goalMesh.scale.setScalar(t < 1 ? 1 + 0.6 * Math.sin(t * Math.PI) : 1);
+}
+function freeCaptive() {
+    rescue.freed = true;
+    rescue.unlockedAt = performance.now();
+    if (rescue.cage) rescue.cage.free();
+    lockGoal(false);
+    setStatus(freedLine(rescue.world));
+    if (audio) audio.event('rescue', { x: rescue.spot.x, z: rescue.spot.z });
+}
+
+// THE STORY CARD: the first time this device enters a world's floor 10 with
+// its friend still caged, a card says who is held there (the first one ever
+// tells the whole tale). Seen-ness is a device preference, never the save:
+// a story re-told on a new device is no loss. Its button starts the run.
+const STORY_SEEN_KEY = 'planetilt.storySeen';
+function storySeen() {
+    try { const v = JSON.parse(localStorage.getItem(STORY_SEEN_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch (_) { return []; }
+}
+let storyBound = false;
+function openStory(worldNo) {
+    const panel = el('storyPanel');
+    if (!panel) return;
+    const seen = storySeen();
+    if (seen.includes(worldNo)) return;
+    const card = storyCard(worldNo, seen.length === 0);
+    const cap = captiveFor(worldNo);
+    if (!card || !cap) return;
+    try { localStorage.setItem(STORY_SEEN_KEY, JSON.stringify([...seen, worldNo])); } catch (_) { /* private mode: shown again next time */ }
+    el('storyTitle').textContent = card.title;
+    el('storyGoBtn').textContent = card.go;
+    const lines = el('storyLines');
+    lines.textContent = '';
+    for (const t of card.lines) {
+        const p = document.createElement('p');
+        p.textContent = t;
+        if (t.includes('Baron')) p.className = 'story-villain';
+        lines.appendChild(p);
+    }
+    const capEl = el('storyCaptive');
+    if (capEl) capEl.style.setProperty('--m', cap.swatch || (cap.look && cap.look.color) || '#ccc');
+    if (!storyBound) {
+        storyBound = true;
+        bindTap('storyCloseBtn', closeStory);
+        bindTap('storyGoBtn', () => { closeStory(); if (active && phase === 'ready') startRun(); });
+        panel.addEventListener('click', (e) => { if (e.target === panel) closeStory(); });
+        window.addEventListener('keydown', (e) => {
+            if (panel.hidden) return;
+            // Taken here, before the ready screen's own key start sees it.
+            if (e.code === 'Escape') { e.preventDefault(); e.stopPropagation(); closeStory(); }
+            else if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); e.stopPropagation(); closeStory(); if (active && phase === 'ready') startRun(); }
+        }, true);
+    }
+    panel.hidden = false;
+}
+function closeStory() { const p = el('storyPanel'); if (p) p.hidden = true; }
+
 function checkOutcomes() {
     const p = ballBody.position;
 
@@ -1320,8 +1416,22 @@ function checkOutcomes() {
         renderPowerups();
     }
 
+    // The rescue: rolling into the cage frees the friend and opens the exit.
+    if (rescue && !rescue.freed) {
+        const cdx = p.x - rescue.spot.x, cdz = p.z - rescue.spot.z;
+        if (cdx * cdx + cdz * cdz <= CAPTIVE_REACH * CAPTIVE_REACH) freeCaptive();
+    }
+
     const gdx = p.x - level.goal.x, gdz = p.z - level.goal.z;
-    if (gdx * gdx + gdz * gdz <= level.goal.r * level.goal.r) { win(); return; }
+    const atGoal = gdx * gdx + gdz * gdz <= level.goal.r * level.goal.r;
+    if (atGoal && rescue && !rescue.freed) {
+        // Locked: rolls over it, and says why once per visit to it.
+        if (!rescue.atGoal) setStatus(lockedLine(rescue.world));
+        rescue.atGoal = true;
+    } else {
+        if (rescue) rescue.atGoal = false;
+        if (atGoal) { win(); return; }
+    }
 
     // Safety net. Nothing should escape the boundary rails, but a physics
     // tunnel-through at high speed would otherwise strand the run forever.
@@ -1503,6 +1613,11 @@ function win() {
     }
     emitRun('clear', { ms, tier: (result && result.tier) || null, coins: coinsTaken, coinsOf: Array.isArray(level.coins) ? level.coins.length : 0 });
     if (result && dailyWasLocked && !store.dailyMaze().locked) result.dailyUnlocked = true;
+    // A friend freed and brought out: they join the player for good.
+    if (rescue && rescue.freed && store && result && result.accepted) {
+        const r = store.recordRescue(rescue.world);
+        if (r.ok) result.rescued = rescue.world;
+    }
     showClearResult(result, ms);
     showNearMiss(result);
     lastClear = result && result.accepted && result.earned > 0 ? result : null;
@@ -1607,6 +1722,12 @@ function restart() {
     // unspent, and the levels themselves (seeded, verified) are untouched.
     if (beginnerShieldOn()) { pickupState.shield = true; pickupState.boughtShield = false; }
     if (props) props.reset();
+    // Every attempt at a rescue finds the friend caged again, the exit shut.
+    if (rescue) {
+        rescue.freed = false; rescue.atGoal = false;
+        if (rescue.cage) rescue.cage.reset();
+        lockGoal(true);
+    }
     renderCoins();
     renderPowerups();
     phase = 'running';
@@ -1860,7 +1981,7 @@ export function spinWorlds(d) { if (solar) { solar.spinBy(d); requestRender(); }
 export function releaseWorlds(v) { if (solar) solar.release(v); }
 // After the try-a-marble ad (shopUi.js): play the next level with `id`.
 export function startMarbleTrial(id) {
-    if (!MARBLES[id]) return false;
+    if (!MARBLES[id] || MARBLES[id].rescue) return false;   // friends are rescued, never tried
     const lv = nextLevel();
     if (!lv) return false;
     trialMarble = { id, levelId: null };
@@ -1906,6 +2027,7 @@ export function playLevel(id) {
 // if the world is still locked.
 let homeWorldN = null;                 // null: the world the ladder is in
 let planetSlide = null;                // { from, t0 }: the planet sliding in
+let planetSlideFrom = 0;               // where the last slide started (tests: a slide outruns a slow page's reads)
 const PLANET_SLIDE_X = 9, PLANET_SLIDE_MS = 380;
 export function homeWorld() {
     const n = homeWorldN || (nextLevel() ? nextLevel().world : 1);
@@ -1930,6 +2052,7 @@ export function setHomeWorld(n, dir = 0) {
     if (phase === 'menu' && backdrop === 'planet') {
         buildShowcase('planet');
         planetSlide = dir ? { from: dir * PLANET_SLIDE_X, t0: performance.now() } : null;
+        planetSlideFrom = planetSlide ? planetSlide.from : 0;
         slidePlanet();
         requestRender();
     }
@@ -1993,6 +2116,13 @@ function startLevel(levelId, opts = {}) {
     const theme = resolveLevelTheme(lv);
     scene.background = new THREE.Color(theme.backdropColor);
 
+    // The rescue: rolling (not walking), a floor 10, the friend not yet free.
+    rescue = null;
+    if (!walkMode && isRescueLevel(lv) && !(prog.rescued || []).includes(lv.world)) {
+        const spot = captiveSpot(lv);
+        if (spot) rescue = { world: lv.world, spot, captive: captiveFor(lv.world), cage: null, freed: false, atGoal: false, unlockedAt: 0 };
+    }
+
     const built = buildLevelMeshes(lv, theme);
     mazeGroup = built.group;
     scene.add(mazeGroup);
@@ -2034,11 +2164,12 @@ function startLevel(levelId, opts = {}) {
     lastStepTime = 0;
     simCarryMs = 0; prevBallValid = false;
     smoothed = null;
-    setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : readyHint());
+    setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : rescue ? readyLine(rescue.world) : readyHint());
     freeShieldTaken = false;
     rewardedThisBreak = false;   // that break is over; this level's are its own
     closeFallOffer();
     offerFreeShield();
+    if (rescue && !opts.noStory) openStory(rescue.world);
     requestRender();
 }
 
@@ -2071,6 +2202,9 @@ function teardownLevel() {
     winStar = null;
     winStarMs = 0;
     props = null;
+    rescue = null;
+    goalMesh = null;
+    closeStory();
     forest = null;
     planet = null;
     solar = null;
@@ -2115,9 +2249,13 @@ window.__mazeDebug = {
     homeWorld: () => homeWorld(),
     homeLevel: () => { const h = homeLevel(); return h && { world: h.world, id: h.level.id, locked: h.locked, done: h.done }; },
     planetX: () => (planet && planet.world ? planet.world.position.x : null),
+    planetSlideFrom: () => planetSlideFrom,
     hasSun: () => !!(planet && planet.sun),
     active: () => active,
     phase: () => phase,
+    // The rescue on this level: where the cage is, whether it is open.
+    rescue: () => (rescue ? { world: rescue.world, x: rescue.spot.x, z: rescue.spot.z, freed: rescue.freed, captive: rescue.captive.id, cage: !!rescue.cage, cageShown: !!(rescue.cage && rescue.cage.group.visible) } : null),
+    goalLocked: () => !!(goalMesh && rescue && !rescue.freed),
     ballPos: () => (ballBody ? { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z } : null),
     gravity: () => (world ? { x: world.gravity.x, y: world.gravity.y, z: world.gravity.z } : null),
     // The last orientation reading the module actually received. Lets a test
@@ -2214,10 +2352,12 @@ window.__mazeDebug = {
     dailyMaze: () => (store && store.dailyMaze ? store.dailyMaze() : null),
     // Move the progress store's clock by days (the daily rules read it).
     shiftDays: (n) => { if (store && store.setClock) { const off = n * 86400000; store.setClock(() => Date.now() + off); } return true; },
-    startLevelForTest: (levelId) => {
+    // A floor 10's story card only when asked ({ story: true }): the hazard
+    // tests start floor 10s for their traps, not their tale.
+    startLevelForTest: (levelId, opts = {}) => {
         const lv = allLevels.find(l => l.id === levelId);
         if (!active || !lv) return false;
-        startLevel(levelId);
+        startLevel(levelId, { noStory: !opts.story });
         return !!level && level.id === levelId;
     },
     placeBall: (x, z) => {
@@ -2444,6 +2584,7 @@ function showClearResult(res, ms) {
     // a clear that levelled up never showed its time or pay for long).
     // The last one stays.
     let beat = 700;
+    if (res.rescued) { status2Later(joinedLine(res.rescued), beat); beat += 2200; }
     if (res.prize) { status2Later('PRIZE  ' + prizeName(res.prize), beat); beat += 1600; }
     if (res.levelUps && res.levelUps.length) {
         const L = res.levelUps[res.levelUps.length - 1].level;

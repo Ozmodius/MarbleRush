@@ -44,8 +44,11 @@ function renderStatus() {
         who.appendChild(small);
     }
     $('cloudLoginBtn').hidden = !platformOffer;
-    // Signed out, or the session lost: back to the sign-in screen.
+    // Signed out, or the session lost: back to the sign-in screen. And the
+    // other way: a status that opened the door in passing (a reconnect still
+    // out while a sign-in finished) closes it once the account is back.
     if (needsAccount()) openGate();
+    else if (gate) closeGate();
 }
 
 // --- the account panel ---------------------------------------------------------
@@ -81,7 +84,10 @@ function acctView(view, message, ok) {
     msg.classList.toggle('is-ok', !!ok);
     $('accountPanel').hidden = false;
     const first = form.querySelector('input');
-    if (first && !first.value) setTimeout(() => { try { first.focus(); } catch (_) { /* ignore */ } }, 50);
+    // Focus the first field a moment later -- unless the player has got there
+    // first: on a slow phone the moment can land after they moved on to the
+    // next field, and pulling focus back typed their password into the name.
+    if (first && !first.value) setTimeout(() => { try { if (!first.value && !form.contains(document.activeElement)) first.focus(); } catch (_) { /* ignore */ } }, 50);
 }
 // THE SIGN-IN GATE (features.requireLogin, the web). Its front door is the
 // landing site (index.html's LANDING): what the game is, with CREATE ACCOUNT

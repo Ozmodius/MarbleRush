@@ -279,11 +279,16 @@ export function renderProfile() {
         const m = MARBLES[id];
         const owned = p.marbles.includes(id);
         const selected = id === cur;
-        const card = h('div', 'marble-card' + (selected ? ' is-selected' : ''));
+        // A friend still held by the Baron (rescue.js): shown caged, with
+        // where to free them, never for sale.
+        const captive = !owned && !!m.rescue;
+        const card = h('div', 'marble-card' + (selected ? ' is-selected' : '') + (captive ? ' is-captive' : ''));
         const head = h('div', 'marble-cardhead');
         head.append(swatch(id), h('span', 'marble-name', m.name));
         card.append(head);
-        card.append(h('p', 'marble-blurb', m.blurb + (id === 'classic' ? ' Wears each world\'s own colour.' : '')));
+        card.append(h('p', 'marble-blurb', captive
+            ? `Caged by Baron Von Ratchet on ${worldName(m.rescue)}'s floor 10. Roll in and free ${m.name}.`
+            : m.blurb + (id === 'classic' ? ' Wears each world\'s own colour.' : '')));
         const b = ballSetup(id, p.upgrades);
         const bars = h('div', 'marble-bars');
         for (const s of STAT_BARS) {
@@ -300,6 +305,7 @@ export function renderProfile() {
         card.append(bars);
         let btn;
         if (selected) { btn = buyButton(0, 0, () => {}, 'SELECTED'); btn.disabled = true; }
+        else if (captive) { btn = buyButton(0, 0, () => {}, 'RESCUE ON FLOOR 10'); btn.disabled = true; btn.title = `Free ${m.name} on ${worldName(m.rescue)}'s floor 10`; }
         else if (owned) btn = buyButton(0, 0, () => { ctx.store.selectMarble(id); say('profileMsg', `${m.name} is ready for the next game`, true); renderProfile(); changed(); }, 'SELECT');
         else btn = buyButton(m.price, p.wallet, () => {
             buyResult('profileMsg', ctx.store.buyMarble(id), `${m.name} bought and selected`);
@@ -309,7 +315,7 @@ export function renderProfile() {
         btn.classList.add('marble-action');
         card.append(btn);
         // TRY IT (rewarded ad): play the next level with it, before buying.
-        if (!owned && adsAvailable() && ctx.tryMarble) {
+        if (!owned && !captive && adsAvailable() && ctx.tryMarble) {
             const t = h('button', 'shop-buy maze-btn maze-btn-ad marble-action');
             t.type = 'button';
             t.append(h('span', 'ad-play', '▶'), document.createTextNode('TRY'));

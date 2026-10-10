@@ -241,7 +241,7 @@ export function createMazeAudio(level, { marble = 'classic' } = {}) {
         try { if (eng.impact(material || wall, v, { pan: p.pan, gain: p.gain, radius: level.ballRadius })) count('impact'); } catch (_) { /* ignore */ }
     }
 
-    // Moments mazeGame.js sees: coin, pickup, bumper, shield, fall, win.
+    // Moments mazeGame.js sees: coin, pickup, bumper, shield, rescue, fall, win.
     function event(name, opts = {}) {
         if (disposed) return;
         bind();
@@ -252,6 +252,8 @@ export function createMazeAudio(level, { marble = 'classic' } = {}) {
             case 'pickup': fire('pickup', p); break;
             case 'bumper': fire('bumper', p); break;
             case 'shield': fire('shield', p); break;
+            // A friend freed (rescue.js): the pickup's bright note on the shield's chime.
+            case 'rescue': fire('shield', p); fire('pickup', p); break;
             case 'win': if (eng) eng.silenceRoll(); fire('goal', { pan: p.pan, wall }); break;
             case 'fall': {
                 if (eng) eng.silenceRoll();

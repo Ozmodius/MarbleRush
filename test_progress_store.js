@@ -125,6 +125,22 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(!S.adUpgrade(u, 'jetpack', later).ok, 'unknown upgrades are refused');
     check(C.UPGRADE_IDS.every(id => C.UPGRADES[id].prices[0] <= C.AD_REWARDS.upgradeMaxPrice), 'every upgrade has a first step an ad can give');
 
+    // The rescue (rescue.js): freeing a floor-10 captive gives their marble, once.
+    const f0 = S.freshProgress();
+    check(Array.isArray(f0.rescued) && f0.rescued.length === 0, 'a new player has rescued no one');
+    let rs = S.recordRescue(f0, 2);
+    check(rs.ok && rs.marble === 'flurry' && rs.progress.rescued.join() === '2' && rs.progress.marbles.includes('flurry'), `freeing world 2's captive gives Flurry: ${JSON.stringify(rs.progress.rescued)} ${rs.progress.marbles}`);
+    check(f0.rescued.length === 0 && !f0.marbles.includes('flurry'), 'recordRescue must not modify its input');
+    check(rs.progress.marble === 'classic', 'a freed friend joins but Rolle stays selected');
+    const twice = S.recordRescue(rs.progress, 2);
+    check(!twice.ok && twice.reason === 'freed' && twice.progress === rs.progress, 'freeing a friend twice changes nothing');
+    check(S.recordRescue(f0, 99).reason === 'unknown', 'a world with no captive frees no one');
+    rs = S.recordRescue(rs.progress, 1);
+    check(rs.progress.rescued.join() === '1,2', 'rescues are kept in world order');
+    const junk = S.parseProgress(JSON.stringify({ ...f0, rescued: [4, 4, 'x', 99, 1.5, 3] }));
+    check(junk.rescued.join() === '3,4' && junk.marbles.includes('bobble') && junk.marbles.includes('cinder'), `a save's rescues are cleaned, and their marbles owned: ${junk.rescued} ${junk.marbles}`);
+    check(S.parseProgress(JSON.stringify({ ...f0, rescued: undefined })).rescued.length === 0, 'a save from before the rescue loads with no one rescued');
+
     if (failures.length) {
         console.error('FAIL: progress store\n - ' + failures.join('\n - '));
         process.exitCode = 1;

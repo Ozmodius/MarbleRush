@@ -277,6 +277,35 @@ hole -- so the middle of every railed corridor is a proven way through.
 
 No crumbling or sinking floor in any world (see CLAUDE.md).
 
+## The rescue (the story; decided 2026-10-09)
+
+The user's call: tie the planets together with a story, and make each
+world's floor 10 count.
+
+- *The cast* (`shopCatalog.js` names; ids unchanged): Rolle (classic) is the
+  hero, a marble from MarbleTopia. The shop marbles are Sterling (steel),
+  Bumper (rubber) and Glint (glass). Baron Von Ratchet wound the five planets
+  up like clocks and, to keep them ticking, kidnapped Rolle's friends: Pip
+  (Sawturn), Flurry (Slipstonia), Cinder (Magmars), Bobble (Bouncelot) and
+  Rivet (Gearth).
+- *Floor 10*: until its friend is freed, a cage sits in the maze and the exit
+  is locked (grey; rolling over it says FREE <NAME> FIRST!). Rolling into the
+  cage frees them -- the bars fly off and the friend rolls along behind the
+  ball, on the ball's own path, to the exit. A fall cages them again. The
+  first floor 10 a device sees opens on the whole story, each later one on
+  its friend (a device preference, `planetilt.storySeen`).
+- *Where the cage goes* is computed from the level (`rescue.js`
+  `captiveSpot`), never stored in `mazeLevels.json`: a side branch off the
+  start-to-exit route, a detour of a quarter to three fifths of it, clear of
+  every trap by the shield's safe-spot rule, and reachable by a ball 50%
+  wider. `test_rescue.js` checks every floor 10 with its own search.
+- *The prize*: the friend joins as a playable marble, never sold or tried by
+  ad, and bound by the same rule as every marble (control and forgiveness,
+  never top speed or size). Saved as `rescued` (worlds), merged by union.
+- *Next, as agreed*: a drop-in between levels (the marble falls onto the new
+  start; on floor 10 into its ship), the ship orbiting home's planet with a
+  level select there, then world backgrounds -- each its own PR.
+
 ## Open questions
 
 - Allow a midgame ad after repeated falls? (Ball Smack never shows one there.)
