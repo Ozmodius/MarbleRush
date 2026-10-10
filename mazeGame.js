@@ -25,6 +25,9 @@ import { fuelSpot, fuelGate, fuelCount, launchNeed, FUEL_REACH } from './fuel.js
 import { buildFuelCell } from './fuel3d.js';
 import { createSurvey, surveyOf, SURVEYED } from './survey.js';
 import { levelGrid as levelGridFor } from './levelSpots.js';
+import { pocketOn, PAGE_REACH } from './pockets.js';
+import { pageNumber } from './diary.js';
+import { buildPage } from './page3d.js';
 import { sfx as uiSfx } from './sfx.js';
 import { createMazeAudio } from './mazeAudio.js';
 import { wallForLevel, floorForLevel } from './soundModel.js';
@@ -322,6 +325,10 @@ let fuelCell = null;
 // levels, rolled or walked), or null.
 let survey = null;
 let surveyShownPct = -1;
+// A SECRET POCKET (pockets.js): a dead end behind a wall that is drawn but
+// has no body, and a page of the Baron's diary at its end. Per level:
+// { wall, page, found, taken, mesh }, or null.
+let pocket = null;
 // BETWEEN LEVELS (levelShow.js): the show playing now -- the marble dropping
 // onto the start, or Rolle's ship bringing it or taking it away -- or null.
 // Drawing only: the ball's body never moves for it, and START (restart) ends
@@ -624,7 +631,11 @@ let forest = null;
 function buildWalls(lv, group, theme) {
     const all = lv.walls.concat(boundaryRails(lv));
     const tracked = [];
-    const built = buildFloorAndWalls(lv, all, theme, { height: WALL_HEIGHT, floorY: FLOOR_Y }, tracked);
+    // A secret pocket's false wall is drawn with the rest -- it must look
+    // like any other wall -- but is left out of what is returned, which is
+    // what the physics builds bodies from.
+    const drawn = pocket ? all.concat([pocket.wall]) : all;
+    const built = buildFloorAndWalls(lv, drawn, theme, { height: WALL_HEIGHT, floorY: FLOOR_Y }, tracked);
     tracked.forEach(track);
     group.add(built.group);
     forest = built.forest;
@@ -795,6 +806,12 @@ function buildLevelMeshes(lv, theme) {
         tracked.forEach(track);
         ship.setPose({ x: 0, y: 0, z: 0, visible: false });
         group.add(ship.group);
+    }
+    if (pocket && !pocket.found) {
+        const tracked = [];
+        pocket.mesh = buildPage(pocket.page, lv.ballRadius, tracked);
+        tracked.forEach(track);
+        group.add(pocket.mesh.group);
     }
     if (fuelCell) {
         const tracked = [];
@@ -1062,6 +1079,7 @@ function step() {
     if (props) props.tick(now / 1000);
     if (rescue && rescue.cage) rescue.cage.tick(now / 1000);
     if (fuelCell && fuelCell.mesh) fuelCell.mesh.tick(now / 1000);
+    if (pocket && pocket.mesh) pocket.mesh.tick(now / 1000);
     if (ship) ship.tick(now / 1000);
     if (levelSky) levelSky.tick(now / 1000);
     tickGoal(now);
@@ -1573,6 +1591,16 @@ function checkOutcomes() {
         renderPowerups();
     }
 
+    // A diary page in a secret pocket: rolled into, taken (banked by a clear).
+    if (pocket && !pocket.found && !pocket.taken) {
+        const pdx = p.x - pocket.page.x, pdz = p.z - pocket.page.z;
+        if (pdx * pdx + pdz * pdz <= PAGE_REACH * PAGE_REACH) {
+            pocket.taken = true;
+            if (pocket.mesh) pocket.mesh.take();
+            setStatus("A PAGE OF THE BARON'S DIARY!");
+            if (audio) audio.event('pickup', { x: pocket.page.x, z: pocket.page.z });
+        }
+    }
     // A fuel cell not yet found: rolled into, it is taken (banked by a clear).
     if (fuelCell && !fuelCell.found && !fuelCell.taken) {
         const fdx = p.x - fuelCell.spot.x, fdz = p.z - fuelCell.spot.z;
@@ -1781,6 +1809,11 @@ function win() {
         const sv = store.recordSurvey(level.id, survey.pct);
         result.survey = { pct: survey.pct, best: sv.best, before: sv.before, better: sv.ok };
     }
+    // A diary page carried out: kept, to read in Gear.
+    if (pocket && pocket.taken && store && result && result.accepted) {
+        const pg = store.recordPage(level.id);
+        if (pg.ok) { pocket.found = true; result.page = pageNumber(level.id); }
+    }
     // A fuel cell carried out: banked for the ship.
     if (fuelCell && fuelCell.taken && store && result && result.accepted && !isDaily(level)) {
         const f = store.recordFuel(level.id);
@@ -1910,6 +1943,8 @@ function restart() {
         if (rescue.cage) rescue.cage.reset();
         lockGoal(true);
     }
+    // The page back in its pocket.
+    if (pocket) { pocket.taken = false; if (pocket.mesh) pocket.mesh.reset(); }
     // And the fuel cell back where it was.
     if (fuelCell) { fuelCell.taken = false; if (fuelCell.mesh) fuelCell.mesh.reset(); }
     renderFuelChip();
@@ -2352,6 +2387,9 @@ function startLevel(levelId, opts = {}) {
         levelSky.tick(0);
     }
 
+    // A secret pocket, on its two floors of a planet (rolled or walked).
+    pocket = null;
+    { const pk = pocketOn(lv); if (pk) pocket = { wall: pk.wall, page: pk.page, found: (prog.diary || []).includes(lv.id), taken: false, mesh: null }; }
     // The fuel cell: every ladder level, rolled or walked.
     fuelCell = null;
     if (!isDaily(lv)) {
@@ -2454,6 +2492,7 @@ function teardownLevel() {
     rescue = null;
     fuelCell = null;
     survey = null;
+    pocket = null;
     goalMesh = null;
     show = null;
     ship = null;
@@ -2515,6 +2554,8 @@ window.__mazeDebug = {
     // a ball can reach (a test standing in for a thorough player).
     survey: () => (survey ? { pct: survey.pct, covered: survey.covered, total: survey.total, best: level ? surveyOf(progressNow(), level.id) : 0 } : null),
     surveyAll: () => { if (!survey || !level) return null; const g = levelGridFor(level); for (let k = 0; k < g.pass.length; k++) if (g.pass[k] && Number.isFinite(g.fromStart[k])) { const p = g.at(k); survey.mark(p.x, p.z); } renderSurveyChip(); return survey.pct; },
+    // This level's secret pocket: its false wall, its page, found, taken.
+    pocket: () => (pocket ? { wall: pocket.wall, x: pocket.page.x, z: pocket.page.z, found: pocket.found, taken: pocket.taken } : null),
     // This level's fuel cell: where, found before, taken this run, drawn.
     fuel: () => (fuelCell ? { x: fuelCell.spot.x, z: fuelCell.spot.z, found: fuelCell.found, taken: fuelCell.taken, shown: !!(fuelCell.mesh && fuelCell.mesh.group.visible) } : null),
     // The show between levels: which, how far in, and where the DRAWN ball is
@@ -2864,6 +2905,7 @@ function showClearResult(res, ms) {
         const need = launchNeed(res.fuel.world + 1);
         if (need && res.fuel.count === need && allLevels.some(l => l.world === res.fuel.world + 1)) { status2Later(`SHIP FUELED FOR ${worldName(res.fuel.world + 1).toUpperCase()}!`, beat); beat += 1800; }
     }
+    if (res.page) { status2Later(`DIARY PAGE ${res.page} FOUND  ·  READ IT IN GEAR`, beat); beat += 2000; }
     if (res.survey && res.survey.better) {
         const sv = res.survey;
         status2Later(sv.pct >= SURVEYED && sv.before < SURVEYED ? `LEVEL SURVEYED!  ${sv.pct}% OF THE FLOOR`

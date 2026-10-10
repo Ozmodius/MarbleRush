@@ -1664,3 +1664,12 @@ html.kbd-first .key-hint { display: inline-block; }
 .maze-map.is-surveyed .map-icon { border-style: solid; background: rgba(127, 232, 255, 0.25); }
 /* A surveyed level's site or node: a dashed cyan ring round it. */
 .home-site.is-surveyed, .level-node.is-surveyed { outline: 2px dashed rgba(127, 232, 255, 0.85); outline-offset: 2px; }
+
+/* --- the Baron's diary (diary.js) in Gear --------------------------------- */
+.diary-note { margin: -4px 0 10px; font-size: 0.78rem; color: var(--ink-dim); }
+.diary-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.diary-page { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); box-shadow: var(--bevel); opacity: 0.6; }
+.diary-page.is-found { opacity: 1; background: linear-gradient(rgba(241, 226, 184, 0.12), rgba(241, 226, 184, 0.05)); border-color: rgba(241, 226, 184, 0.35); }
+.diary-head { margin: 0 0 4px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.14em; color: #ffb38a; }
+.diary-text { margin: 0; font-size: 0.86rem; line-height: 1.45; color: var(--ink); }
+.diary-page:not(.is-found) .diary-text { color: var(--ink-dim); font-style: italic; }
