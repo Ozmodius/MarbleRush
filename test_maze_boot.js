@@ -38,7 +38,7 @@ function serve() {
 }
 
 const failures = [];
-    const check = (c, m) => { if (!c) { failures.push(m); console.log('FAIL-NOW:', m); } };
+    const check = (c, m) => { if (!c) failures.push(m); };
 
 (async () => {
     const server = await serve();
