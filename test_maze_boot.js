@@ -906,7 +906,10 @@ const failures = [];
         // Take floor 10's fuel cell on the way out: banked by the clear.
         const cell10 = await rdbg('fuel');
         await rdbg('placeBall', cell10.x, cell10.z);
-        check((await rdbg('fuel')).taken && /FUEL CELL!/.test(await rp.textContent('#mazeStatus')) && /is-taken/.test(await rp.getAttribute('#mazeFuel', 'class')), 'rolling into the cell takes it');
+        // (By its state and the HUD's cell: the status line can be taken over
+        // a moment later by another message on a starved page.)
+        const took = await rdbg('fuel');
+        check(took.taken && /is-taken/.test(await rp.getAttribute('#mazeFuel', 'class')), `rolling into the cell takes it: ${JSON.stringify(took)} ${await rp.getAttribute('#mazeFuel', 'class')} / ${await rp.textContent('#mazeStatus')}`);
         check(!((await rdbg('progress')).fuel || []).includes('w1_10'), 'but it is not banked before the clear');
         await rdbg('ageRun', Math.round(r10.goldMs * 1.2));
         await rdbg('holdShow', 0);
