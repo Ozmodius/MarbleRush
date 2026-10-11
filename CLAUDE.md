@@ -249,6 +249,13 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   on a wide screen, clear of the ready line and START, gone once the run
   starts. The daily maze is a race and gets none. A new main objective
   belongs in `missionFor` (`test_mission.js`).
+- **Medal times are in the level, not over PLAY** (the user's call,
+  2026-10-11): home's line over PLAY is gone (it still says what opens a
+  locked planet). The MISSION card ends on the gold, silver and bronze times
+  (and the best), and the HUD's medal clock runs the time against the medal
+  still in reach (gold, then silver, then bronze, then grey), an explored
+  maze against its walk par. On a phone the clock takes the level name's row
+  once the run starts (the top bar has no room).
 - **A run's end is shown, never a vanishing** (`fallFx.js`, the user's
   call, 2026-10-11): rolling, the body is held where it went and the DRAWN
   ball tips over a hole's rim and sinks shrinking into the dark, chars under

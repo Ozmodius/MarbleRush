@@ -44,7 +44,7 @@ const marbleName = id => (MARBLES[id] ? MARBLES[id].name.toUpperCase() : String(
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { buildPlanet } from './planet3d.js';
 import { buildSolarSystem } from './solarSystem3d.js';
-import { isUnlocked, nearMiss, walkGoldMs } from './progressStore.js';
+import { isUnlocked, nearMiss, walkGoldMs, tierLimits } from './progressStore.js';
 import { createWalkHud } from './walkHud.js';
 import { openComfort, closeComfort } from './comfortUi.js';
 import { createWalkInput, wantedVelocity, walkImpulse, walkHandling, handlingAccel, clampPitch, lookPoint, openingYaw, thirdPersonPose, EYE_ABOVE_CENTRE } from './walkMode.js';
@@ -1217,6 +1217,7 @@ function advance(elapsedMs) {
     drawShow(elapsedMs);
     if (fallFx && (phase === 'falling' || phase === 'offer')) drawFallFx();
     if (survey && phase === 'running') { survey.mark(ballBody.position.x, ballBody.position.z); if (survey.pct !== surveyShownPct) renderSurveyChip(); }
+    if (phase === 'running') renderMedalChip();
     if (trail) trail.update(ballBody.position, elapsedMs);
     if (rescue && rescue.cage) rescue.cage.track(ballMesh.position.x, ballMesh.position.z, phase === 'running' || phase === 'won');
     if (walkMode) {
@@ -1587,6 +1588,44 @@ function takeFuel() {
     if (audio) audio.event('pickup', { x: fuelCell.spot.x, z: fuelCell.spot.z });
     renderFuelChip();
 }
+// THE MEDAL CLOCK (the user's call, 2026-10-11: "the times for medals
+// should be shown on the HUD"): the run's time, ringed in the medal still in
+// reach, with that medal's time beside it -- gold until its time passes, then
+// silver, then bronze, then grey. The par is the level's own (an explored
+// maze's walk par). The ready screen's MISSION card lists all three.
+let medalShown = '';
+function medalPar() { return level ? (walkMode ? walkGoldMs(level) : level.goldMs) : 0; }
+function renderMedalChip() {
+    const e = el('mazeMedal');
+    if (!e) return;
+    // A phone shows the clock in the level name's row once the run is on
+    // (style.css): the name is on the ready screen, the clock in the run.
+    const hud = el('mazeHud');
+    if (hud) hud.classList.toggle('is-running', phase === 'running');
+    e.hidden = !level || !Number.isFinite(level.goldMs);
+    if (e.hidden) return;
+    const ms = phase === 'running' ? Math.max(0, performance.now() - runStartedAt) : phase === 'ready' ? 0 : null;
+    if (ms === null) return;                      // the clock stops on the time the run took
+    const lim = tierLimits({ goldMs: medalPar() });
+    const tier = ms <= lim.gold ? 'gold' : ms <= lim.silver ? 'silver' : ms <= lim.bronze ? 'bronze' : 'none';
+    const key = tier + Math.floor(ms / 100);
+    if (key === medalShown) return;
+    medalShown = key;
+    e.className = 'maze-medal is-' + tier;
+    const t = el('mazeMedalTime'), par = el('mazeMedalPar');
+    if (t) t.textContent = (ms / 1000).toFixed(1);
+    if (par) par.textContent = tier === 'none' ? '' : '/' + (lim[tier] / 1000).toFixed(1);
+    e.title = tier === 'none' ? 'Past the bronze time' : `${tier[0].toUpperCase() + tier.slice(1)} under ${(lim[tier] / 1000).toFixed(1)}s`;
+}
+// The three medal times and the best, for the MISSION card.
+function medalLine() {
+    if (!level || !Number.isFinite(level.goldMs)) return null;
+    const lim = tierLimits({ goldMs: medalPar() });
+    const prog = progressNow();
+    const rec = walkMode ? (prog.walks || {})[level.id] : (prog.cleared || {})[level.id];
+    return { ...lim, best: rec && Number.isFinite(rec.bestMs) ? rec.bestMs : null };
+}
+
 // THE MISSION (mission.js): the level's objectives on its ready screen, in
 // the order they are done; gone once the run starts.
 function renderMission(on) {
@@ -1607,6 +1646,22 @@ function renderMission(on) {
         tx.textContent = r.text;
         if (r.note) { const n = document.createElement('small'); n.textContent = r.note; tx.appendChild(n); }
         li.append(ic, tx);
+        list.appendChild(li);
+    }
+    // The medal times, under the jobs.
+    const md = medalLine();
+    if (md) {
+        const li = document.createElement('li');
+        li.className = 'mission-medals';
+        const s = x => (x / 1000).toFixed(1) + 's';
+        for (const t of ['gold', 'silver', 'bronze']) {
+            const m = document.createElement('span');
+            m.className = 'mission-medal is-' + t;
+            m.textContent = s(md[t]);
+            m.title = t[0].toUpperCase() + t.slice(1) + ' under ' + s(md[t]);
+            li.appendChild(m);
+        }
+        if (md.best !== null) { const b = document.createElement('small'); b.textContent = 'BEST ' + s(md.best); li.appendChild(b); }
         list.appendChild(li);
     }
 }
@@ -2700,6 +2755,8 @@ function startLevel(levelId, opts = {}) {
     setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : rescue ? readyLine(rescue.world) : storyReadyLine(lv, prog) || readyHint());
     renderFuelChip();
     renderMission(true);
+    medalShown = '';
+    renderMedalChip();
     survey = null;
     renderSurveyChip();
     freeShieldTaken = false;
@@ -2793,6 +2850,7 @@ window.__mazeDebug = {
     homeWorld: () => homeWorld(),
     homeLevel: () => { const h = homeLevel(); return h && { world: h.world, id: h.level.id, locked: h.locked, done: h.done, picked: !!h.picked }; },
     homeShip: () => !!(planet && planet.ship && planet.ship.group.visible),
+    levelId: () => (level ? level.id : null),
     levelSky: () => (levelSky && scene && levelSky.group.parent === scene ? { baked: levelSky.baked } : null),
     planetX: () => (planet && planet.world ? planet.world.position.x : null),
     planetSlideFrom: () => planetSlideFrom,
@@ -2824,7 +2882,8 @@ window.__mazeDebug = {
     holdFall: (ms) => { fallHeldMs = Number.isFinite(ms) ? ms : null; if (fallFx && ballMesh) drawFallFx(); requestRender(); return !!fallFx; },
     fallFx: () => (fallFx ? { cause: fallFx.cause, drawn: ballMesh ? { x: ballMesh.position.x, y: ballMesh.position.y, z: ballMesh.position.z, s: ballMesh.scale.x, sy: ballMesh.scale.y } : null, body: { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z }, fx: !!(fallFxMesh && fallFxMesh.group.visible) } : null),
     // This level's fuel cell: where, found before, taken this run, drawn.
-    mission: () => { const b = el('mazeMission'); return b && !b.hidden ? [...b.querySelectorAll('li')].map(li => ({ kind: li.className.replace(/^mission-| is-done$/g, ''), text: li.querySelector('.mission-text').firstChild.textContent, done: li.classList.contains('is-done') })) : null; },
+    medalClock: () => { const e = el('mazeMedal'); return e && !e.hidden ? { tier: e.className.replace(/.*is-/, ''), time: el('mazeMedalTime').textContent, par: el('mazeMedalPar').textContent } : null; },
+    mission: () => { const b = el('mazeMission'); return b && !b.hidden ? [...b.querySelectorAll('li:not(.mission-medals)')].map(li => ({ kind: li.className.replace(/^mission-| is-done$/g, ''), text: li.querySelector('.mission-text').firstChild.textContent, done: li.classList.contains('is-done') })) : null; },
     fuel: () => (fuelCell ? { x: fuelCell.spot.x, z: fuelCell.spot.z, found: fuelCell.found, taken: fuelCell.taken, shown: !!(fuelCell.mesh && fuelCell.mesh.group.visible) } : null),
     // The show between levels: which, how far in, and where the DRAWN ball is
     // (the body never moves for it).

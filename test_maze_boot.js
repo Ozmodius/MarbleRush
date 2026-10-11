@@ -100,6 +100,8 @@ const failures = [];
         // only), clear of the name, the ready line and START.
         const mission = await dbg('mission');
         check(mission && mission.map(r => r.kind).join(',') === 'exit,fuel' && mission[0].text === 'Reach the exit' && /explore it/i.test(mission[1].text), `level 1's ready screen lists the exit, then exploring it for the fuel cell: ${JSON.stringify(mission)}`);
+        const medalRow = await page.$$eval('#mazeMission .mission-medal', els => els.map(e => e.textContent));
+        check(medalRow.join() === [1, 1.5, 2.25].map(k => (levels[0].goldMs * k / 1000).toFixed(1) + 's').join(), `the card lists the gold, silver and bronze times: ${medalRow}`);
         const mBox = await page.evaluate(() => { const r = id => document.getElementById(id).getBoundingClientRect(); return { m: r('mazeMission'), name: r('mazeLevelName'), status: r('mazeStatus'), start: r('mazeStartBtn') }; });
         check(mBox.m.top >= mBox.name.bottom - 1 && mBox.m.bottom <= mBox.status.top + 1 && mBox.m.bottom <= mBox.start.top, `the mission card sits under the name, above the ready line and START: ${JSON.stringify(mBox)}`);
         await page.tap('#mazeExitBtn');
@@ -214,6 +216,13 @@ const failures = [];
         await page.tap('#mazeStartBtn');
         await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         check(await dbg('mission') === null && await page.isHidden('#mazeMission'), 'the mission card goes once the run starts');
+        // The medal clock (HUD): the run's time against the medal in reach.
+        await dbg('advanceFrames', 2);
+        const mc = await dbg('medalClock');
+        const runId = await dbg('levelId');
+        const lvRun = levels.find(l => l.id === runId);
+        check(mc && mc.tier === 'gold' && Number(mc.time) < 5 && (!lvRun || mc.par === '/' + (lvRun.goldMs / 1000).toFixed(1)) && await page.isVisible('#mazeMedal'), `the HUD clock runs against the gold time: ${JSON.stringify(mc)}`);
+        check(!(await page.textContent('#homeGoal')).trim(), 'nothing over PLAY: the medal times live in the level');
 
         // Steering: keys tilt the board the way they say (screen down is +z,
         // screen right is +x).

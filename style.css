@@ -1783,3 +1783,36 @@ button.home-worldname:focus-visible { outline: 2px solid #7fe8ff; outline-offset
 .lp-world.lp-fuel { box-shadow: 0 0 0 1.5px rgba(47, 216, 255, 0.55), 0 10px 24px rgba(0, 0, 0, 0.35); }
 .lp-world.lp-fuel h3 span { background: #2fd8ff; color: #04202a; }
 .lp-world.lp-fuel li { background: rgba(47, 216, 255, 0.12); color: #9fe9ff; }
+
+/* --- the medal clock (the user's call, 2026-10-11) ------------------------ */
+/* The run's time in the HUD, ringed in the medal still in reach, that
+   medal's time beside it. */
+.maze-medal { display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 8px 2px 6px; border-radius: 999px; background: rgba(10, 16, 38, 0.7); font-size: 0.78rem; font-weight: 900; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.maze-medal[hidden] { display: none; }
+.maze-medal small { font-size: 0.62rem; font-weight: 800; color: var(--ink-dim); }
+.maze-medal .medal-dot { align-self: center; width: 9px; height: 9px; border-radius: 50%; background: #5d6788; }
+.maze-medal.is-gold .medal-dot { background: #f2c94c; box-shadow: 0 0 6px rgba(242, 201, 76, 0.8); }
+.maze-medal.is-silver .medal-dot { background: #d6dde6; box-shadow: 0 0 5px rgba(214, 221, 230, 0.6); }
+.maze-medal.is-bronze .medal-dot { background: #c98447; box-shadow: 0 0 5px rgba(201, 132, 71, 0.6); }
+.maze-medal.is-gold small { color: #f2c94c; }
+.maze-medal.is-silver small { color: #d6dde6; }
+.maze-medal.is-bronze small { color: #e0a06a; }
+.maze-medal.is-none { color: var(--ink-dim); }
+/* The MISSION card's medal row. */
+.maze-mission li.mission-medals { gap: 12px; padding-top: 5px; margin-top: 1px; border-top: 1px solid rgba(150, 200, 255, 0.14); font-size: 0.74rem; font-variant-numeric: tabular-nums; }
+.mission-medal { display: inline-flex; align-items: center; gap: 5px; }
+.mission-medal::before { content: ''; width: 9px; height: 9px; border-radius: 50%; }
+.mission-medal.is-gold::before { background: #f2c94c; box-shadow: 0 0 5px rgba(242, 201, 76, 0.7); }
+.mission-medal.is-silver::before { background: #d6dde6; }
+.mission-medal.is-bronze::before { background: #c98447; }
+.maze-mission li.mission-medals small { margin-left: auto; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; color: var(--ink-dim); }
+.home-goal:empty { display: none; }
+/* A phone's top bar has no room for it: on the ready screen the MISSION card
+   lists the times; once the run is on, the clock takes the level name's row. */
+.maze-medal { flex: none; white-space: nowrap; }
+.maze-coins { white-space: nowrap; }
+@media (max-width: 560px) {
+  .maze-medal { position: absolute; top: 49px; left: 50%; transform: translateX(-50%); }
+  .maze-hud:not(.is-running) .maze-medal { display: none; }
+  .maze-hud.is-running .maze-levelname { visibility: hidden; }
+}
