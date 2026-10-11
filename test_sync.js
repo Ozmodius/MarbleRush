@@ -2,7 +2,7 @@
 // PLANETILT: merging two saves of one player (progressStore.js mergeProgress),
 // which cloud sync uses on both ends. What must hold:
 //   1. Nothing earned is ever lost: levels, best times, coins found, golds,
-//      prizes, things owned, upgrade tiers, XP and walks combine to the best
+//      prizes, things owned, crew bond and steps, XP and walks combine to the best
 //      of both, whichever save is newer.
 //   2. Nothing spendable is minted: the wallet, power-ups and prize uses come
 //      from the newer save, never summed.
@@ -20,12 +20,12 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const base = () => ({ ...S.freshProgress(), v: 1 });
     const a = { ...base(), savedAt: 1000, wallet: 500, highestIndex: 4, xp: 600,
         cleared: { w1_01: { bestMs: 9000, coins: 2, at: 1 }, w1_02: { bestMs: 8000, coins: 1, at: 1 } },
-        goldClaimed: ['w1_01'], marbles: ['classic', 'steel'], upgrades: { grip: 2 }, charges: { shield: 3 },
+        goldClaimed: ['w1_01'], marbles: ['classic', 'steel'], bond: { classic: 250, steel: 40 }, crew: { classic: 2 }, charges: { shield: 3 },
         skins: ['plain', 'stripe'], walks: { w1_01: { bestMs: 12000, coins: 1, gold: false } },
         daily: { streak: 2, last: '2026-10-05', doubled: '' }, achievements: ['clear1'] };
     const b = { ...base(), savedAt: 2000, wallet: 120, highestIndex: 2, xp: 300,
         cleared: { w1_01: { bestMs: 8500, coins: 3, at: 2 } },
-        goldClaimed: [], marbles: ['classic', 'rubber'], upgrades: { grip: 1, brakes: 1 }, charges: { slowmo: 1 },
+        goldClaimed: [], marbles: ['classic', 'rubber'], bond: { classic: 120, rubber: 55 }, crew: { classic: 1, rubber: 1 }, charges: { slowmo: 1 },
         skins: ['plain', 'galaxy'], walks: { w1_01: { bestMs: 11000, coins: 0, gold: true } },
         daily: { streak: 3, last: '2026-10-06', doubled: '2026-10-06' }, achievements: ['gold1', 'nonsense'] };
 
@@ -35,7 +35,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(m.cleared.w1_01.bestMs === 8500 && m.cleared.w1_01.coins === 3 && m.cleared.w1_02, `best times and coins found combine: ${JSON.stringify(m.cleared)}`);
     check(m.goldClaimed.includes('w1_01'), 'a gold earned anywhere is kept');
     check(['classic', 'steel', 'rubber'].every(x => m.marbles.includes(x)) && m.skins.includes('stripe') && m.skins.includes('galaxy'), 'things owned on either side are owned');
-    check(m.upgrades.grip === 2 && m.upgrades.brakes === 1, 'upgrade tiers take the higher');
+    check(m.bond.classic === 250 && m.bond.steel === 40 && m.bond.rubber === 55, `bond takes the higher, per character: ${JSON.stringify(m.bond)}`);
+    check(m.crew.classic === 2 && m.crew.rubber === 1, `track steps take the higher: ${JSON.stringify(m.crew)}`);
     check(m.xp === 600, 'XP takes the higher');
     check(S.mergeProgress({ ...a, levelPaid: 7 }, { ...b, levelPaid: 4 }).levelPaid === 7, 'the highest level paid takes the higher (no reward twice)');
     check(m.achievements.length === 2 && m.achievements.includes('clear1') && m.achievements.includes('gold1'), `achievements claimed on either side stay claimed (never paid twice): ${m.achievements}`);

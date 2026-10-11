@@ -6,7 +6,8 @@
 //   2. The time floor: a "clear" under the level's minMs does not count.
 //   3. First-time-only pay: the base payout once, the gold bonus once, each
 //      coin once (a replay banks only coins beyond its best).
-//   4. A world's prize is granted once, by its last level.
+//   4. Finishing a planet (its last level) gives the next planet's trap
+//      charges, once.
 //   5. Spending cannot go below zero.
 //   6. A save round-trips; a corrupt or unknown-version save starts fresh
 //      instead of half-loading.
@@ -20,6 +21,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
 
 (async () => {
     const S = await import('./progressStore.js');
+    const CR = await import('./crew.js');
+    const C = await import('./shopCatalog.js');
     const levels = [
         { id: 'w1_01', world: 1, index: 1, minMs: 2500, goldMs: 9000, coins: [{}, {}, {}] },
         { id: 'w1_02', world: 1, index: 2, minMs: 2500, goldMs: 9000, coins: [{}, {}], prize: 'rubberCoat' }
@@ -57,10 +60,11 @@ const check = (c, m) => { if (!c) failures.push(m); };
 
     // 4. prize
     r = S.applyClear(p, levels, payouts, 'w1_02', 5000, 0);
-    check(r.result.accepted && r.result.prize === 'rubberCoat' && r.progress.prizes.includes('rubberCoat'), 'the world\'s last level grants its prize');
+    check(r.result.accepted && r.result.prize === 'iceSkates' && r.progress.prizes.includes('rubberCoat') && r.progress.charges.iceSkates === C.TRAP_GRANT,
+        `finishing Sawturn gives ${C.TRAP_GRANT} of Slipstonia's trap charge (Ice Skates): ${JSON.stringify(r.result.prize)} ${JSON.stringify(r.progress.charges)}`);
     p = r.progress;
     r = S.applyClear(p, levels, payouts, 'w1_02', 5000, 0);
-    check(r.result.prize === null && p.prizes.length === 1, 'a prize is granted once');
+    check(r.result.prize === null && p.prizes.length === 1 && r.progress.charges.iceSkates === C.TRAP_GRANT, 'and only once');
 
     // 5. spend
     let sp = S.spendFrom(p, p.wallet + 1);
@@ -94,7 +98,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
 
     // 8. Rewarded ads pay fixed, bounded amounts, and the free coins wait out
     //    their cooldown -- across a save and reload too.
-    const C = await import('./shopCatalog.js');
+
     let q = S.freshProgress();
     let ad = S.adCoins(q, 1000000);
     check(ad.ok && ad.progress.wallet === C.AD_REWARDS.coins, 'a free-coins ad pays AD_REWARDS.coins');
@@ -110,20 +114,55 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const ch = S.adCharge(q, 'shield');
     check(ch.ok && ch.progress.charges.shield === 1 && !S.adCharge(q, 'rocket').ok, 'an ad charge adds one known power-up');
 
-    // 9. A free upgrade step: the next tier, only a cheap one, once per cooldown.
+    // 9. A free crew step: the next track step, only once bond allows it,
+    // only a cheap one, once per cooldown. Bond is never given.
     let u = S.freshProgress();
     const t0 = 5000000;
-    let up = S.adUpgrade(u, 'grip', t0);
-    check(up.ok && up.progress.upgrades.grip === 1 && up.progress.wallet === 0, 'a free upgrade step adds one tier and costs nothing');
+    check(!S.adUpgrade(u, 'classic', t0).ok, 'no free step before the bond allows one');
+    u.bond.classic = 300;   // bond level 3
+    let up = S.adUpgrade(u, 'classic', t0);
+    check(up.ok && up.progress.crew.classic === 1 && up.progress.wallet === 0 && up.progress.bond.classic === 300, 'a free step adds one track step, costs nothing and gives no bond');
     u = up.progress;
-    check(!S.adUpgrade(u, 'brakes', t0 + 1000).ok, 'and only one per cooldown, across upgrades');
-    check(!S.adUpgrade(S.parseProgress(JSON.stringify(u)), 'brakes', t0 + 1000).ok, 'a reload does not reset it');
+    check(!S.adUpgrade(u, 'classic', t0 + 1000).ok, 'and only one per cooldown');
+    check(!S.adUpgrade(S.parseProgress(JSON.stringify(u)), 'classic', t0 + 1000).ok, 'a reload does not reset it');
     const later = t0 + C.AD_REWARDS.upgradeCooldownMs;
-    up = S.adUpgrade(u, 'grip', later);
-    check(up.ok && up.progress.upgrades.grip === 2, 'it gives again once the cooldown is over');
-    check(S.adUpgrade(up.progress, 'grip', later + C.AD_REWARDS.upgradeCooldownMs).reason === 'too-dear', `a top tier (${C.UPGRADES.grip.prices[2]}) is never given away`);
-    check(!S.adUpgrade(u, 'jetpack', later).ok, 'unknown upgrades are refused');
-    check(C.UPGRADE_IDS.every(id => C.UPGRADES[id].prices[0] <= C.AD_REWARDS.upgradeMaxPrice), 'every upgrade has a first step an ad can give');
+    up = S.adUpgrade(u, 'classic', later);
+    check(up.ok && up.progress.crew.classic === 2, 'it gives again once the cooldown is over');
+    const deep = { ...up.progress, bond: { classic: 1000 } };
+    check(S.adUpgrade(deep, 'classic', later + C.AD_REWARDS.upgradeCooldownMs).reason === 'not-eligible', `a dear step (${CR.TRACK[2].price}) is never given away`);
+    check(!S.adUpgrade(u, 'jetpack', later).ok && !S.adUpgrade(u, 'steel', later).ok, 'unknown and unowned characters are refused');
+    check(CR.TRACK[0].price <= C.AD_REWARDS.upgradeMaxPrice, 'the first step is one an ad can give');
+
+    // 10. The crew: bond from clears, steps bought in order once bond allows.
+    let b = S.freshProgress();
+    let rb = S.recordBond(b, 'classic', { accepted: true, firstClear: true, goldFirst: true });
+    check(rb.ok && rb.gained === CR.BOND_XP.firstClear + CR.BOND_XP.goldFirst && rb.progress.bond.classic === rb.gained, `a first clear at gold earns ${rb.gained} bond`);
+    check(S.recordBond(b, 'classic', { accepted: true, firstClear: false }).gained === CR.BOND_XP.replay, 'a replay earns less');
+    check(!S.recordBond(b, 'classic', { accepted: false }).ok, 'a clear that did not count earns none');
+    check(!S.recordBond(b, 'steel', { accepted: true, firstClear: true }).ok, 'a marble not owned (an ad trial) earns none');
+    b = { ...b, wallet: 10000 };
+    check(S.buyCrewStep(b, 'classic').reason === 'bond', 'a step waits for its bond level');
+    b.bond = { classic: CR.BOND_LEVELS[1] };
+    let st = S.buyCrewStep(b, 'classic');
+    check(st.ok && st.progress.crew.classic === 1 && st.progress.wallet === 10000 - CR.TRACK[0].price, 'bond level 2 opens step 1, and coins buy it');
+    check(S.buyCrewStep(st.progress, 'classic').reason === 'bond', 'step 2 waits for bond level 3');
+    let full = { ...st.progress, bond: { classic: 99999 }, wallet: 99999 };
+    for (let i = 0; i < 3; i++) full = S.buyCrewStep(full, 'classic').progress;
+    check(full.crew.classic === CR.TRACK_MAX && S.buyCrewStep(full, 'classic').reason === 'maxed', 'the track ends at its last step');
+    check(S.buyCrewStep({ ...b }, 'rubber').reason === 'not-owned', 'only owned characters advance');
+    check(S.parseProgress(JSON.stringify({ ...full, crew: { classic: 99, nobody: 2 } })).crew.classic === CR.TRACK_MAX
+        && !('nobody' in S.parseProgress(JSON.stringify({ ...full, crew: { nobody: 2 } })).crew), 'a save cannot hold steps past the track or for a stranger');
+
+    // 11. Trap charges are sold once their planet is opened.
+    const tl = [
+        { id: 'w1_01', world: 1, index: 1, minMs: 2500, goldMs: 9000, coins: [] },
+        { id: 'w2_01', world: 2, index: 2, minMs: 2500, goldMs: 9000, coins: [] }
+    ];
+    const rich = { ...S.freshProgress(), wallet: 1000 };
+    check(S.buyCharge(rich, 'sureFoot', tl).ok, "Sawturn's charge is on sale from the start");
+    check(S.buyCharge(rich, 'iceSkates', tl).reason === 'not-open', "Slipstonia's waits until Slipstonia opens");
+    const opened = S.applyClear(rich, tl, { goldBonusPct: 0, byWorld: { 1: 1 } }, 'w1_01', 5000, 0).progress;
+    check(S.worldOpen(opened, tl, 2) && S.buyCharge(opened, 'iceSkates', tl).ok, 'and is on sale once it is');
 
     // The rescue (rescue.js): freeing a floor-10 captive gives their marble, once.
     const f0 = S.freshProgress();
