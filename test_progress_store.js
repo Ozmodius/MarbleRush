@@ -79,7 +79,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
     for (const bad of [null, '', '{nope', '{"v":99,"wallet":5}', '[]']) {
         check(JSON.stringify(S.parseProgress(bad)) === JSON.stringify(S.freshProgress()), `a bad save (${JSON.stringify(bad)}) starts fresh`);
     }
-    check(S.parseProgress('{"v":1,"wallet":-50}').wallet === 0, 'a negative wallet is not loaded');
+    // The alpha wipe (2026-10-11): a version-1 save, however far along, loads
+    // fresh -- and so cannot merge back into a new one.
+    const v1 = JSON.stringify({ v: 1, wallet: 5050, highestIndex: 23, cleared: { w1_01: { bestMs: 7199, coins: 5 } } });
+    check(S.parseProgress(v1).wallet === 0 && S.parseProgress(v1).highestIndex === 0 && !Object.keys(S.parseProgress(v1).cleared).length, 'a version-1 save loads fresh (the alpha wipe)');
+    const merged = S.mergeProgress(JSON.parse(v1), { ...S.freshProgress(), savedAt: 5, wallet: 7 });
+    check(merged.wallet === 7 && !merged.cleared.w1_01 && merged.v === S.SAVE_VERSION, `and merging one into a new save brings nothing back: ${JSON.stringify({ w: merged.wallet, v: merged.v })}`);
+    check(S.parseProgress('{"v":2,"wallet":-50}').wallet === 0, 'a negative wallet is not loaded');
 
     // 7. the store writes through
     const mem = new Map();

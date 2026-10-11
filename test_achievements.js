@@ -31,7 +31,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
     // 1. Read from the save: a player with history has earned things already.
     const cleared = {};
     for (const lv of levels.slice(0, 12)) cleared[lv.id] = { bestMs: lv.goldMs, coins: lv.coins.length, at: 1 };
-    const veteran = S.parseProgress(JSON.stringify({ v: 1, wallet: 0, xp: 800, highestIndex: 12, cleared,
+    const veteran = S.parseProgress(JSON.stringify({ v: 2, wallet: 0, xp: 800, highestIndex: 12, cleared,
         goldClaimed: levels.slice(0, 10).map(l => l.id), prizes: ['rubberCoat'], walks: { w1_01: { bestMs: 9e4, coins: 0 } },
         crew: { classic: 4 }, daily: { streak: 7, last: '2026-10-06' } }));
     const byId = Object.fromEntries(A.achievementList(veteran, levels).map(r => [r.id, r]));
@@ -65,7 +65,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const again = S.createProgressStore(adapter, levels, data.payouts);
     await again.load();
     check(again.get().achievements.includes('clear10') && !again.claimAchievement('clear10').ok, 'a claim survives a reload, and still pays only once');
-    check(S.parseProgress(JSON.stringify({ v: 1, achievements: ['clear1', 'clear1', 'bogus', 7] })).achievements.join() === 'clear1', 'junk and repeated ids are dropped');
+    check(S.parseProgress(JSON.stringify({ v: 2, achievements: ['clear1', 'clear1', 'bogus', 7] })).achievements.join() === 'clear1', 'junk and repeated ids are dropped');
     check(S.freshProgress().achievements.length === 0 && A.achievementsReady(S.freshProgress(), levels) === 0, 'a new player has nothing to claim yet');
 
     if (failures.length) {
