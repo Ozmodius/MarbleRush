@@ -189,6 +189,19 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   (`survey` in the save, merged by max), SURVEYED at 90%. `test_survey.js`
   proves the shortest route alone never surveys a level and a sweep does.
   It only counts: nothing in a run changes for it.
+- **Secret pockets hide the Baron's diary** (`pockets.js`, the user's call,
+  2026-10-10): on two floors a planet (`POCKET_LEVELS`), a false wall --
+  drawn like the others, with NO body -- closes off a dead end with a
+  diary page (`diary.js`) at its far end. No physics changes, so every
+  route, verifier guarantee and gold time stands. The wall and page are
+  COMPUTED from the level (never in `mazeLevels.json`); `test_pockets.js`
+  proves each wall spans its corridor face to face, covers nothing that
+  matters, hides only the dead end (never the start, exit, fuel cell or a
+  cage), and recomputes `POCKET_LEVELS`. Banked by a clear (`diary` in the
+  save, merged by union), read in Gear.
+- **Lines under CLEARED come in order, the last one stays**: the survey,
+  then a fuel cell, then a diary page, then a freed friend's word, then
+  prizes and level-ups. A find outranks a percentage.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

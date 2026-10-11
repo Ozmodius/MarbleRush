@@ -330,8 +330,10 @@ The user's call: exploring should be required and rewarding.
   The shortest route alone covers about a quarter (never more than 43%).
   The HUD's map chip counts it; home and the Worlds sheet mark surveyed
   floors; achievements for the first and for ten.
-- *Secret pockets* (after): a dead end hidden behind a wall that only looks
-  solid, holding a page of the Baron's diary.
+- *Secret pockets* (built): on two floors of each planet, a dead end hidden
+  behind a wall that only looks solid (drawn, no collider), holding a page
+  of the Baron's diary; ten pages in all, banked by a clear, read in Gear.
+  The page text awaits the user's OK (`diary.js`).
 - Not doing: the Baron's locks (gates and keys on every run).
 
 ## Open questions
