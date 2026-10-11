@@ -2106,7 +2106,9 @@ function enterMenus(tab) {
     if (phase !== 'menu' && level && !isDaily(level)) {
         const played = level.world, next = nextLevel();
         const done = allLevels.filter(l => l.world === played).every(l => progressNow().cleared[l.id]);
-        homeWorldN = done && next && next.world > played ? next.world : played;
+        // (Not while the ship lacks the fuel to fly there: home stays on the
+        // planet the cells are found on.)
+        homeWorldN = done && next && next.world > played && !fuelGate(progressNow(), next) ? next.world : played;
         homePick = {};       // back from a level: PLAY offers what is next again
     }
     keepAwake(false);   // the menus let the phone sleep as usual (wakeLock.js)
@@ -2257,7 +2259,10 @@ let planetSlide = null;                // { from, t0 }: the planet sliding in
 let planetSlideFrom = 0;               // where the last slide started (tests: a slide outruns a slow page's reads)
 const PLANET_SLIDE_X = 9, PLANET_SLIDE_MS = 380;
 export function homeWorld() {
-    const n = homeWorldN || (nextLevel() ? nextLevel().world : 1);
+    // The ladder's world -- or, while the ship lacks the fuel to fly on to
+    // it, the planet the missing cells are on.
+    const next = nextLevel(), gate = next ? fuelGate(progressNow(), next) : null;
+    const n = homeWorldN || (gate ? gate.from : next ? next.world : 1);
     return Math.max(1, Math.min(LAUNCH_WORLDS, n));
 }
 export function homeLevel() {
