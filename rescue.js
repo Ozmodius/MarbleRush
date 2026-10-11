@@ -53,7 +53,7 @@ export function storyCard(world, firstEver) {
 export const readyLine = (world) => { const c = captiveFor(world); return c ? `FIND ${c.name.toUpperCase()}'S CAGE, THEN ESCAPE` : ''; };
 export const lockedLine = (world) => { const c = captiveFor(world); return c ? `FREE ${c.name.toUpperCase()} FIRST!` : ''; };
 export const freedLine = (world) => { const c = captiveFor(world); return c ? `${c.name.toUpperCase()} IS FREE!  NOW ESCAPE` : ''; };
-export const joinedLine = (world) => { const c = captiveFor(world); return c ? `${c.name.toUpperCase()} JOINS YOU!  ROLL AS ${c.name.toUpperCase()} FROM GEAR` : ''; };
+export const joinedLine = (world) => { const c = captiveFor(world); return c ? `${c.name.toUpperCase()} JOINS YOU!  ROLL AS ${c.name.toUpperCase()} FROM CREW` : ''; };
 
 // THE STORY'S VOICES (the user's call, 2026-10-10): the Baron taunts Rolle
 // on each planet's first level (not Sawturn's: a new player's first screen
