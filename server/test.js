@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateKeyPair, exportSPKI, SignJWT } from 'jose';
 import { createApp, originMatcher } from './app.js';
-import { createMemoryStore, createPgStore } from './db.js';
+import { createMemoryStore, createPgStore, runWipes } from './db.js';
 import pg from 'pg';
 import { createCrazyVerifier } from './auth.js';
 import { freshProgress } from '../progressStore.js';
@@ -258,6 +258,31 @@ const codes = [];
 for (let i = 0; i < 5; i++) codes.push((await fetch(`http://127.0.0.1:${s2.address().port}/health`)).status);
 check(codes.join() === '200,200,200,429,429', 'the per-IP limit holds');
 s2.close();
+
+// One-time wipes (db.js runWipes): each runs once, in a transaction, and is
+// recorded so a restart never repeats it; a failure rolls back.
+{
+    const log = [];
+    const applied = new Set();
+    const client = {
+        async query(q, v) {
+            log.push(q.trim().split(/\s+/).slice(0, 2).join(' '));
+            if (/^INSERT INTO wipes/.test(q.trim())) { const fresh = !applied.has(v[0]); applied.add(v[0]); return { rows: fresh ? [{ id: v[0] }] : [] }; }
+            if (/BOOM/.test(q)) throw new Error('boom');
+            return { rows: [] };
+        },
+        release() {}
+    };
+    const pool = { query: q => client.query(q, []), connect: async () => client };
+    const W = [{ id: 'w1', sql: 'DELETE FROM saves;' }];
+    check((await runWipes(pool, W)).join() === 'w1' && log.includes('DELETE FROM'), 'a wipe runs the first time');
+    log.length = 0;
+    check((await runWipes(pool, W)).length === 0 && !log.includes('DELETE FROM'), 'and never again');
+    let threw = false;
+    log.length = 0;
+    try { await runWipes(pool, [{ id: 'w2', sql: 'BOOM;' }]); } catch (_) { threw = true; }
+    check(threw && log.includes('ROLLBACK'), 'a failing wipe rolls back and stops the start');
+}
 
 server.close();
 await store.close();

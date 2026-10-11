@@ -100,11 +100,51 @@ CREATE TABLE IF NOT EXISTS links (
 );
 `;
 
+// ONE-TIME WIPES (the user's calls). Each runs once, in one transaction, and
+// is recorded in `wipes`, so no restart or redeploy ever repeats it. What it
+// deletes is first copied into backup tables named after it.
+//   alpha_2026_10_11  The Crew (alpha): every player starts over. Saves and
+//                     leaderboard times go; accounts, players, sign-in tokens
+//                     and the play stats stay. The game's SAVE_VERSION went to
+//                     2 at the same time, so a device's own old save loads
+//                     fresh too and cannot merge back up.
+export const WIPES = [
+    {
+        id: 'alpha_2026_10_11',
+        sql: `CREATE TABLE IF NOT EXISTS wipe_alpha_2026_10_11_saves AS SELECT * FROM saves;
+              CREATE TABLE IF NOT EXISTS wipe_alpha_2026_10_11_scores AS SELECT * FROM scores;
+              DELETE FROM saves;
+              DELETE FROM scores;
+              UPDATE players SET furthest = NULL, player_level = NULL;`
+    }
+];
+export async function runWipes(pool, wipes = WIPES) {
+    await pool.query('CREATE TABLE IF NOT EXISTS wipes (id TEXT PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now())');
+    const done = [];
+    for (const w of wipes) {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            const r = await client.query('INSERT INTO wipes (id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING id', [w.id]);
+            if (r.rows.length) await client.query(w.sql);
+            await client.query('COMMIT');
+            if (r.rows.length) { done.push(w.id); console.log('[db] wipe ' + w.id + ' done'); }
+        } catch (e) {
+            await client.query('ROLLBACK').catch(() => {});
+            throw e;
+        } finally {
+            client.release();
+        }
+    }
+    return done;
+}
+
 export async function createPgStore(url) {
     // Hosted Postgres (Render, Neon, Supabase) wants TLS; a local one does not.
     const local = /localhost|127\.0\.0\.1/.test(url);
     const pool = new pg.Pool({ connectionString: url, ssl: local ? false : { rejectUnauthorized: false }, max: 5 });
     await pool.query(SCHEMA);
+    await runWipes(pool);
     const one = async (q, v) => (await pool.query(q, v)).rows[0] || null;
     const row = r => r && { id: r.id, kind: r.kind, externalId: r.external_id, name: r.name };
     return {

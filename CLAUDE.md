@@ -217,7 +217,14 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   armed per run, spent only when it fires, after the signature's free uses.
   Every hazard asks `covered(kind)` in mazeGame.js; a new trap that hurts or
   holds the ball needs a cover kind there. No ship upgrades until space
-  battles (the user's call). Alpha: saves are wiped, not migrated.
+  battles (the user's call). Alpha: saves are wiped, not migrated -- done
+  2026-10-11 by SAVE_VERSION 2 (any other version loads fresh, on a device
+  and on the server, so nothing old can merge back up) plus the server's
+  one-time `alpha_2026_10_11` wipe (server/db.js WIPES).
+- **A one-time change to the server's data is a WIPES entry** (server/db.js):
+  it runs once at start, in one transaction, is recorded in `wipes` so no
+  restart repeats it, and copies what it deletes into backup tables named
+  after it. Never delete accounts or the play stats without the user's say.
 - **Safe areas come from `--safe-top` / `--safe-bottom` only** (style.css),
   and `safeArea.js` decides whether to trust the browser's insets: an
   Android tab, not fullscreen or installed, gets zero and no

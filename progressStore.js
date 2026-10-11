@@ -32,7 +32,10 @@ import { fuelGate, isLadderId } from './fuel.js';
 // The game was called Marble Rush when saves began; the key keeps that name
 // on purpose -- renaming it would wipe every player's progress.
 export const SAVE_KEY = 'marbleRush.progress.v1';
-export const SAVE_VERSION = 1;
+// 2: the alpha wipe (the user's call, 2026-10-11, with the Crew). A save from
+// any other version loads as a fresh one, on a device and on the server, so
+// every player started over and no old save can merge back up. The key stays.
+export const SAVE_VERSION = 2;
 
 export function defaultComfort() {
     const c = {};
