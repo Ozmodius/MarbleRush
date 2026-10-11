@@ -98,6 +98,26 @@ CREATE TABLE IF NOT EXISTS links (
     player_id   TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
     expires_at  BIGINT NOT NULL
 );
+-- The platform (2026-10-11, for the admin page): 'web' | 'crazygames'. A
+-- player keeps the last one it played on (null before it was recorded); the
+-- play counts, event counts and days played carry it ('unknown' for what
+-- came before), as part of the counts' keys. Idempotent, from any state.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS platform TEXT;
+ALTER TABLE level_stats ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE event_stats ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE player_days ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'unknown';
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+                   WHERE i.indrelid = 'level_stats'::regclass AND i.indisprimary AND a.attname = 'platform') THEN
+        ALTER TABLE level_stats DROP CONSTRAINT IF EXISTS level_stats_pkey;
+        ALTER TABLE level_stats ADD PRIMARY KEY (day, level, mode, metric, platform);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+                   WHERE i.indrelid = 'event_stats'::regclass AND i.indisprimary AND a.attname = 'platform') THEN
+        ALTER TABLE event_stats DROP CONSTRAINT IF EXISTS event_stats_pkey;
+        ALTER TABLE event_stats ADD PRIMARY KEY (day, name, platform);
+    END IF;
+END $$;
 `;
 
 // ONE-TIME WIPES (the user's calls). Each runs once, in one transaction, and
@@ -108,6 +128,10 @@ CREATE TABLE IF NOT EXISTS links (
 //                     and the play stats stay. The game's SAVE_VERSION went to
 //                     2 at the same time, so a device's own old save loads
 //                     fresh too and cannot merge back up.
+//   platform_2026_10_11  Not a wipe, and deletes nothing: the platform
+//                     columns (SCHEMA) start empty, so the players who signed
+//                     in with CrazyGames, and their days played, are marked
+//                     'crazygames' once.
 export const WIPES = [
     {
         id: 'alpha_2026_10_11',
@@ -116,8 +140,16 @@ export const WIPES = [
               DELETE FROM saves;
               DELETE FROM scores;
               UPDATE players SET furthest = NULL, player_level = NULL;`
+    },
+    {
+        id: 'platform_2026_10_11',
+        sql: `UPDATE players SET platform = 'crazygames' WHERE kind = 'crazygames' AND platform IS NULL;
+              UPDATE player_days d SET platform = 'crazygames' FROM players p WHERE p.id = d.player_id AND p.kind = 'crazygames';`
     }
 ];
+export const PLATFORMS = ['web', 'crazygames'];
+// A platform filter: 'web' | 'crazygames', or null for all.
+export const platformOf = (v) => (PLATFORMS.includes(v) ? v : null);
 export async function runWipes(pool, wipes = WIPES) {
     await pool.query('CREATE TABLE IF NOT EXISTS wipes (id TEXT PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now())');
     const done = [];
@@ -139,6 +171,18 @@ export async function runWipes(pool, wipes = WIPES) {
     return done;
 }
 
+// An admin page row from a players/accounts/saves join.
+function adminRow(r) {
+    return {
+        id: r.id, kind: r.kind, name: r.name, platform: r.platform || null, externalId: r.external_id || null,
+        createdAt: r.created_at ? new Date(r.created_at).getTime() : null, firstDay: r.first_day || null,
+        lastSeen: r.last_seen ? Number(r.last_seen) : null, furthest: r.furthest || 0, playerLevel: r.player_level || null,
+        account: r.username ? { username: r.username, email: r.email, verified: !!r.verified } : null,
+        wallet: r.wallet === null || r.wallet === undefined ? null : Number(r.wallet), xp: r.xp === null || r.xp === undefined ? null : Number(r.xp),
+        saveAt: r.save_at ? new Date(r.save_at).getTime() : null, scores: Number(r.scores || 0)
+    };
+}
+
 export async function createPgStore(url) {
     // Hosted Postgres (Render, Neon, Supabase) wants TLS; a local one does not.
     const local = /localhost|127\.0\.0\.1/.test(url);
@@ -146,7 +190,7 @@ export async function createPgStore(url) {
     await pool.query(SCHEMA);
     await runWipes(pool);
     const one = async (q, v) => (await pool.query(q, v)).rows[0] || null;
-    const row = r => r && { id: r.id, kind: r.kind, externalId: r.external_id, name: r.name };
+    const row = r => r && { id: r.id, kind: r.kind, externalId: r.external_id, name: r.name, platform: r.platform || null };
     return {
         kind: 'postgres',
         async playerByToken(hash) {
@@ -155,9 +199,9 @@ export async function createPgStore(url) {
         async playerByExternal(kind, externalId) {
             return row(await one('SELECT * FROM players WHERE kind = $1 AND external_id = $2', [kind, externalId]));
         },
-        async createPlayer({ id, kind, externalId = null, name }) {
-            await pool.query('INSERT INTO players (id, kind, external_id, name) VALUES ($1, $2, $3, $4)', [id, kind, externalId, name]);
-            return { id, kind, externalId, name };
+        async createPlayer({ id, kind, externalId = null, name, platform = null }) {
+            await pool.query('INSERT INTO players (id, kind, external_id, name, platform) VALUES ($1, $2, $3, $4, $5)', [id, kind, externalId, name, platform]);
+            return { id, kind, externalId, name, platform };
         },
         async playerById(id) { return row(await one('SELECT * FROM players WHERE id = $1', [id])); },
         async renamePlayer(id, name) { await pool.query('UPDATE players SET name = $2 WHERE id = $1', [id, name]); },
@@ -196,50 +240,84 @@ export async function createPgStore(url) {
             const r = await one('SELECT COUNT(*) FILTER (WHERE ms < $2) AS faster, COUNT(*) AS total FROM scores WHERE board = $1', [board, ms]);
             return { rank: Number(r.faster) + 1, total: Number(r.total) };
         },
-        // Tracking: add to the day's counters (rows: [{ level, mode, metric, n }]).
-        async addStats(day, rows) {
+        // Tracking: add to the day's counters (rows: [{ level, mode, metric, n }])
+        // for a platform ('web' | 'crazygames' | 'unknown').
+        async addStats(day, rows, platform = 'unknown') {
             for (const r of rows) {
-                await pool.query(`INSERT INTO level_stats (day, level, mode, metric, n) VALUES ($1, $2, $3, $4, $5)
-                    ON CONFLICT (day, level, mode, metric) DO UPDATE SET n = level_stats.n + EXCLUDED.n`, [day, r.level, r.mode, r.metric, r.n]);
+                await pool.query(`INSERT INTO level_stats (day, level, mode, metric, n, platform) VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (day, level, mode, metric, platform) DO UPDATE SET n = level_stats.n + EXCLUDED.n`, [day, r.level, r.mode, r.metric, r.n, platform]);
             }
         },
-        // Totals since `fromDay`: [{ level, mode, metric, n }].
-        async statsSince(fromDay) {
-            const { rows } = await pool.query('SELECT level, mode, metric, SUM(n)::BIGINT AS n FROM level_stats WHERE day >= $1 GROUP BY level, mode, metric', [fromDay]);
+        // Totals since `fromDay`, on one platform or (null) all: [{ level, mode, metric, n }].
+        async statsSince(fromDay, platform = null) {
+            const { rows } = await pool.query('SELECT level, mode, metric, SUM(n)::BIGINT AS n FROM level_stats WHERE day >= $1 AND ($2::TEXT IS NULL OR platform = $2) GROUP BY level, mode, metric', [fromDay, platform]);
             return rows.map(r => ({ level: r.level, mode: r.mode, metric: r.metric, n: Number(r.n) }));
         },
-        async touchPlayer(id, { lastSeen, furthest, playerLevel, day }) {
-            await pool.query('UPDATE players SET last_seen = $2, furthest = COALESCE($3, furthest), player_level = COALESCE($4, player_level), first_day = COALESCE(first_day, $5) WHERE id = $1',
-                [id, lastSeen, furthest ?? null, playerLevel ?? null, day ?? null]);
-            if (day) await pool.query('INSERT INTO player_days (player_id, day) SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM players WHERE id = $1) ON CONFLICT DO NOTHING', [id, day]);
+        // A platform given is where the player is playing now.
+        async touchPlayer(id, { lastSeen, furthest, playerLevel, day, platform }) {
+            await pool.query('UPDATE players SET last_seen = $2, furthest = COALESCE($3, furthest), player_level = COALESCE($4, player_level), first_day = COALESCE(first_day, $5), platform = COALESCE($6, platform) WHERE id = $1',
+                [id, lastSeen, furthest ?? null, playerLevel ?? null, day ?? null, platform ?? null]);
+            if (day) await pool.query(`INSERT INTO player_days (player_id, day, platform) SELECT $1, $2, COALESCE($3, p.platform, 'unknown') FROM players p WHERE p.id = $1
+                ON CONFLICT (player_id, day) DO UPDATE SET platform = CASE WHEN player_days.platform = 'unknown' THEN EXCLUDED.platform ELSE player_days.platform END`, [id, day, platform ?? null]);
         },
-        async addEvents(day, rows) {
+        async addEvents(day, rows, platform = 'unknown') {
             for (const r of rows) {
-                await pool.query(`INSERT INTO event_stats (day, name, n) VALUES ($1, $2, $3)
-                    ON CONFLICT (day, name) DO UPDATE SET n = event_stats.n + EXCLUDED.n`, [day, r.name, r.n]);
+                await pool.query(`INSERT INTO event_stats (day, name, n, platform) VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (day, name, platform) DO UPDATE SET n = event_stats.n + EXCLUDED.n`, [day, r.name, r.n, platform]);
             }
         },
         // [{ day, name, n }] since fromDay, day by day.
-        async eventsSince(fromDay) {
-            const { rows } = await pool.query('SELECT day, name, n FROM event_stats WHERE day >= $1', [fromDay]);
+        async eventsSince(fromDay, platform = null) {
+            const { rows } = await pool.query('SELECT day, name, SUM(n)::BIGINT AS n FROM event_stats WHERE day >= $1 AND ($2::TEXT IS NULL OR platform = $2) GROUP BY day, name', [fromDay, platform]);
             return rows.map(r => ({ day: r.day, name: r.name, n: Number(r.n) }));
         },
         // Players active each day: [{ day, n }].
-        async activeByDay(fromDay) {
-            const { rows } = await pool.query('SELECT day, COUNT(*) AS n FROM player_days WHERE day >= $1 GROUP BY day', [fromDay]);
+        async activeByDay(fromDay, platform = null) {
+            const { rows } = await pool.query('SELECT day, COUNT(*) AS n FROM player_days WHERE day >= $1 AND ($2::TEXT IS NULL OR platform = $2) GROUP BY day', [fromDay, platform]);
             return rows.map(r => ({ day: r.day, n: Number(r.n) }));
         },
         // For retention: players first seen since fromDay, by first day, and
         // on which days they came back: [{ firstDay, day, n }].
-        async cohorts(fromDay) {
+        async cohorts(fromDay, platform = null) {
             const { rows } = await pool.query(`SELECT p.first_day, d.day, COUNT(*) AS n FROM players p JOIN player_days d ON d.player_id = p.id
-                WHERE p.first_day >= $1 GROUP BY p.first_day, d.day`, [fromDay]);
+                WHERE p.first_day >= $1 AND ($2::TEXT IS NULL OR p.platform = $2) GROUP BY p.first_day, d.day`, [fromDay, platform]);
             return rows.map(r => ({ firstDay: r.first_day, day: r.day, n: Number(r.n) }));
         },
         // Every player with a known position: [{ furthest, playerLevel, lastSeen }].
-        async playerPositions() {
-            const { rows } = await pool.query('SELECT furthest, player_level, last_seen FROM players WHERE last_seen IS NOT NULL');
+        async playerPositions(platform = null) {
+            const { rows } = await pool.query('SELECT furthest, player_level, last_seen FROM players WHERE last_seen IS NOT NULL AND ($1::TEXT IS NULL OR platform = $1)', [platform]);
             return rows.map(r => ({ furthest: r.furthest || 0, playerLevel: r.player_level || 1, lastSeen: Number(r.last_seen) }));
+        },
+        // How many players there are by platform and kind: [{ platform, kind, n }].
+        async playerCounts() {
+            const { rows } = await pool.query("SELECT COALESCE(platform, 'unknown') AS platform, kind, COUNT(*) AS n FROM players GROUP BY 1, 2");
+            return rows.map(r => ({ platform: r.platform, kind: r.kind, n: Number(r.n) }));
+        },
+        // --- admin: players ---
+        // A page of players, newest seen first (or by `sort`), matching `q`
+        // (name, username, email or id, any part, any case), on a platform
+        // and of a kind. -> { total, players: [summary] }.
+        async adminPlayers({ q = '', platform = null, kind = null, sort = 'seen', limit = 50, offset = 0 }) {
+            const order = { seen: 'p.last_seen DESC NULLS LAST', created: 'p.created_at DESC', furthest: 'p.furthest DESC NULLS LAST', name: 'lower(p.name) ASC' }[sort] || 'p.last_seen DESC NULLS LAST';
+            const where = `($1::TEXT = '' OR p.name ILIKE $1 OR p.id ILIKE $1 OR a.username ILIKE $1 OR a.email ILIKE $1)
+                AND ($2::TEXT IS NULL OR p.platform = $2) AND ($3::TEXT IS NULL OR p.kind = $3)`;
+            const like = q ? '%' + String(q).replace(/[\\%_]/g, m => '\\' + m) + '%' : '';
+            const total = await one(`SELECT COUNT(*) AS n FROM players p LEFT JOIN accounts a ON a.player_id = p.id WHERE ${where}`, [like, platform, kind]);
+            const { rows } = await pool.query(`SELECT p.*, a.username, a.email, a.verified,
+                    (s.data->>'wallet')::BIGINT AS wallet, (s.data->>'xp')::BIGINT AS xp, s.updated_at AS save_at,
+                    (SELECT COUNT(*) FROM scores sc WHERE sc.player_id = p.id) AS scores
+                FROM players p LEFT JOIN accounts a ON a.player_id = p.id LEFT JOIN saves s ON s.player_id = p.id
+                WHERE ${where} ORDER BY ${order}, p.id LIMIT $4 OFFSET $5`, [like, platform, kind, limit, offset]);
+            return { total: Number(total.n), players: rows.map(adminRow) };
+        },
+        async adminPlayer(id) {
+            const r = await one(`SELECT p.*, a.username, a.email, a.verified, a.created_at AS account_at,
+                    (s.data->>'wallet')::BIGINT AS wallet, (s.data->>'xp')::BIGINT AS xp, s.updated_at AS save_at,
+                    (SELECT COUNT(*) FROM scores sc WHERE sc.player_id = p.id) AS scores,
+                    (SELECT COUNT(*) FROM tokens t WHERE t.player_id = p.id) AS sessions,
+                    (SELECT COUNT(*) FROM player_days d WHERE d.player_id = p.id) AS days_played
+                FROM players p LEFT JOIN accounts a ON a.player_id = p.id LEFT JOIN saves s ON s.player_id = p.id WHERE p.id = $1`, [id]);
+            return r ? { ...adminRow(r), accountAt: r.account_at ? new Date(r.account_at).getTime() : null, sessions: Number(r.sessions), daysPlayed: Number(r.days_played) } : null;
         },
         // --- accounts ---
         async accountByKey(key) {
@@ -290,6 +368,16 @@ export function createMemoryStore() {
     const accounts = new Map(), codes = new Map(), events = new Map();
     const acct = a => a && { ...a };
     const key = (p, b) => p + '\u0000' + b;
+    const memAdminRow = (p) => {
+        const a = accounts.get(p.id), s = saves.get(p.id);
+        return {
+            id: p.id, kind: p.kind, name: p.name, platform: p.platform || null, externalId: p.externalId || null,
+            createdAt: p.createdAt || null, firstDay: p.firstDay || null, lastSeen: p.lastSeen || null, furthest: p.furthest || 0, playerLevel: p.playerLevel || null,
+            account: a ? { username: a.username, email: a.email, verified: !!a.verified } : null,
+            wallet: s && Number.isFinite(s.data.wallet) ? s.data.wallet : null, xp: s && Number.isFinite(s.data.xp) ? s.data.xp : null,
+            saveAt: s ? (s.at || null) : null, scores: [...scores.values()].filter(x => x.playerId === p.id).length
+        };
+    };
     return {
         kind: 'memory',
         async playerByToken(hash) { const id = tokens.get(hash); return id ? { ...players.get(id) } : null; },
@@ -297,12 +385,12 @@ export function createMemoryStore() {
             for (const p of players.values()) if (p.kind === kind && p.externalId === externalId) return { ...p };
             return null;
         },
-        async createPlayer({ id, kind, externalId = null, name }) { players.set(id, { id, kind, externalId, name }); return { id, kind, externalId, name }; },
+        async createPlayer({ id, kind, externalId = null, name, platform = null }) { players.set(id, { id, kind, externalId, name, platform, createdAt: Date.now() }); return { id, kind, externalId, name, platform }; },
         async playerById(id) { const p = players.get(id); return p ? { ...p } : null; },
         async renamePlayer(id, name) { const p = players.get(id); if (p) p.name = name; },
         async addToken(playerId, hash) { tokens.set(hash, playerId); },
         async getSave(playerId) { const s = saves.get(playerId); return s ? JSON.parse(JSON.stringify(s)) : null; },
-        async putSave(playerId, data, savedAt) { saves.set(playerId, { data: JSON.parse(JSON.stringify(data)), savedAt }); },
+        async putSave(playerId, data, savedAt) { saves.set(playerId, { data: JSON.parse(JSON.stringify(data)), savedAt, at: Date.now() }); },
         async upsertScore(playerId, board, ms) {
             const k = key(playerId, board), cur = scores.get(k);
             const best = cur ? Math.min(cur.ms, ms) : ms;
@@ -320,56 +408,91 @@ export function createMemoryStore() {
             const all = [...scores.values()].filter(s => s.board === board);
             return { rank: all.filter(s => s.ms < ms).length + 1, total: all.length };
         },
-        async addStats(day, rows) {
+        async addStats(day, rows, platform = 'unknown') {
             for (const r of rows) {
-                const k = [day, r.level, r.mode, r.metric].join('\u0000');
+                const k = [day, r.level, r.mode, r.metric, platform].join('\u0000');
                 stats.set(k, (stats.get(k) || 0) + r.n);
             }
         },
-        async statsSince(fromDay) {
+        async statsSince(fromDay, platform = null) {
             const sum = new Map();
             for (const [k, n] of stats) {
-                const [day, level, mode, metric] = k.split('\u0000');
-                if (day < fromDay) continue;
+                const [day, level, mode, metric, pf] = k.split('\u0000');
+                if (day < fromDay || (platform && pf !== platform)) continue;
                 const kk = [level, mode, metric].join('\u0000');
                 sum.set(kk, (sum.get(kk) || 0) + n);
             }
             return [...sum].map(([k, n]) => { const [level, mode, metric] = k.split('\u0000'); return { level, mode, metric, n }; });
         },
-        async touchPlayer(id, { lastSeen, furthest, playerLevel, day }) {
+        async touchPlayer(id, { lastSeen, furthest, playerLevel, day, platform }) {
             const p = players.get(id);
             if (!p) return;
             p.lastSeen = lastSeen;
-            if (day) { if (!p.firstDay) p.firstDay = day; (p.days = p.days || new Set()).add(day); }
+            if (platform) p.platform = platform;
+            if (day) {
+                if (!p.firstDay) p.firstDay = day;
+                p.days = p.days || new Map();
+                const was = p.days.get(day);
+                if (!was || was === 'unknown') p.days.set(day, platform || p.platform || 'unknown');
+            }
             if (furthest !== undefined && furthest !== null) p.furthest = furthest;
             if (playerLevel !== undefined && playerLevel !== null) p.playerLevel = playerLevel;
         },
-        async addEvents(day, rows) { for (const r of rows) { const k = day + '\u0000' + r.name; events.set(k, (events.get(k) || 0) + r.n); } },
-        async eventsSince(fromDay) {
-            return [...events].map(([k, n]) => { const [day, name] = k.split('\u0000'); return { day, name, n }; }).filter(r => r.day >= fromDay);
+        async addEvents(day, rows, platform = 'unknown') { for (const r of rows) { const k = [day, r.name, platform].join('\u0000'); events.set(k, (events.get(k) || 0) + r.n); } },
+        async eventsSince(fromDay, platform = null) {
+            const sum = new Map();
+            for (const [k, n] of events) {
+                const [day, name, pf] = k.split('\u0000');
+                if (day < fromDay || (platform && pf !== platform)) continue;
+                const kk = day + '\u0000' + name;
+                sum.set(kk, (sum.get(kk) || 0) + n);
+            }
+            return [...sum].map(([k, n]) => { const [day, name] = k.split('\u0000'); return { day, name, n }; });
         },
-        async activeByDay(fromDay) {
+        async activeByDay(fromDay, platform = null) {
             const by = new Map();
-            for (const p of players.values()) for (const d of p.days || []) if (d >= fromDay) by.set(d, (by.get(d) || 0) + 1);
+            for (const p of players.values()) for (const [d, pf] of p.days || []) if (d >= fromDay && (!platform || pf === platform)) by.set(d, (by.get(d) || 0) + 1);
             return [...by].map(([day, n]) => ({ day, n }));
         },
-        async cohorts(fromDay) {
+        async cohorts(fromDay, platform = null) {
             const by = new Map();
             for (const p of players.values()) {
-                if (!p.firstDay || p.firstDay < fromDay) continue;
-                for (const d of p.days || []) { const k = p.firstDay + '|' + d; by.set(k, (by.get(k) || 0) + 1); }
+                if (!p.firstDay || p.firstDay < fromDay || (platform && p.platform !== platform)) continue;
+                for (const d of (p.days || new Map()).keys()) { const k = p.firstDay + '|' + d; by.set(k, (by.get(k) || 0) + 1); }
             }
             return [...by].map(([k, n]) => { const [firstDay, day] = k.split('|'); return { firstDay, day, n }; });
         },
-        async playerPositions() {
-            return [...players.values()].filter(p => p.lastSeen).map(p => ({ furthest: p.furthest || 0, playerLevel: p.playerLevel || 1, lastSeen: p.lastSeen }));
+        async playerPositions(platform = null) {
+            return [...players.values()].filter(p => p.lastSeen && (!platform || p.platform === platform)).map(p => ({ furthest: p.furthest || 0, playerLevel: p.playerLevel || 1, lastSeen: p.lastSeen }));
+        },
+        async playerCounts() {
+            const by = new Map();
+            for (const p of players.values()) { const k = (p.platform || 'unknown') + '|' + p.kind; by.set(k, (by.get(k) || 0) + 1); }
+            return [...by].map(([k, n]) => { const [platform, kind] = k.split('|'); return { platform, kind, n }; });
+        },
+        // --- admin: players (as the Postgres store) ---
+        async adminPlayers({ q = '', platform = null, kind = null, sort = 'seen', limit = 50, offset = 0 }) {
+            const ql = String(q || '').toLowerCase();
+            const all = [...players.values()].map(p => memAdminRow(p)).filter(r =>
+                (!ql || [r.name, r.id, r.account && r.account.username, r.account && r.account.email].some(v => v && String(v).toLowerCase().includes(ql)))
+                && (!platform || r.platform === platform) && (!kind || r.kind === kind));
+            const desc = (k) => (a, b) => (b[k] ?? -Infinity) - (a[k] ?? -Infinity);
+            const cmp = { seen: desc('lastSeen'), created: desc('createdAt'), furthest: desc('furthest'), name: (a, b) => a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1 }[sort] || desc('lastSeen');
+            all.sort((a, b) => cmp(a, b) || (a.id < b.id ? -1 : 1));
+            return { total: all.length, players: all.slice(offset, offset + limit) };
+        },
+        async adminPlayer(id) {
+            const p = players.get(id);
+            if (!p) return null;
+            const a = accounts.get(id);
+            return { ...memAdminRow(p), accountAt: a ? (a.createdAt || null) : null, sessions: [...tokens.values()].filter(t => t === id).length, daysPlayed: p.days ? p.days.size : 0 };
         },
         async accountByKey(key) { for (const a of accounts.values()) if (a.username.toLowerCase() === key || a.email.toLowerCase() === key) return acct(a); return null; },
         async accountOf(playerId) { return acct(accounts.get(playerId)) || null; },
         async usernameTaken(key) { return [...accounts.values()].some(a => a.username.toLowerCase() === key); },
         async emailTaken(key) { return [...accounts.values()].some(a => a.email.toLowerCase() === key); },
         async createAccount({ playerId, username, email, passwordHash, verified }) {
-            accounts.set(playerId, { playerId, username, email, passwordHash, verified: !!verified });
+            accounts.set(playerId, { playerId, username, email, passwordHash, verified: !!verified, createdAt: Date.now() });
             const p = players.get(playerId);
             if (p) { p.kind = 'account'; p.name = username; p.externalId = null; }
         },

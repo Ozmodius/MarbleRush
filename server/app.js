@@ -15,8 +15,16 @@
 //   POST /v1/scores/batch {scores: [{board, ms}]} -> { accepted }
 //   GET  /v1/leaderboard?board=&limit= -> { board, top: [{rank,name,ms,you}], you }
 //   POST /v1/events   {events}        -> { accepted }   play tracking
-//   GET  /v1/admin/stats?days=&idle=  -> per-level stats (ADMIN_TOKEN only)
-//   GET  /admin                       the stats page (asks for the token)
+//   GET  /v1/admin/stats?days=&idle=&platform=  -> per-level stats (ADMIN_TOKEN only)
+//   GET  /v1/admin/players?q=&platform=&kind=&sort=&limit=&offset= -> { total, players }
+//   GET  /v1/admin/player?id=         -> { player, save, scores }
+//   POST /v1/admin/player/rename   {id, name}
+//   POST /v1/admin/player/signout  {id}           every session ended
+//   POST /v1/admin/player/scores   {id}           off every leaderboard
+//   POST /v1/admin/player/delete   {id, confirm}  gone; `confirm` is its name
+//   GET  /admin                       the admin page (asks for the token)
+// platform: 'web' | 'crazygames' (or none for all). Sessions and events say
+// which the game is on; the player keeps the last one.
 //   POST /v1/link                     -> { code, expiresAt }
 //   POST /v1/link/claim {code}        -> { token, player, save }
 //        Another device's player, by its 6-letter code: this device becomes
@@ -28,6 +36,7 @@
 import { mergeProgress } from '../progressStore.js';
 import { levelForXp } from '../playerLevel.js';
 import { ADMIN_PAGE } from './adminPage.js';
+import { platformOf } from './db.js';
 import { hashPassword, verifyPassword, newCode, hashCode, usernameProblem, emailProblem, passwordProblem, codeEmail, CODE_TTL_MS, CODE_TRIES } from './accounts.js';
 import { hashToken, newToken, newId, newLinkCode, cleanLinkCode, guestName, cleanName } from './auth.js';
 
@@ -207,6 +216,7 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
     };
 
     const openSession = async (req, body) => {
+        const platform = platformOf(body.platform);
         const m = typeof body.token === 'string' ? await store.playerByToken(hashToken(body.token)) : null;
         if (body.crazyToken) {
             if (!verifyCrazy) throw new HttpError(501, 'crazygames-off');
@@ -214,7 +224,7 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             try { who = await verifyCrazy(body.crazyToken); } catch (_) { throw new HttpError(401, 'bad-crazy-token'); }
             let p = await store.playerByExternal('crazygames', who.userId);
             const name = cleanName(who.username, 'Player');
-            if (!p) p = await store.createPlayer({ id: newId(), kind: 'crazygames', externalId: who.userId, name });
+            if (!p) p = await store.createPlayer({ id: newId(), kind: 'crazygames', externalId: who.userId, name, platform: 'crazygames' });
             else if (who.username && p.name !== name) { await store.renamePlayer(p.id, name); p.name = name; }
             // The device's guest (never another account) folds in.
             if (m && m.kind === 'guest') await fold(m, p);
@@ -222,8 +232,28 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             return issue(p);
         }
         if (m) return { token: body.token, player: { id: m.id, name: m.name, kind: m.kind } };
-        const p = await store.createPlayer({ id: newId(), kind: 'guest', name: guestName() });
+        const p = await store.createPlayer({ id: newId(), kind: 'guest', name: guestName(), platform });
         return issue(p);
+    };
+
+    // The admin token (ADMIN_TOKEN): anything else is a 404, so the admin
+    // routes do not show they exist.
+    const adminOnly = (req) => {
+        const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization || '');
+        if (!adminToken || !m || hashToken(m[1]) !== hashToken(adminToken)) throw new HttpError(404, 'not-found');
+    };
+    const adminTarget = async (body) => {
+        const p = typeof body.id === 'string' ? await store.playerById(body.id) : null;
+        if (!p) throw new HttpError(404, 'no-player');
+        return p;
+    };
+    // What a save says, for the admin page (never the whole save).
+    const saveSummary = (d) => !d ? null : {
+        version: d.v ?? null, wallet: d.wallet ?? 0, xp: d.xp ?? 0, playerLevel: levelForXp(d.xp || 0), highestIndex: d.highestIndex || 0,
+        cleared: Object.keys(d.cleared || {}).length, golds: (d.goldClaimed || []).length, explored: Object.keys(d.walks || {}).length,
+        rescued: d.rescued || [], fuel: (d.fuel || []).length, diary: (d.diary || []).length,
+        marbles: d.marbles || [], marble: d.marble || null, crew: d.crew || {}, bond: d.bond || {}, charges: d.charges || {},
+        streak: d.daily ? d.daily.streak || 0 : 0, achievements: (d.achievements || []).length, savedAt: d.savedAt || 0
     };
 
 
@@ -233,7 +263,8 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
         // Any session counts the player as active today (retention).
         'POST /v1/session': async (req, body) => {
             const out = await openSession(req, body);
-            await store.touchPlayer(out.player.id, { lastSeen: now(), day: dayOf(now()) });
+            const platform = out.player.kind === 'crazygames' ? 'crazygames' : platformOf(body.platform);
+            await store.touchPlayer(out.player.id, { lastSeen: now(), day: dayOf(now()), platform });
             return out;
         },
 
@@ -287,9 +318,13 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
                 accepted++;
             }
             const day = dayOf(now());
-            if (sums.size) await store.addStats(day, [...sums].map(([k, n]) => { const [level, mode, metric] = k.split('|'); return { level, mode, metric, n }; }));
-            if (acts.size) await store.addEvents(day, [...acts].map(([name, n]) => ({ name, n })));
-            await store.touchPlayer(p.id, { lastSeen: now(), day });
+            // Counted for the platform the game says it is on (else the
+            // player's last one).
+            const said = platformOf(body.platform);
+            const platform = said || p.platform || 'unknown';
+            if (sums.size) await store.addStats(day, [...sums].map(([k, n]) => { const [level, mode, metric] = k.split('|'); return { level, mode, metric, n }; }), platform);
+            if (acts.size) await store.addEvents(day, [...acts].map(([name, n]) => ({ name, n })), platform);
+            await store.touchPlayer(p.id, { lastSeen: now(), day, platform: said });
             return { accepted };
         },
 
@@ -298,18 +333,18 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
         // many players stopped there (furthest level, not seen for `idle`
         // days); and how player levels are spread.
         'GET /v1/admin/stats': async (req, body, url) => {
-            const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization || '');
-            if (!adminToken || !m || hashToken(m[1]) !== hashToken(adminToken)) throw new HttpError(404, 'not-found');
+            adminOnly(req);
+            const platform = platformOf(url.searchParams.get('platform'));
             const days = Math.max(1, Math.min(365, Math.floor(Number(url.searchParams.get('days')) || 30)));
             const idle = Math.max(1, Math.min(90, Math.floor(Number(url.searchParams.get('idle')) || 7)));
-            const rows = await store.statsSince(dayOf(now() - (days - 1) * 86400e3));
+            const rows = await store.statsSince(dayOf(now() - (days - 1) * 86400e3), platform);
             const by = new Map();
             for (const r of rows) {
                 const k = r.level + '|' + r.mode;
                 if (!by.has(k)) by.set(k, { level: r.level, mode: r.mode, starts: 0, clears: 0, falls: 0, quits: 0, clear_ms: 0 });
                 by.get(k)[r.metric] = (by.get(k)[r.metric] || 0) + r.n;
             }
-            const positions = await store.playerPositions();
+            const positions = await store.playerPositions(platform);
             const cutoff = now() - idle * 86400e3;
             const stoppedAt = new Map();
             for (const pos of positions) if (pos.lastSeen < cutoff) stoppedAt.set(pos.furthest, (stoppedAt.get(pos.furthest) || 0) + 1);
@@ -340,15 +375,15 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             const fromDay = dayOf(now() - (days - 1) * 86400e3), today = dayOf(now());
             const dayList = [];
             for (let t = Date.parse(fromDay + 'T00:00:00Z'); dayOf(t) <= today; t += 86400e3) dayList.push(dayOf(t));
-            const active = new Map((await store.activeByDay(fromDay)).map(r => [r.day, r.n]));
-            const evRows = await store.eventsSince(fromDay);
+            const active = new Map((await store.activeByDay(fromDay, platform)).map(r => [r.day, r.n]));
+            const evRows = await store.eventsSince(fromDay, platform);
             const evDay = new Map();
             const actions = new Map();
             for (const r of evRows) {
                 const d = evDay.get(r.day) || {}; d[r.name] = (d[r.name] || 0) + r.n; evDay.set(r.day, d);
                 if (r.name !== 'sessions' && r.name !== 'session_ms') actions.set(r.name, (actions.get(r.name) || 0) + r.n);
             }
-            const cohortRows = await store.cohorts(dayOf(now() - (days + 30) * 86400e3));
+            const cohortRows = await store.cohorts(dayOf(now() - (days + 30) * 86400e3), platform);
             const cohortMap = new Map();
             for (const r of cohortRows) { const c = cohortMap.get(r.firstDay) || new Map(); c.set(r.day, r.n); cohortMap.set(r.firstDay, c); }
             const plus = (day, k) => dayOf(Date.parse(day + 'T00:00:00Z') + k * 86400e3);
@@ -374,13 +409,71 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
                 const n = positions.filter(pp => pp.furthest >= k).length;
                 return { cleared: k, n, share: positions.length ? n / positions.length : null };
             });
-            return { days, idle, players: { total: positions.length, active: positions.filter(pp => pp.lastSeen >= cutoff).length, finished: stoppedAt.get(levels.length) || 0 },
+            // Everyone, by platform and kind (unfiltered: the split itself).
+            const counts = await store.playerCounts();
+            const split = {};
+            for (const c of counts) { const s0 = split[c.platform] || (split[c.platform] = { total: 0 }); s0.total += c.n; s0[c.kind] = (s0[c.kind] || 0) + c.n; }
+            return { days, idle, platform: platform || 'all', split,
+                players: { total: positions.length, active: positions.filter(pp => pp.lastSeen >= cutoff).length, finished: stoppedAt.get(levels.length) || 0 },
                 retention: { d1: weighted('d1'), d7: weighted('d7'), d30: weighted('d30'), cohorts },
                 activity: { byDay, sessions: totalSessions, avgSessionMs: totalSessions ? Math.round(totalSessionMs / totalSessions) : null },
                 funnel, levels: levelsOut, daily, playerLevels,
                 actions: [...actions].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n) };
         },
         'GET /admin': () => ({ html: ADMIN_PAGE }),
+
+        // --- the admin page's players (ADMIN_TOKEN only) ----------------------
+        'GET /v1/admin/players': async (req, body, url) => {
+            adminOnly(req);
+            const q = String(url.searchParams.get('q') || '').trim().slice(0, 80);
+            const kind = ['guest', 'account', 'crazygames'].includes(url.searchParams.get('kind')) ? url.searchParams.get('kind') : null;
+            const sort = ['seen', 'created', 'furthest', 'name'].includes(url.searchParams.get('sort')) ? url.searchParams.get('sort') : 'seen';
+            const limit = Math.max(1, Math.min(200, Math.floor(Number(url.searchParams.get('limit')) || 50)));
+            const offset = Math.max(0, Math.floor(Number(url.searchParams.get('offset')) || 0));
+            return store.adminPlayers({ q, platform: platformOf(url.searchParams.get('platform')), kind, sort, limit, offset });
+        },
+        'GET /v1/admin/player': async (req, body, url) => {
+            adminOnly(req);
+            const id = String(url.searchParams.get('id') || '');
+            const player = id ? await store.adminPlayer(id) : null;
+            if (!player) throw new HttpError(404, 'no-player');
+            const s = await store.getSave(id);
+            const scores = (await store.scoresOf(id)).sort((a, b) => (a.board < b.board ? -1 : 1));
+            return { player, save: saveSummary(s && s.data), scores };
+        },
+        'POST /v1/admin/player/rename': async (req, body) => {
+            adminOnly(req);
+            const p = await adminTarget(body);
+            const name = cleanName(String(body.name || ''), '');
+            if (!name) throw new HttpError(400, 'bad-name');
+            await store.renamePlayer(p.id, name);
+            console.log('[admin] rename', p.id, JSON.stringify(p.name), '->', JSON.stringify(name));
+            return { ok: true, name };
+        },
+        'POST /v1/admin/player/signout': async (req, body) => {
+            adminOnly(req);
+            const p = await adminTarget(body);
+            await store.revokeTokens(p.id);
+            console.log('[admin] sign out everywhere', p.id);
+            return { ok: true };
+        },
+        'POST /v1/admin/player/scores': async (req, body) => {
+            adminOnly(req);
+            const p = await adminTarget(body);
+            await store.deleteScores(p.id);
+            console.log('[admin] removed from the leaderboards', p.id);
+            return { ok: true };
+        },
+        // Gone for good, like the player's own delete: account, save, times,
+        // sessions. `confirm` must be the player's name, typed.
+        'POST /v1/admin/player/delete': async (req, body) => {
+            adminOnly(req);
+            const p = await adminTarget(body);
+            if (String(body.confirm || '') !== p.name) throw new HttpError(400, 'confirm-name');
+            await store.deletePlayer(p.id);
+            console.log('[admin] deleted player', p.id, JSON.stringify(p.name), p.kind);
+            return { ok: true };
+        },
 
         'POST /v1/scores': async (req, body) => {
             const p = await authed(req);

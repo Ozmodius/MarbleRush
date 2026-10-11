@@ -20,16 +20,17 @@ let failed = 0, passed = 0;
 const check = (cond, msg) => { if (cond) passed++; else { failed++; console.error('FAIL', msg); } };
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-const server = http.createServer(createApp({ store: createMemoryStore(), levels, dailyLevels, rateMax: 10000 }));
+const mstore = createMemoryStore();
+const server = http.createServer(createApp({ store: mstore, levels, dailyLevels, rateMax: 10000 }));
 await new Promise(r => server.listen(0, r));
 const api = `http://127.0.0.1:${server.address().port}`;
 
 function storage() { const m = new Map(); return { getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k) }; }
-async function device(apiUrl = api) {
+async function device(apiUrl = api, platform = null) {
     const mem = new Map();
     const store = createProgressStore({ load: async k => mem.get(k) || null, save: (k, v) => { mem.set(k, v); return true; } }, levels, payouts);
     await store.load();
-    const sync = createCloudSync({ store, api: apiUrl, storage: storage(), debounceMs: 20 });
+    const sync = createCloudSync({ store, api: apiUrl, storage: storage(), debounceMs: 20, platform });
     return { store, sync, mem };
 }
 const lv = i => levels[i];
@@ -49,6 +50,14 @@ A.sync.onStatus(s => statuses.push(s));
 check(await A.sync.start(), 'device A connects');
 check(A.sync.status() === 'synced' && /^Guest-/.test(A.sync.player().name), 'A is a synced guest');
 check(statuses.join() === 'syncing,synced', 'status goes syncing then synced');
+// The build says which platform it is: the server keeps it (the admin
+// page's filter).
+{
+    const P = await device(api, 'crazygames');
+    await P.sync.start();
+    const row = await mstore.adminPlayer(P.sync.player().id);
+    check(row && row.platform === 'crazygames', `a CrazyGames build's session records its platform (${row && row.platform})`);
+}
 const board0 = await A.sync.leaderboard(`roll:${lv(0).id}`);
 check(board0 && board0.you && board0.you.ms === okMs(0), 'A\'s old best time was backfilled onto the board');
 

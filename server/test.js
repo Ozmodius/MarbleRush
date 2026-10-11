@@ -30,7 +30,7 @@ const crazyToken = (userId, username, key = privateKey) =>
 const pgUrl = process.env.TEST_DATABASE_URL;
 if (pgUrl) {
     const c = new pg.Client({ connectionString: pgUrl }); await c.connect();
-    await c.query('DROP TABLE IF EXISTS event_stats, player_days, codes, accounts, level_stats, links, scores, saves, tokens, players'); await c.end();
+    await c.query('DROP TABLE IF EXISTS wipes, wipe_alpha_2026_10_11_saves, wipe_alpha_2026_10_11_scores, event_stats, player_days, codes, accounts, level_stats, links, scores, saves, tokens, players'); await c.end();
 }
 const store = pgUrl ? await createPgStore(pgUrl) : createMemoryStore();
 let clock = Date.parse('2026-10-07T12:00:00Z');
@@ -239,10 +239,63 @@ clock -= 10 * 86400e3;
     check(st3.body.retention.d1 !== null && st3.body.retention.d30 === null, 'and the overall return rates');
     clock = day0;
 }
+// --- platforms and the admin page's players (2026-10-11) ---
+{
+    const A = { token: 'sekret-admin' };
+    const W = (await call('POST', '/v1/session', { body: { platform: 'web' } })).body;
+    const C = (await call('POST', '/v1/session', { body: { platform: 'crazygames' } })).body;
+    const junkP = (await call('POST', '/v1/session', { body: { platform: 'nintendo' } })).body;
+    const lvP = levels[20];
+    const start = { type: 'start', level: lvP.id, mode: 'roll' };
+    await call('POST', '/v1/events', { token: W.token, body: { platform: 'web', events: [start, start, { type: 'act', name: 'buy:skin:web' }] } });
+    await call('POST', '/v1/events', { token: C.token, body: { platform: 'crazygames', events: [start, start, start, { type: 'act', name: 'buy:skin:cg' }] } });
+    // An old client that does not say: counted for the player's platform.
+    await call('POST', '/v1/events', { token: C.token, body: { events: [start] } });
+    const sAll = (await call('GET', '/v1/admin/stats?days=7', A)).body, sWeb = (await call('GET', '/v1/admin/stats?days=7&platform=web', A)).body, sCg = (await call('GET', '/v1/admin/stats?days=7&platform=crazygames', A)).body;
+    const st = r => r.levels.find(l => l.id === lvP.id).roll.starts;
+    check(st(sWeb) === 2 && st(sCg) === 4 && st(sAll) === 6, `level counts filter by platform (web ${st(sWeb)}, CrazyGames ${st(sCg)}, all ${st(sAll)})`);
+    const sNope = (await call('GET', '/v1/admin/stats?days=7&platform=nope', A)).body;
+    check(sWeb.platform === 'web' && sAll.platform === 'all' && sNope.platform === 'all', 'the stats say which platform they are for (an unknown one means all)');
+    const act = (r, n) => (r.actions.find(a => a.name === n) || { n: 0 }).n;
+    check(act(sWeb, 'buy:skin:web') === 1 && act(sWeb, 'buy:skin:cg') === 0 && act(sCg, 'buy:skin:cg') === 1, 'actions filter by platform');
+    const dau = r => r.activity.byDay[r.activity.byDay.length - 1].dau;
+    check(dau(sCg) >= 1 && dau(sWeb) >= 1 && dau(sAll) >= dau(sWeb) + dau(sCg), `players a day filter by platform (${dau(sWeb)} web, ${dau(sCg)} CrazyGames, ${dau(sAll)} all)`);
+    check(sAll.split.web.total >= 1 && sAll.split.web.guest >= 1 && sAll.split.crazygames.total >= 2 && sAll.split.crazygames.crazygames >= 1, `everyone split by platform and kind: ${JSON.stringify(sAll.split)}`);
+    // The players list.
+    for (const [m, path] of [['GET', '/v1/admin/players'], ['GET', '/v1/admin/player?id=' + W.player.id], ['POST', '/v1/admin/player/rename'], ['POST', '/v1/admin/player/signout'], ['POST', '/v1/admin/player/scores'], ['POST', '/v1/admin/player/delete']]) {
+        check((await call(m, path, { body: m === 'POST' ? { id: W.player.id, name: 'x', confirm: W.player.name } : undefined })).status === 404 && (await call(m, path, { token: W.token, body: m === 'POST' ? { id: W.player.id, name: 'x', confirm: W.player.name } : undefined })).status === 404, `${m} ${path.split('?')[0]} is hidden without the admin token`);
+    }
+    const lc = (await call('GET', '/v1/admin/players?platform=crazygames&limit=200', A)).body;
+    check(lc.players.some(p => p.id === C.player.id) && lc.players.some(p => p.kind === 'crazygames') && !lc.players.some(p => p.id === W.player.id) && lc.players.every(p => p.platform === 'crazygames'), 'players filter by platform');
+    check(!lc.players.some(p => p.id === junkP.player.id) && (await call('GET', '/v1/admin/players?limit=200', A)).body.players.find(p => p.id === junkP.player.id).platform === null, 'an unknown platform is not recorded');
+    const lk = (await call('GET', '/v1/admin/players?kind=crazygames', A)).body;
+    check(lk.total >= 1 && lk.players.every(p => p.kind === 'crazygames'), 'and by kind');
+    const lq = (await call('GET', '/v1/admin/players?q=' + encodeURIComponent(W.player.name.slice(-4).toLowerCase()), A)).body;
+    check(lq.players.some(p => p.id === W.player.id), `and by any part of a name, in any case (${W.player.name})`);
+    const l1 = (await call('GET', '/v1/admin/players?limit=1&offset=1', A)).body;
+    check(l1.players.length === 1 && l1.total > 1, 'in pages');
+    // A player's page: what the save says, and the times.
+    await call('PUT', '/v1/save', { token: W.token, body: { save: { ...freshProgress(), wallet: 123, xp: 700, highestIndex: 4, rescued: [1], fuel: ['w1_01', 'w1_02'], savedAt: 5 } } });
+    await call('POST', '/v1/scores', { token: W.token, body: { board: 'roll:' + lvP.id, ms: lvP.minMs + 500 } });
+    const d = (await call('GET', '/v1/admin/player?id=' + W.player.id, A)).body;
+    check(d.player.platform === 'web' && d.player.kind === 'guest' && d.save.wallet === 123 && d.save.fuel === 2 && d.save.rescued.length === 1 && d.save.playerLevel >= 2 && d.scores.length === 1 && d.player.sessions === 1,
+        `a player's page: platform, kind, the save's numbers, times, devices: ${JSON.stringify({ p: d.player.platform, s: d.save && d.save.wallet, sc: d.scores.length, se: d.player.sessions })}`);
+    check((await call('GET', '/v1/admin/player?id=nope', A)).status === 404, 'an unknown player is a 404');
+    // Actions.
+    check((await call('POST', '/v1/admin/player/rename', { ...A, body: { id: W.player.id, name: '  <>  ' } })).status === 400, 'an empty name is refused');
+    const rn = await call('POST', '/v1/admin/player/rename', { ...A, body: { id: W.player.id, name: 'Renamed Rolle' } });
+    const lb = (await call('GET', '/v1/leaderboard?board=roll:' + lvP.id)).body;
+    check(rn.status === 200 && lb.top.some(t => t.name === 'Renamed Rolle'), 'rename: the leaderboards show the new name');
+    check((await call('POST', '/v1/admin/player/scores', { ...A, body: { id: W.player.id } })).status === 200 && !(await call('GET', '/v1/leaderboard?board=roll:' + lvP.id)).body.top.some(t => t.name === 'Renamed Rolle'), 'remove from leaderboards');
+    check((await call('POST', '/v1/admin/player/signout', { ...A, body: { id: W.player.id } })).status === 200 && (await call('GET', '/v1/save', { token: W.token })).status === 401, 'sign out everywhere ends the sessions');
+    check((await call('POST', '/v1/admin/player/delete', { ...A, body: { id: W.player.id, confirm: 'Renamed rolle' } })).status === 400, 'delete needs the name typed exactly');
+    check((await call('POST', '/v1/admin/player/delete', { ...A, body: { id: W.player.id, confirm: 'Renamed Rolle' } })).status === 200 && (await call('GET', '/v1/admin/player?id=' + W.player.id, A)).status === 404, 'delete: the player is gone');
+    check((await call('POST', '/v1/admin/player/delete', { ...A, body: { id: 'nope', confirm: '' } })).status === 404, 'deleting nobody is a 404');
+}
 const page = await fetch(base + '/admin');
 const html = await page.text();
-check(page.status === 200 && /text\/html/.test(page.headers.get('content-type')) && html.includes('PlaneTilt Stats') && page.headers.get('x-robots-tag') === 'noindex',
-    'the stats page is served, and kept out of search engines');
+check(page.status === 200 && /text\/html/.test(page.headers.get('content-type')) && html.includes('PlaneTilt Admin') && html.includes('id="platform"') && html.includes('PLAYERS') && page.headers.get('x-robots-tag') === 'noindex',
+    'the admin page is served, with its platform filter and players, and kept out of search engines');
 
 // --- CORS, routing ---
 const opt = await call('OPTIONS', '/v1/save', { origin: 'https://ozmodius.github.io' });
