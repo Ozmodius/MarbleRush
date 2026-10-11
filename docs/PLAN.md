@@ -325,8 +325,11 @@ The user's call: exploring should be required and rewarding.
   by a clear and kept. The ship needs 3 of Sawturn's to fly to Slipstonia,
   5 of Slipstonia's for Magmars, 7 for each planet after; a planet already
   played on stays open. Home, the Worlds sheet and the HUD show the count.
-- *Survey* (next): how much of a level's floor a run covered, the best kept;
-  SURVEYED at 90%.
+- *Survey* (built): how much of a level's floor a run covered, in half-unit
+  squares a ball can reach, the best a clear reached kept; SURVEYED at 90%.
+  The shortest route alone covers about a quarter (never more than 43%).
+  The HUD's map chip counts it; home and the Worlds sheet mark surveyed
+  floors; achievements for the first and for ten.
 - *Secret pockets* (after): a dead end hidden behind a wall that only looks
   solid, holding a page of the Baron's diary.
 - Not doing: the Baron's locks (gates and keys on every run).

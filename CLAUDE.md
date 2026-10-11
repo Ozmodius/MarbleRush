@@ -183,6 +183,12 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   planet before's cells: 3 for Slipstonia, 5 for Magmars, 7 after
   (`fuelGate`, inside `isUnlocked`). A planet already played on is never
   shut, fuel or not. Gold times are untouched: a gold run need not fetch it.
+- **The survey counts the floor a run covers** (`survey.js`, the user's
+  call, 2026-10-10): half-unit squares a ball can reach (the shared grid),
+  each covered when the ball passes near its middle; a clear keeps its best
+  (`survey` in the save, merged by max), SURVEYED at 90%. `test_survey.js`
+  proves the shortest route alone never surveys a level and a sweep does.
+  It only counts: nothing in a run changes for it.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused
