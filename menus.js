@@ -8,6 +8,7 @@ import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { captiveFor, isRescueLevel, VILLAIN } from './rescue.js';
 import { fuelGate, fuelCount, launchNeed } from './fuel.js';
 import { isSurveyed } from './survey.js';
+import { POCKET_LEVELS } from './pockets.js';
 import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, showLevelUps } from './dailyUi.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
@@ -457,7 +458,8 @@ function renderSheet(w) {
             const have = fuelCount(p, w.n), need = launchNeed(w.n + 1), next = ctx.game.worldsInfo().find(x => x.n === w.n + 1);
             const ic = document.createElement('span'); ic.className = 'fuel-icon';
             const surveyedN = w.levels.filter(l => isSurveyed(p, l.id)).length;
-            fuelEl.append(ic, document.createTextNode(`Fuel cells ${have} / ${w.levels.length}, one hidden in each maze's deepest dead end.` + (next && next.levels.length ? ` ${worldName(w.n + 1)} needs ${need}.` : '') + `  Surveyed ${surveyedN} / ${w.levels.length}.`));
+            const pages = POCKET_LEVELS.filter(id => id.startsWith(`w${w.n}_`));
+            fuelEl.append(ic, document.createTextNode(`Fuel cells ${have} / ${w.levels.length}, one hidden in each maze's deepest dead end.` + (next && next.levels.length ? ` ${worldName(w.n + 1)} needs ${need}.` : '') + `  Surveyed ${surveyedN} / ${w.levels.length}.` + (pages.length ? `  Diary pages ${pages.filter(id => (p.diary || []).includes(id)).length} / ${pages.length}.` : '')));
         }
     }
 

@@ -61,6 +61,10 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const sv = S.mergeProgress({ ...a, survey: { w1_01: 60, w1_02: 95 } }, { ...b, survey: { w1_01: 80 } });
     check(sv.survey.w1_01 === 80 && sv.survey.w1_02 === 95, `surveys keep the best of both: ${JSON.stringify(sv.survey)}`);
 
+    // Diary pages found on either side stay found.
+    const dy = S.mergeProgress({ ...a, diary: ['w2_04'] }, { ...b, diary: ['w1_07'] });
+    check(dy.diary.join() === 'w1_07,w2_04', `diary pages found on either side stay found: ${dy.diary}`);
+
     // 3. daily
     check(m.daily.last === '2026-10-06' && m.daily.streak === 3, 'the later daily claim wins');
     const ma = S.mergeProgress({ ...a, missions: { date: '2026-10-06', ids: ['clears', 'coins', 'gold'], counts: { clears: 2 }, claimed: [], bonus: false } },

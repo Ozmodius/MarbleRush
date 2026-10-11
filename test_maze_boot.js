@@ -900,6 +900,28 @@ const failures = [];
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100 });
         sh = await rdbg('show');
         check(sh.kind === null && !sh.shipShown && Math.abs(sh.drawn.x - sh.body.x) < 0.05 && Math.abs(sh.drawn.y - sh.body.y) < 0.05, `START ends the show where the ball really is: ${JSON.stringify(sh)}`);
+        // SECRET POCKETS (pockets.js): w1_07's false wall is drawn but has
+        // no body -- a ball set inside it stays put -- and the page behind it
+        // is banked by a clear, to read in Gear.
+        await rdbg('startLevelForTest', 'w1_07');
+        const pk = await rdbg('pocket');
+        check(pk && !pk.found && !pk.taken, `w1_07 hides a diary page: ${JSON.stringify(pk)}`);
+        await rp.tap('#mazeStartBtn');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100 });
+        await rdbg('holdFallOffer', false);
+        const inWall = await rdbg('placeBall', pk.wall.x, pk.wall.z);
+        const stillThere = await rdbg('advanceFrames', 4);
+        check(Math.hypot(stillThere.x - inWall.x, stillThere.z - inWall.z) < 0.05, `a ball inside the false wall is not pushed out (it has no body): ${JSON.stringify([inWall, stillThere])}`);
+        await rdbg('placeBall', pk.x, pk.z);
+        check((await rdbg('pocket')).taken, 'rolling into the page takes it');
+        await rdbg('ageRun', 60000);
+        // Every line the clear puts under CLEARED, in order (one beat apart:
+        // a later one may replace it before a poll would see it).
+        await rp.evaluate(() => { window.__s2seen = []; const e = document.getElementById('mazeStatus2'); new MutationObserver(() => window.__s2seen.push(e.textContent)).observe(e, { childList: true, characterData: true, subtree: true }); });
+        check(await rdbg('warpToGoal'), 'w1_07 clears');
+        check(((await rdbg('progress')).diary || []).join() === 'w1_07', `the clear keeps the page: ${JSON.stringify((await rdbg('progress')).diary)}`);
+        const saidPage = await rp.waitForFunction(() => window.__s2seen.some(t => /DIARY PAGE 1 FOUND/.test(t)), null, { polling: 100, timeout: 20000 }).then(() => true, () => false);
+        check(saidPage, `the CLEARED panel says the page was found: ${JSON.stringify(await rp.evaluate(() => window.__s2seen))}`);
         // The story's voices on the ready line (rescue.js).
         await rdbg('startLevelForTest', 'w1_09');
         check(/PIP'S CAGE IS ON THE NEXT FLOOR/.test(await rp.textContent('#mazeStatus')), `floor 9 warns the cage is near: ${await rp.textContent('#mazeStatus')}`);
@@ -976,6 +998,8 @@ const failures = [];
         await rp.tap('#tab_gear');
         await rp.waitForSelector('#profileView', { state: 'visible' });
         check(!/is-captive/.test(await pipCard.getAttribute('class')) && /SELECT/.test(await pipCard.locator('.marble-action').textContent()), 'Gear offers Pip to roll as');
+        check((await rp.locator('#profileDiary .diary-page').count()) === 10 && (await rp.locator('#profileDiary .diary-page.is-found').count()) === 1 && /PAGE 1/.test(await rp.textContent('#profileDiary .diary-page.is-found')),
+            'Gear shows the Baron\'s diary, page 1 found');
         await pipCard.locator('.marble-action').tap();
         check((await rdbg('progress')).marble === 'pip' && (await rp.textContent('#profileMarbleName')).trim() === 'Pip', 'and Pip can be selected');
         await rCtx.close();

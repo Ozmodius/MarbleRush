@@ -78,6 +78,9 @@ export function freshProgress() {
         // The survey (survey.js): the best share of each level's floor a
         // clear has covered, in whole percent, by level id.
         survey: {},
+        // Pages of the Baron's diary found (diary.js), by the level each
+        // was hidden on.
+        diary: [],
         // The Labyrinth (walkMode.js): best walk per level, explorer kit
         // owned, and the comfort settings.
         walks: {}, explorer: [], comfort: defaultComfort(),
@@ -154,6 +157,7 @@ export function parseProgress(text) {
         if (id && !p.marbles.includes(id)) p.marbles.push(id);
     }
     p.fuel = Array.isArray(raw.fuel) ? [...new Set(raw.fuel.filter(isLadderId))].sort() : [];
+    p.diary = Array.isArray(raw.diary) ? [...new Set(raw.diary.filter(isLadderId))].sort() : [];
     p.survey = {};
     if (raw.survey && typeof raw.survey === 'object') for (const [id, v] of Object.entries(raw.survey)) {
         const n = Math.floor(Number(v));
@@ -366,7 +370,8 @@ export function mergeProgress(a, b) {
         const n = p.walks[id];
         p.walks[id] = n ? { bestMs: Math.min(n.bestMs, w.bestMs), coins: Math.max(n.coins, w.coins), gold: n.gold || w.gold } : w;
     }
-    for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer', 'achievements', 'rescued', 'fuel']) p[key] = union(p[key], older[key]);
+    for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer', 'achievements', 'rescued', 'fuel', 'diary']) p[key] = union(p[key], older[key]);
+    p.diary.sort();
     p.rescued.sort((a, b) => a - b);
     p.fuel.sort();
     for (const [id, n] of Object.entries(older.survey || {})) p.survey[id] = Math.max(p.survey[id] || 0, n);
@@ -455,6 +460,15 @@ export function recordFuel(progress, levelId) {
     if ((progress.fuel || []).includes(levelId)) return { progress, ok: false, reason: 'found' };
     const p = JSON.parse(JSON.stringify(progress));
     p.fuel = [...(p.fuel || []), levelId].sort();
+    return { progress: p, ok: true };
+}
+
+// A diary page banked with a clear of `levelId` (pockets.js). Once found, found.
+export function recordPage(progress, levelId) {
+    if (!isLadderId(levelId)) return { progress, ok: false, reason: 'unknown' };
+    if ((progress.diary || []).includes(levelId)) return { progress, ok: false, reason: 'found' };
+    const p = JSON.parse(JSON.stringify(progress));
+    p.diary = [...(p.diary || []), levelId].sort();
     return { progress: p, ok: true };
 }
 
@@ -687,6 +701,12 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             apply(out);
             if (out.ok) act('rescue:w' + world);
             return { ok: out.ok, reason: out.reason || null, marble: out.marble || null };
+        },
+        recordPage: levelId => {
+            const out = recordPage(progress, levelId);
+            apply(out);
+            if (out.ok) act('diary:' + levelId);
+            return { ok: out.ok, reason: out.reason || null };
         },
         recordSurvey: (levelId, pct) => {
             const out = recordSurvey(progress, levelId, pct);

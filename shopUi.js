@@ -5,6 +5,8 @@ import { adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { upgradePrice } from './progressStore.js';
 import { sfx } from './sfx.js';
 import { worldName } from './worlds.js';
+import { POCKET_LEVELS } from './pockets.js';
+import { pageText, pageNumber } from './diary.js';
 
 // THE STORE AND PROFILE PAGES. DOM only: every rule (prices, what may be
 // bought, what a marble does) lives in shopCatalog.js and progressStore.js,
@@ -333,6 +335,7 @@ export function renderProfile() {
         grid.append(card);
     }
 
+    renderDiary(p);
     renderLooks('skin', 'profileSkins');
     renderLooks('trail', 'profileTrails');
 
@@ -372,4 +375,20 @@ export function clearShopMessages() { say('storeMsg', '', true); say('profileMsg
 
 export function initShopUi({ store, getLevels, onChange, tryMarble }) {
     ctx = { store, getLevels: getLevels || (() => []), onChange: onChange || null, tryMarble: tryMarble || null };
+}
+
+// THE BARON'S DIARY in Gear (diary.js): every page, found ones to read, the
+// rest saying which planet hides them.
+function renderDiary(p) {
+    const box = $('profileDiary');
+    if (!box) return;
+    box.innerHTML = '';
+    for (const id of POCKET_LEVELS) {
+        const found = (p.diary || []).includes(id);
+        const world = Number((/^w(\d+)_/.exec(id) || [])[1]);
+        const row = h('div', 'diary-page' + (found ? ' is-found' : ''));
+        row.append(h('p', 'diary-head', `PAGE ${pageNumber(id)}  \u00b7  ${worldName(world).toUpperCase()}`));
+        row.append(h('p', 'diary-text', found ? pageText(id) : `Hidden somewhere on ${worldName(world)}.`));
+        box.append(row);
+    }
 }
