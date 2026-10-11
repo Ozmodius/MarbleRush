@@ -990,6 +990,9 @@ const failures = [];
         check((await rdbg('rescue')) === null && !(await rdbg('goalLocked')) && await rp.isHidden('#storyPanel'), 'once rescued, floor 10 is a plain level');
         await rp.tap('#mazeExitBtn');
         await homeUp(rp);
+        // Sawturn is all cleared, but the ship cannot fly on: home stays on
+        // Sawturn, where the missing cells are, not on a shut Slipstonia.
+        check(await rdbg('homeWorld') === 1, `short of fuel, home stays on Sawturn: world ${await rdbg('homeWorld')}`);
         check(/is-surveyed/.test(await rp.getAttribute('#homeSite_w1_10', 'class')) && /has-fuel/.test(await rp.getAttribute('#homeSite_w1_10', 'class')), 'home marks floor 10 surveyed and its cell found');
         check(/FRIENDS RESCUED 1 \/ 5/.test(await rp.textContent('#homeRescueText')) && await rp.locator('#homeRescueFriends .rescue-friend.is-freed').count() === 1, `home's tracker counts Pip freed: ${await rp.textContent('#homeRescueText')}`);
         await rp.tap('#tab_gear');
