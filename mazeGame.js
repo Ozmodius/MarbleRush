@@ -23,6 +23,8 @@ import { buildShip } from './ship3d.js';
 import { buildBackdrop } from './backdrop3d.js';
 import { fuelSpot, fuelGate, fuelCount, launchNeed, FUEL_REACH } from './fuel.js';
 import { buildFuelCell } from './fuel3d.js';
+import { createSurvey, surveyOf, SURVEYED } from './survey.js';
+import { levelGrid as levelGridFor } from './levelSpots.js';
 import { sfx as uiSfx } from './sfx.js';
 import { createMazeAudio } from './mazeAudio.js';
 import { wallForLevel, floorForLevel } from './soundModel.js';
@@ -316,6 +318,10 @@ let goalMesh = null;
 // are a ghost; taken this run, it is banked by a clear. Per level:
 // { spot, found, taken, mesh }, or null.
 let fuelCell = null;
+// THE SURVEY (survey.js): this attempt's coverage of the floor (ladder
+// levels, rolled or walked), or null.
+let survey = null;
+let surveyShownPct = -1;
 // BETWEEN LEVELS (levelShow.js): the show playing now -- the marble dropping
 // onto the start, or Rolle's ship bringing it or taking it away -- or null.
 // Drawing only: the ball's body never moves for it, and START (restart) ends
@@ -1145,6 +1151,7 @@ function advance(elapsedMs) {
         ballMesh.quaternion.slerp(prevBallQuat, 1 - a);
     }
     drawShow(elapsedMs);
+    if (survey && phase === 'running') { survey.mark(ballBody.position.x, ballBody.position.z); if (survey.pct !== surveyShownPct) renderSurveyChip(); }
     if (trail) trail.update(ballBody.position, elapsedMs);
     if (rescue && rescue.cage) rescue.cage.track(ballMesh.position.x, ballMesh.position.z, phase === 'running' || phase === 'won');
     if (walkMode) {
@@ -1465,6 +1472,22 @@ function renderFuelChip() {
     e.classList.toggle('is-taken', !!fuelCell.taken);
     e.title = fuelCell.found ? 'Fuel cell: found' : fuelCell.taken ? 'Fuel cell: clear the level to bank it' : 'Fuel cell: hidden in this maze';
 }
+// The HUD's map: this run's share of the floor, lit once the level has been
+// surveyed (now or before).
+function renderSurveyChip() {
+    const e = el('mazeMap');
+    if (!e) return;
+    const on = !!(level && !isDaily(level) && /^w\d+_\d+$/.test(level.id));
+    e.hidden = !on;
+    if (!on) return;
+    const pct = survey ? survey.pct : 0;
+    surveyShownPct = pct;
+    const best = surveyOf(progressNow(), level.id);
+    const t = el('mazeMapPct');
+    if (t) t.textContent = pct + '%';
+    e.classList.toggle('is-surveyed', pct >= SURVEYED || best >= SURVEYED);
+    e.title = `This run has covered ${pct}% of the floor (best ${best}%). ${SURVEYED}% surveys the level.`;
+}
 function freeCaptive() {
     rescue.freed = true;
     rescue.unlockedAt = performance.now();
@@ -1753,6 +1776,11 @@ function win() {
     }
     emitRun('clear', { ms, tier: (result && result.tier) || null, coins: coinsTaken, coinsOf: Array.isArray(level.coins) ? level.coins.length : 0 });
     if (result && dailyWasLocked && !store.dailyMaze().locked) result.dailyUnlocked = true;
+    // The survey: the best share of the floor a clear has covered.
+    if (survey && store && result && result.accepted) {
+        const sv = store.recordSurvey(level.id, survey.pct);
+        result.survey = { pct: survey.pct, best: sv.best, before: sv.before, better: sv.ok };
+    }
     // A fuel cell carried out: banked for the ship.
     if (fuelCell && fuelCell.taken && store && result && result.accepted && !isDaily(level)) {
         const f = store.recordFuel(level.id);
@@ -1885,6 +1913,10 @@ function restart() {
     // And the fuel cell back where it was.
     if (fuelCell) { fuelCell.taken = false; if (fuelCell.mesh) fuelCell.mesh.reset(); }
     renderFuelChip();
+    // A fresh survey every attempt: the best is the save's to keep.
+    survey = level && !isDaily(level) && /^w\d+_\d+$/.test(level.id) ? createSurvey(level) : null;
+    if (survey) survey.mark(ballBody.position.x, ballBody.position.z);
+    renderSurveyChip();
     renderCoins();
     renderPowerups();
     phase = 'running';
@@ -2417,6 +2449,8 @@ function startLevel(levelId, opts = {}) {
     smoothed = null;
     setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : rescue ? readyLine(rescue.world) : storyReadyLine(lv, prog) || readyHint());
     renderFuelChip();
+    survey = null;
+    renderSurveyChip();
     freeShieldTaken = false;
     rewardedThisBreak = false;   // that break is over; this level's are its own
     closeFallOffer();
@@ -2458,6 +2492,7 @@ function teardownLevel() {
     props = null;
     rescue = null;
     fuelCell = null;
+    survey = null;
     goalMesh = null;
     show = null;
     ship = null;
@@ -2515,6 +2550,10 @@ window.__mazeDebug = {
     // The rescue on this level: where the cage is, whether it is open.
     rescue: () => (rescue ? { world: rescue.world, x: rescue.spot.x, z: rescue.spot.z, freed: rescue.freed, captive: rescue.captive.id, cage: !!rescue.cage, cageShown: !!(rescue.cage && rescue.cage.group.visible) } : null),
     goalLocked: () => !!(goalMesh && rescue && !rescue.freed),
+    // This run's survey, and the save's best; surveyAll marks every square
+    // a ball can reach (a test standing in for a thorough player).
+    survey: () => (survey ? { pct: survey.pct, covered: survey.covered, total: survey.total, best: level ? surveyOf(progressNow(), level.id) : 0 } : null),
+    surveyAll: () => { if (!survey || !level) return null; const g = levelGridFor(level); for (let k = 0; k < g.pass.length; k++) if (g.pass[k] && Number.isFinite(g.fromStart[k])) { const p = g.at(k); survey.mark(p.x, p.z); } renderSurveyChip(); return survey.pct; },
     // This level's fuel cell: where, found before, taken this run, drawn.
     fuel: () => (fuelCell ? { x: fuelCell.spot.x, z: fuelCell.spot.z, found: fuelCell.found, taken: fuelCell.taken, shown: !!(fuelCell.mesh && fuelCell.mesh.group.visible) } : null),
     // The show between levels: which, how far in, and where the DRAWN ball is
@@ -2863,6 +2902,12 @@ function showClearResult(res, ms) {
         status2Later(`FUEL CELL BANKED  ·  ${worldName(res.fuel.world).toUpperCase()} ${res.fuel.count} / ${lvls}`, beat); beat += 1800;
         const need = launchNeed(res.fuel.world + 1);
         if (need && res.fuel.count === need && allLevels.some(l => l.world === res.fuel.world + 1)) { status2Later(`SHIP FUELED FOR ${worldName(res.fuel.world + 1).toUpperCase()}!`, beat); beat += 1800; }
+    }
+    if (res.survey && res.survey.better) {
+        const sv = res.survey;
+        status2Later(sv.pct >= SURVEYED && sv.before < SURVEYED ? `LEVEL SURVEYED!  ${sv.pct}% OF THE FLOOR`
+            : `MAPPED ${sv.pct}%  ·  BEST` + (sv.pct < SURVEYED ? `  ·  ${SURVEYED}% TO SURVEY` : ''), beat);
+        beat += 1600;
     }
     if (res.prize) { status2Later('PRIZE  ' + prizeName(res.prize), beat); beat += 1600; }
     if (res.levelUps && res.levelUps.length) {

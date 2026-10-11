@@ -934,6 +934,11 @@ const failures = [];
         // a moment later by another message on a starved page.)
         const took = await rdbg('fuel');
         check(took.taken && /is-taken/.test(await rp.getAttribute('#mazeFuel', 'class')), `rolling into the cell takes it: ${JSON.stringify(took)} ${await rp.getAttribute('#mazeFuel', 'class')} / ${await rp.textContent('#mazeStatus')}`);
+        // THE SURVEY (survey.js): the run counts the floor it covers; a
+        // thorough one (every reachable square) surveys the level.
+        const sv0 = await rdbg('survey');
+        check(sv0 && sv0.pct > 0 && sv0.pct < 90 && sv0.best === 0 && await rp.isVisible('#mazeMap'), `the run is mapping the floor: ${JSON.stringify(sv0)}`);
+        check((await rdbg('surveyAll')) === 100 && /100%/.test(await rp.textContent('#mazeMapPct')) && /is-surveyed/.test(await rp.getAttribute('#mazeMap', 'class')), 'covering every square maps it all');
         check(!((await rdbg('progress')).fuel || []).includes('w1_10'), 'but it is not banked before the clear');
         await rdbg('ageRun', Math.round(r10.goldMs * 1.2));
         await rdbg('holdShow', 0);
@@ -948,6 +953,7 @@ const failures = [];
         let rprog = await rdbg('progress');
         check((rprog.rescued || []).join() === '1' && rprog.marbles.includes('pip') && rprog.marble === 'classic', `Pip joins the player's marbles, Rolle still selected: ${JSON.stringify({ r: rprog.rescued, m: rprog.marbles, s: rprog.marble })}`);
         check((rprog.fuel || []).join() === 'w1_10', `the clear banks the cell: ${JSON.stringify(rprog.fuel)}`);
+        check(rprog.survey && rprog.survey.w1_10 === 100, `and keeps the survey: ${JSON.stringify(rprog.survey)}`);
         const joined = await rp.waitForFunction(() => /PIP JOINS YOU/.test(document.getElementById('mazeStatus2').textContent) && /CLEARED/.test(document.getElementById('mazeStatus').textContent), null, { polling: 100, timeout: 8000 }).then(() => true, () => false);
         check(joined, 'the CLEARED line stays and the line under it says Pip joins you');
         const pipSays = await rp.waitForFunction(() => /PIP: THE BARON FLED TO SLIPSTONIA/.test(document.getElementById('mazeStatus2').textContent), null, { polling: 100, timeout: 20000 }).then(() => true, () => false);
@@ -965,6 +971,7 @@ const failures = [];
         // Sawturn is all cleared, but the ship cannot fly on: home stays on
         // Sawturn, where the missing cells are, not on a shut Slipstonia.
         check(await rdbg('homeWorld') === 1, `short of fuel, home stays on Sawturn: world ${await rdbg('homeWorld')}`);
+        check(/is-surveyed/.test(await rp.getAttribute('#homeSite_w1_10', 'class')) && /has-fuel/.test(await rp.getAttribute('#homeSite_w1_10', 'class')), 'home marks floor 10 surveyed and its cell found');
         check(/FRIENDS RESCUED 1 \/ 5/.test(await rp.textContent('#homeRescueText')) && await rp.locator('#homeRescueFriends .rescue-friend.is-freed').count() === 1, `home's tracker counts Pip freed: ${await rp.textContent('#homeRescueText')}`);
         await rp.tap('#tab_gear');
         await rp.waitForSelector('#profileView', { state: 'visible' });

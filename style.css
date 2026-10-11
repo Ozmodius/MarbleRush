@@ -1665,3 +1665,11 @@ html.kbd-first .key-hint { display: inline-block; }
   box-shadow: 0 0 5px rgba(47, 216, 255, 0.7);
 }
 .world-sheetfuel { color: #9fe9ff; }
+
+/* --- the survey (survey.js) ---------------------------------------------- */
+.maze-map { display: inline-flex; align-items: center; gap: 4px; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.map-icon { width: 11px; height: 11px; border: 1.5px dashed currentColor; border-radius: 3px; }
+.maze-map.is-surveyed { color: #9fe9ff; }
+.maze-map.is-surveyed .map-icon { border-style: solid; background: rgba(127, 232, 255, 0.25); }
+/* A surveyed level's site or node: a dashed cyan ring round it. */
+.home-site.is-surveyed, .level-node.is-surveyed { outline: 2px dashed rgba(127, 232, 255, 0.85); outline-offset: 2px; }
