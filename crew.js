@@ -29,7 +29,7 @@ export const SIGNATURES = {
     classic: { name: 'Coin Sense', kind: 'tap', power: 'magnet', blurb: 'Tap it during a run: nearby coins roll to Rolle for 8 seconds.' },
     steel: { name: 'Iron Shell', kind: 'auto', covers: ['crush', 'gust'], blurb: 'The first press cannot crush Sterling, and the first gust cannot push him.' },
     rubber: { name: 'Hole Hop', kind: 'auto', covers: ['fall'], blurb: 'Bumper bounces back out of his first fall.' },
-    glass: { name: 'Clear Sight', kind: 'tap', power: 'sight', blurb: 'Tap it during a run: for 6 seconds false walls shimmer, and light marks the fuel cell and any diary page.' },
+    glass: { name: 'Clear Sight', kind: 'tap', power: 'sight', blurb: 'Tap it while exploring: for 6 seconds false walls shimmer, and light marks the fuel cell and any diary page.' },
     pip: { name: 'Sure Foot', kind: 'auto', covers: ['belt'], blurb: 'The first conveyor belt cannot carry Pip.' },
     flurry: { name: 'Ice Skates', kind: 'auto', covers: ['ice'], blurb: 'Full grip across the first patch of ice.' },
     cinder: { name: 'Fire Shield', kind: 'auto', covers: ['burn'], blurb: 'The first lava flare or molten gate cannot burn Cinder.' },

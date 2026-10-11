@@ -324,7 +324,8 @@ world's floor 10 count.
 
 The user's call: exploring should be required and rewarding.
 - *Fuel cells* (built): one per ladder level in its deepest dead end, banked
-  by a clear and kept. The ship needs 3 of Sawturn's to fly to Slipstonia,
+  by a clear and kept. Found in Explore mode only (the user's call,
+  2026-10-11): they are the one thing a world needs explored. The ship needs 3 of Sawturn's to fly to Slipstonia,
   5 of Slipstonia's for Magmars, 7 for each planet after; a planet already
   played on stays open. Home, the Worlds sheet and the HUD show the count.
 - *Survey* (built): how much of a level's floor a run covered, in half-unit
@@ -335,6 +336,8 @@ The user's call: exploring should be required and rewarding.
 - *Secret pockets* (built): on two floors of each planet, a dead end hidden
   behind a wall that only looks solid (drawn, no collider), holding a page
   of the Baron's diary; ten pages in all, banked by a clear, read in Gear.
+  Explore mode only (the user's call, 2026-10-11), as are the fuel cells;
+  Glint's Clear Sight works while exploring.
   The page text awaits the user's OK (`diary.js`).
 - Not doing: the Baron's locks (gates and keys on every run).
 

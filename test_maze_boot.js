@@ -95,6 +95,13 @@ const failures = [];
         check(nameFit.client > 0 && nameFit.scroll <= nameFit.client && nameFit.top >= nameFit.btn - 1 && (!nameFit.statusText.trim() || nameFit.status >= nameFit.bottom - 1), `the level name shows whole on a phone: ${JSON.stringify(nameFit)}`);
         check((await page.textContent('#mazeStatus')).trim() === 'TAP START, THEN TILT', `a touch device is told to tap START, then tilt: ${await page.textContent('#mazeStatus')}`);
         check(await page.isHidden('#privacyNote'), 'with no server, no privacy line under START (nothing leaves the device)');
+        // The mission (mission.js): the ready screen lists the level's jobs,
+        // the exit then exploring it for the fuel cell (found in Explore
+        // only), clear of the name, the ready line and START.
+        const mission = await dbg('mission');
+        check(mission && mission.map(r => r.kind).join(',') === 'exit,fuel' && mission[0].text === 'Reach the exit' && /explore it/i.test(mission[1].text), `level 1's ready screen lists the exit, then exploring it for the fuel cell: ${JSON.stringify(mission)}`);
+        const mBox = await page.evaluate(() => { const r = id => document.getElementById(id).getBoundingClientRect(); return { m: r('mazeMission'), name: r('mazeLevelName'), status: r('mazeStatus'), start: r('mazeStartBtn') }; });
+        check(mBox.m.top >= mBox.name.bottom - 1 && mBox.m.bottom <= mBox.status.top + 1 && mBox.m.bottom <= mBox.start.top, `the mission card sits under the name, above the ready line and START: ${JSON.stringify(mBox)}`);
         await page.tap('#mazeExitBtn');
         await page.waitForSelector('#tabBar', { state: 'visible' });
         await page.tap('#tab_home');
@@ -206,6 +213,7 @@ const failures = [];
         await page.waitForSelector('#mazeStartBtn', { state: 'visible' });
         await page.tap('#mazeStartBtn');
         await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+        check(await dbg('mission') === null && await page.isHidden('#mazeMission'), 'the mission card goes once the run starts');
 
         // Steering: keys tilt the board the way they say (screen down is +z,
         // screen right is +x).
@@ -752,7 +760,7 @@ const failures = [];
             await crewCtx.addInitScript((hi) => {
                 if (sessionStorage.getItem('seeded')) return;
                 sessionStorage.setItem('seeded', '1');
-                localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 1000, xp: 0, highestIndex: hi, cleared: {}, goldClaimed: [], prizes: [], charges: {},
+                localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 1000, xp: 0, highestIndex: hi, cleared: { w1_07: { bestMs: 60000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {},
                     marbles: ['classic', 'glass', 'cinder'], marble: 'cinder', bond: { cinder: 100 }, daily: { streak: 1, last: '2099-01-01', doubled: '' } }));
             }, flCrew.index - 1);
             const cp = await crewCtx.newPage();
@@ -787,7 +795,8 @@ const failures = [];
             await up.tap();
             let pc = await cdbg('progress');
             check(pc.crew.cinder === 1 && pc.wallet === w0 - 300 && await cp.locator('.crew-card[data-crew="cinder"] .crew-step.is-on').count() === 1, `the step is bought and shown: ${JSON.stringify({ crew: pc.crew, w: pc.wallet })}`);
-            // Glint: a tap signature.
+            // Glint: a tap signature, Clear Sight -- an Explore power, since
+            // the hidden things are only there when exploring.
             await cp.locator('.crew-card[data-crew="glass"] .marble-action').tap({ timeout: 90000 });
             check((await cdbg('progress')).marble === 'glass', 'SELECT in CREW picks the marble');
             await cp.tap('#tab_home', { timeout: 90000 });
@@ -796,7 +805,12 @@ const failures = [];
             check(await cdbg('startLevelForTest', 'w1_07'), 'can build w1_07');
             await cp.tap('#mazeStartBtn');
             await cp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
-            check(await cp.isVisible('#mazeUse_sig') && /CLEAR SIGHT/.test(await cp.textContent('#mazeUse_sig')), "Glint's Clear Sight shows as a HUD button");
+            check(await cp.isHidden('#mazeUse_sig') && !(await cdbg('useSignature')), 'rolling, Clear Sight has nothing to show: no button, no use');
+            check(await cdbg('walkLevel', 'w1_07'), 'w1_07 can be explored');
+            await cp.waitForSelector('#mazeStartBtn', { state: 'visible' });
+            await cp.tap('#mazeStartBtn');
+            await cp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            check(await cp.isVisible('#mazeUse_sig') && /CLEAR SIGHT/.test(await cp.textContent('#mazeUse_sig')), "exploring, Glint's Clear Sight shows as a HUD button");
             await cp.tap('#mazeUse_sig');
             await cdbg('advanceFrames', 2);
             const cg = await cdbg('crew');
@@ -950,9 +964,9 @@ const failures = [];
         await rdbg('holdShow', 0);              // and drawn, held
         let sh = await rdbg('show');
         check(sh.kind === 'drop' && sh.drawn.y > sh.body.y + 2 && Math.abs(sh.body.x - levels[4].start.x) < 1e-6, `a level opens on the drop, the body already on the start: ${JSON.stringify(sh)}`);
-        // FUEL CELLS (fuel.js): every level hides one, not yet found here.
-        const cell5 = await rdbg('fuel');
-        check(cell5 && !cell5.found && !cell5.taken && cell5.shown && await rp.isVisible('#mazeFuel') && !/is-found/.test(await rp.getAttribute('#mazeFuel', 'class')), `a level hides a fuel cell, the HUD's cell dim: ${JSON.stringify(cell5)}`);
+        // FUEL CELLS (fuel.js): found in Explore mode only -- a rolling run
+        // shows none, and the HUD no cell.
+        check(await rdbg('fuel') === null && await rp.isHidden('#mazeFuel'), `a rolling run shows no fuel cell: ${JSON.stringify(await rdbg('fuel'))}`);
         // EACH WORLD'S SKY (backdrop3d.js): its planet far below, the ground
         // drawn once into a texture rather than shaded every frame.
         check(JSON.stringify(await rdbg('levelSky')) === '{"baked":true}', `the level hangs over its planet, the ground baked once: ${JSON.stringify(await rdbg('levelSky'))}`);
@@ -971,12 +985,20 @@ const failures = [];
         await rdbg('advanceFrames', 1);   // the drawn ball follows the body on the next frame
         sh = await rdbg('show');
         check(sh.kind === null && !sh.shipShown && Math.abs(sh.drawn.x - sh.body.x) < 0.05 && Math.abs(sh.drawn.y - sh.body.y) < 0.05, `START ends the show where the ball really is: ${JSON.stringify(sh)}`);
-        // SECRET POCKETS (pockets.js): w1_07's false wall is drawn but has
-        // no body -- a ball set inside it stays put -- and the page behind it
-        // is banked by a clear, to read in Gear.
+        // SECRET POCKETS (pockets.js): Explore mode only. Rolling, w1_07 has
+        // no false wall and no page; exploring it (once rolled), the false
+        // wall is drawn but has no body -- a ball set inside it stays put --
+        // and the page behind it is banked by a clear, to read in Gear.
         await rdbg('startLevelForTest', 'w1_07');
+        check(await rdbg('pocket') === null, `rolling, w1_07 hides nothing: ${JSON.stringify(await rdbg('pocket'))}`);
+        await rp.tap('#mazeStartBtn');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100 });
+        await rdbg('ageRun', 60000);
+        check(await rdbg('warpToGoal'), 'w1_07 clears rolled');
+        check(await rdbg('walkLevel', 'w1_07'), 'and can then be explored');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
         const pk = await rdbg('pocket');
-        check(pk && !pk.found && !pk.taken, `w1_07 hides a diary page: ${JSON.stringify(pk)}`);
+        check(pk && !pk.found && !pk.taken, `exploring, w1_07 hides a diary page: ${JSON.stringify(pk)}`);
         await rp.tap('#mazeStartBtn');
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100 });
         await rdbg('holdFallOffer', false);
@@ -984,12 +1006,12 @@ const failures = [];
         const stillThere = await rdbg('advanceFrames', 4);
         check(Math.hypot(stillThere.x - inWall.x, stillThere.z - inWall.z) < 0.05, `a ball inside the false wall is not pushed out (it has no body): ${JSON.stringify([inWall, stillThere])}`);
         await rdbg('placeBall', pk.x, pk.z);
-        check((await rdbg('pocket')).taken, 'rolling into the page takes it');
+        check((await rdbg('pocket')).taken, 'walking into the page takes it');
         await rdbg('ageRun', 60000);
         // Every line the clear puts under CLEARED, in order (one beat apart:
         // a later one may replace it before a poll would see it).
         await rp.evaluate(() => { window.__s2seen = []; const e = document.getElementById('mazeStatus2'); new MutationObserver(() => window.__s2seen.push(e.textContent)).observe(e, { childList: true, characterData: true, subtree: true }); });
-        check(await rdbg('warpToGoal'), 'w1_07 clears');
+        check(await rdbg('warpToGoal'), 'the explored w1_07 clears');
         check(((await rdbg('progress')).diary || []).join() === 'w1_07', `the clear keeps the page: ${JSON.stringify((await rdbg('progress')).diary)}`);
         const saidPage = await rp.waitForFunction(() => window.__s2seen.some(t => /DIARY PAGE 1 FOUND/.test(t)), null, { polling: 100, timeout: 20000 }).then(() => true, () => false);
         check(saidPage, `the CLEARED panel says the page was found: ${JSON.stringify(await rp.evaluate(() => window.__s2seen))}`);
@@ -1020,19 +1042,11 @@ const failures = [];
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running' && !window.__mazeDebug.rescue().freed, null, { polling: 100, timeout: 15000 }).catch(() => {});
         check(!(await rdbg('rescue')).freed && await rdbg('goalLocked'), 'a fall cages Pip again and locks the exit');
         await rdbg('placeBall', cage.x, cage.z);
-        // Take floor 10's fuel cell on the way out: banked by the clear.
-        const cell10 = await rdbg('fuel');
-        await rdbg('placeBall', cell10.x, cell10.z);
-        // (By its state and the HUD's cell: the status line can be taken over
-        // a moment later by another message on a starved page.)
-        const took = await rdbg('fuel');
-        check(took.taken && /is-taken/.test(await rp.getAttribute('#mazeFuel', 'class')), `rolling into the cell takes it: ${JSON.stringify(took)} ${await rp.getAttribute('#mazeFuel', 'class')} / ${await rp.textContent('#mazeStatus')}`);
         // THE SURVEY (survey.js): the run counts the floor it covers; a
         // thorough one (every reachable square) surveys the level.
         const sv0 = await rdbg('survey');
         check(sv0 && sv0.pct > 0 && sv0.pct < 90 && sv0.best === 0 && await rp.isVisible('#mazeMap'), `the run is mapping the floor: ${JSON.stringify(sv0)}`);
         check((await rdbg('surveyAll')) === 100 && /100%/.test(await rp.textContent('#mazeMapPct')) && /is-surveyed/.test(await rp.getAttribute('#mazeMap', 'class')), 'covering every square maps it all');
-        check(!((await rdbg('progress')).fuel || []).includes('w1_10'), 'but it is not banked before the clear');
         await rdbg('ageRun', Math.round(r10.goldMs * 1.2));
         await rdbg('holdShow', 0);
         check(await rdbg('warpToGoal'), 'with Pip freed, the exit clears the level');
@@ -1045,20 +1059,42 @@ const failures = [];
         check(sh.kind === null && !sh.shipShown && !sh.drawn.visible, `and flies off with it, the board left empty: ${JSON.stringify(sh)}`);
         let rprog = await rdbg('progress');
         check((rprog.rescued || []).join() === '1' && rprog.marbles.includes('pip') && rprog.marble === 'classic', `Pip joins the player's marbles, Rolle still selected: ${JSON.stringify({ r: rprog.rescued, m: rprog.marbles, s: rprog.marble })}`);
-        check((rprog.fuel || []).join() === 'w1_10', `the clear banks the cell: ${JSON.stringify(rprog.fuel)}`);
+        check(!(rprog.fuel || []).length, `a rolling clear banks no fuel cell: ${JSON.stringify(rprog.fuel)}`);
         check(rprog.survey && rprog.survey.w1_10 === 100, `and keeps the survey: ${JSON.stringify(rprog.survey)}`);
         const joined = await rp.waitForFunction(() => /PIP JOINS YOU/.test(document.getElementById('mazeStatus2').textContent) && /CLEARED/.test(document.getElementById('mazeStatus').textContent), null, { polling: 100, timeout: 8000 }).then(() => true, () => false);
         check(joined, 'the CLEARED line stays and the line under it says Pip joins you');
         const pipSays = await rp.waitForFunction(() => /PIP: THE BARON FLED TO SLIPSTONIA/.test(document.getElementById('mazeStatus2').textContent), null, { polling: 100, timeout: 20000 }).then(() => true, () => false);
         check(pipSays, 'then Pip says where the Baron went');
-        // One cell of Sawturn's is not enough to fly to Slipstonia: no NEXT,
-        // and the line under the result says what the ship needs.
+        // No cells of Sawturn's: the ship cannot fly to Slipstonia. No NEXT,
+        // and the line under the result says what the ship needs, and where
+        // cells are found.
         check(await rp.isHidden('#mazeNextBtn'), 'short of fuel, the CLEARED panel has no NEXT');
-        const shipSays = await rp.waitForFunction(() => /SHIP NEEDS 3 FUEL CELLS FOR SLIPSTONIA\s+·\s+1 FOUND/.test(document.getElementById('mazeStatus2').textContent), null, { polling: 100, timeout: 25000 }).then(() => true, () => false);
-        check(shipSays, 'and says the ship needs 3 cells for Slipstonia, 1 found');
+        const shipSays = await rp.waitForFunction(() => /SHIP NEEDS 3 FUEL CELLS FOR SLIPSTONIA\s+·\s+0 FOUND\s+·\s+EXPLORE TO FIND THEM/.test(document.getElementById('mazeStatus2').textContent), null, { polling: 100, timeout: 25000 }).then(() => true, () => false);
+        check(shipSays, `and says the ship needs 3 cells for Slipstonia, 0 found, explore to find them: ${await rp.textContent('#mazeStatus2')}`);
         await rdbg('startLevelForTest', 'w1_10', { story: true });
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
         check((await rdbg('rescue')) === null && !(await rdbg('goalLocked')) && await rp.isHidden('#storyPanel'), 'once rescued, floor 10 is a plain level');
+        // EXPLORE IT: walking the maze shows its fuel cell; walking into it
+        // takes it, and reaching the exit banks it.
+        check(await rdbg('walkLevel', 'w1_10'), 'floor 10 can be explored once rolled');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
+        const wm = await rdbg('mission');
+        check(wm && wm.map(r => r.kind).join(',') === 'fuel,exit' && wm[0].text === 'Find the fuel cell', `exploring, the ready screen asks for the fuel cell, then the exit: ${JSON.stringify(wm)}`);
+        const cell10 = await rdbg('fuel');
+        check(cell10 && !cell10.found && !cell10.taken && cell10.shown && await rp.isVisible('#mazeFuel') && !/is-found/.test(await rp.getAttribute('#mazeFuel', 'class')), `exploring, the maze shows its fuel cell, the HUD's cell dim: ${JSON.stringify(cell10)}`);
+        await rp.tap('#mazeStartBtn');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100, timeout: 20000 });
+        await rdbg('placeBall', cell10.x, cell10.z);
+        // (By its state and the HUD's cell: the status line can be taken over
+        // a moment later by another message on a starved page.)
+        const took = await rdbg('fuel');
+        check(took.taken && /is-taken/.test(await rp.getAttribute('#mazeFuel', 'class')), `walking into the cell takes it: ${JSON.stringify(took)} ${await rp.getAttribute('#mazeFuel', 'class')} / ${await rp.textContent('#mazeStatus')}`);
+        check(!((await rdbg('progress')).fuel || []).includes('w1_10'), 'but it is not banked before the exit');
+        await rdbg('ageRun', Math.round(r10.goldMs * 3));
+        check(await rdbg('warpToGoal'), 'the exit clears the explored maze');
+        check(((await rdbg('progress')).fuel || []).join() === 'w1_10', `the clear banks the cell: ${JSON.stringify((await rdbg('progress')).fuel)}`);
+        const banked = await rp.waitForFunction(() => /FUEL CELL BANKED\s+·\s+SAWTURN 1 \/ 10/.test(document.getElementById('mazeStatus2').textContent), null, { polling: 100, timeout: 20000 }).then(() => true, () => false);
+        check(banked, `and says so: ${await rp.textContent('#mazeStatus2')}`);
         await rp.tap('#mazeExitBtn');
         await homeUp(rp);
         // Sawturn is all cleared, but the ship cannot fly on: home stays on

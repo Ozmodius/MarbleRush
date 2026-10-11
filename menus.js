@@ -195,7 +195,7 @@ function renderHome() {
         // Short of fuel, or still to finish the planet before (fuel.js).
         const gate = fuelGate(p, levels.find(l => l.world === home.world && l.index === (home.world - 1) * 10 + 1));
         $('homeGoal').textContent = gate && (p.highestIndex || 0) + 1 >= (home.world - 1) * 10 + 1
-            ? `The ship needs ${gate.need} fuel cells from ${worldName(gate.from)}  ·  ${gate.have} found`
+            ? `The ship needs ${gate.need} fuel cells from ${worldName(gate.from)}  ·  ${gate.have} found  ·  Explore its mazes to find them`
             : `Finish ${worldName(home.world - 1)} to unlock`;
         $('homePlayLabel').textContent = 'LOCKED';
         $('homePlayLevel').textContent = '';
@@ -391,7 +391,7 @@ function renderSheet(w) {
     else if (w.state === 'locked') {
         const gate = fuelGate(p, w.levels[0]);
         $('worldSheetNote').textContent = gate && (p.highestIndex || 0) + 1 >= w.levels[0].index
-            ? `The ship needs ${gate.need} fuel cells from ${worldName(gate.from)} to land here (${gate.have} found).`
+            ? `The ship needs ${gate.need} fuel cells from ${worldName(gate.from)} to land here (${gate.have} found). Explore its mazes to find them.`
             : `Finish ${worldName(w.n - 1)} to land here.`;
     }
     else if (walk) $('worldSheetNote').textContent = 'Explore any level you have rolled, from inside the maze. Find the exit; the traps are real.';
@@ -450,7 +450,7 @@ function renderSheet(w) {
             const ic = document.createElement('span'); ic.className = 'fuel-icon';
             const surveyedN = w.levels.filter(l => isSurveyed(p, l.id)).length;
             const pages = POCKET_LEVELS.filter(id => id.startsWith(`w${w.n}_`));
-            fuelEl.append(ic, document.createTextNode(`Fuel cells ${have} / ${w.levels.length}, one hidden in each maze's deepest dead end.` + (next && next.levels.length ? ` ${worldName(w.n + 1)} needs ${need}.` : '') + `  Surveyed ${surveyedN} / ${w.levels.length}.` + (pages.length ? `  Diary pages ${pages.filter(id => (p.diary || []).includes(id)).length} / ${pages.length}.` : '')));
+            fuelEl.append(ic, document.createTextNode(`Fuel cells ${have} / ${w.levels.length}, one hidden in each maze's deepest dead end, found in Explore mode.` + (next && next.levels.length ? ` ${worldName(w.n + 1)} needs ${need}.` : '') + `  Surveyed ${surveyedN} / ${w.levels.length}.` + (pages.length ? `  Diary pages ${pages.filter(id => (p.diary || []).includes(id)).length} / ${pages.length}.` : '')));
         }
     }
 
