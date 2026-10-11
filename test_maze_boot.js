@@ -915,8 +915,13 @@ const failures = [];
         await rdbg('placeBall', pk.x, pk.z);
         check((await rdbg('pocket')).taken, 'rolling into the page takes it');
         await rdbg('ageRun', 60000);
+        // Every line the clear puts under CLEARED, in order (one beat apart:
+        // a later one may replace it before a poll would see it).
+        await rp.evaluate(() => { window.__s2seen = []; const e = document.getElementById('mazeStatus2'); new MutationObserver(() => window.__s2seen.push(e.textContent)).observe(e, { childList: true, characterData: true, subtree: true }); });
         check(await rdbg('warpToGoal'), 'w1_07 clears');
         check(((await rdbg('progress')).diary || []).join() === 'w1_07', `the clear keeps the page: ${JSON.stringify((await rdbg('progress')).diary)}`);
+        const saidPage = await rp.waitForFunction(() => window.__s2seen.some(t => /DIARY PAGE 1 FOUND/.test(t)), null, { polling: 100, timeout: 20000 }).then(() => true, () => false);
+        check(saidPage, `the CLEARED panel says the page was found: ${JSON.stringify(await rp.evaluate(() => window.__s2seen))}`);
         // The story's voices on the ready line (rescue.js).
         await rdbg('startLevelForTest', 'w1_09');
         check(/PIP'S CAGE IS ON THE NEXT FLOOR/.test(await rp.textContent('#mazeStatus')), `floor 9 warns the cage is near: ${await rp.textContent('#mazeStatus')}`);

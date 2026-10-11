@@ -2928,10 +2928,13 @@ function showClearResult(res, ms) {
     // a clear that levelled up never showed its time or pay for long).
     // The last one stays.
     let beat = 700;
-    if (res.rescued) {
-        status2Later(joinedLine(res.rescued), beat); beat += 2200;
-        // The friend's own word: where the Baron went next.
-        if (friendLine(res.rescued)) { status2Later(friendLine(res.rescued), beat); beat += 2400; }
+    // The survey first: a find (a fuel cell, a diary page) matters more,
+    // and the last line is the one that stays.
+    if (res.survey && res.survey.better) {
+        const sv = res.survey;
+        status2Later(sv.pct >= SURVEYED && sv.before < SURVEYED ? `LEVEL SURVEYED!  ${sv.pct}% OF THE FLOOR`
+            : `MAPPED ${sv.pct}%  ·  BEST` + (sv.pct < SURVEYED ? `  ·  ${SURVEYED}% TO SURVEY` : ''), beat);
+        beat += 1600;
     }
     if (res.fuel) {
         const lvls = allLevels.filter(l => l.world === res.fuel.world).length;
@@ -2940,11 +2943,12 @@ function showClearResult(res, ms) {
         if (need && res.fuel.count === need && allLevels.some(l => l.world === res.fuel.world + 1)) { status2Later(`SHIP FUELED FOR ${worldName(res.fuel.world + 1).toUpperCase()}!`, beat); beat += 1800; }
     }
     if (res.page) { status2Later(`DIARY PAGE ${res.page} FOUND  ·  READ IT IN GEAR`, beat); beat += 2000; }
-    if (res.survey && res.survey.better) {
-        const sv = res.survey;
-        status2Later(sv.pct >= SURVEYED && sv.before < SURVEYED ? `LEVEL SURVEYED!  ${sv.pct}% OF THE FLOOR`
-            : `MAPPED ${sv.pct}%  ·  BEST` + (sv.pct < SURVEYED ? `  ·  ${SURVEYED}% TO SURVEY` : ''), beat);
-        beat += 1600;
+    // A friend freed comes after the finds: their word on where the Baron
+    // went is the floor's last beat of the story.
+    if (res.rescued) {
+        status2Later(joinedLine(res.rescued), beat); beat += 2200;
+        // The friend's own word: where the Baron went next.
+        if (friendLine(res.rescued)) { status2Later(friendLine(res.rescued), beat); beat += 2400; }
     }
     if (res.prize) { status2Later('PRIZE  ' + prizeName(res.prize), beat); beat += 1600; }
     if (res.levelUps && res.levelUps.length) {
