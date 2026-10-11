@@ -49,7 +49,7 @@ function card(id, p, ctx) {
     who.append(h('span', 'marble-name', m.name), h('span', 'crew-from', m.rescue ? `From ${worldName(m.rescue)}` : id === 'classic' ? 'The hero' : 'Crew for hire'));
     head.append(who);
     c.append(head);
-    c.append(h('p', 'marble-blurb', captive ? `Caged by Baron Von Ratchet on ${worldName(m.rescue)}'s floor 10. Roll in and free ${m.name}.` : m.blurb));
+    c.append(h('p', 'marble-blurb', captive ? `Caged by Baron Von Ratchet on ${worldName(m.rescue)}'s floor 10.` : m.blurb));
 
     // Bond: the level, and the bar to the next.
     if (owned) {
