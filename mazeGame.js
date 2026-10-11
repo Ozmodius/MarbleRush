@@ -21,6 +21,8 @@ import { buildCage } from './captive3d.js';
 import { drop as dropPose, shipDrop as shipDropPose, shipPickup as shipPickupPose, openingShow, closingShow, SHIP_DOME_Y, DROP_MS, SHIP_DROP_MS, SHIP_PICKUP_MS } from './levelShow.js';
 import { buildShip } from './ship3d.js';
 import { buildBackdrop } from './backdrop3d.js';
+import { fuelSpot, fuelGate, fuelCount, launchNeed, FUEL_REACH } from './fuel.js';
+import { buildFuelCell } from './fuel3d.js';
 import { sfx as uiSfx } from './sfx.js';
 import { createMazeAudio } from './mazeAudio.js';
 import { wallForLevel, floorForLevel } from './soundModel.js';
@@ -310,6 +312,10 @@ let trialMarble = null;
 // { world, spot, captive, cage, freed, atGoal, unlockedAt }, or null.
 let rescue = null;
 let goalMesh = null;
+// THE FUEL CELL (fuel.js): this level's, in its deepest dead end. Found ones
+// are a ghost; taken this run, it is banked by a clear. Per level:
+// { spot, found, taken, mesh }, or null.
+let fuelCell = null;
 // BETWEEN LEVELS (levelShow.js): the show playing now -- the marble dropping
 // onto the start, or Rolle's ship bringing it or taking it away -- or null.
 // Drawing only: the ball's body never moves for it, and START (restart) ends
@@ -784,6 +790,12 @@ function buildLevelMeshes(lv, theme) {
         ship.setPose({ x: 0, y: 0, z: 0, visible: false });
         group.add(ship.group);
     }
+    if (fuelCell) {
+        const tracked = [];
+        fuelCell.mesh = buildFuelCell(fuelCell.spot, lv.ballRadius, fuelCell.found, tracked);
+        tracked.forEach(track);
+        group.add(fuelCell.mesh.group);
+    }
     if (rescue) {
         const tracked = [];
         rescue.cage = buildCage(rescue.spot, rescue.captive.look, lv.ballRadius, tracked);
@@ -1043,6 +1055,7 @@ function step() {
     tickSurfaces(now / 1000);
     if (props) props.tick(now / 1000);
     if (rescue && rescue.cage) rescue.cage.tick(now / 1000);
+    if (fuelCell && fuelCell.mesh) fuelCell.mesh.tick(now / 1000);
     if (ship) ship.tick(now / 1000);
     if (levelSky) levelSky.tick(now / 1000);
     tickGoal(now);
@@ -1434,6 +1447,24 @@ function tickGoal(now) {
     goalMesh.material.color.copy(goalMesh.userData.color);
     goalMesh.scale.setScalar(t < 1 ? 1 + 0.6 * Math.sin(t * Math.PI) : 1);
 }
+function takeFuel() {
+    fuelCell.taken = true;
+    if (fuelCell.mesh) fuelCell.mesh.take();
+    setStatus('FUEL CELL!  CLEAR THE LEVEL TO BANK IT');
+    if (audio) audio.event('pickup', { x: fuelCell.spot.x, z: fuelCell.spot.z });
+    renderFuelChip();
+}
+// The HUD's cell: none on a level without one; dim until found; lit once
+// found (before, or taken this run).
+function renderFuelChip() {
+    const e = el('mazeFuel');
+    if (!e) return;
+    e.hidden = !fuelCell;
+    if (!fuelCell) return;
+    e.classList.toggle('is-found', !!fuelCell.found);
+    e.classList.toggle('is-taken', !!fuelCell.taken);
+    e.title = fuelCell.found ? 'Fuel cell: found' : fuelCell.taken ? 'Fuel cell: clear the level to bank it' : 'Fuel cell: hidden in this maze';
+}
 function freeCaptive() {
     rescue.freed = true;
     rescue.unlockedAt = performance.now();
@@ -1517,6 +1548,12 @@ function checkOutcomes() {
         }
         if (events.length) renderCoins();
         renderPowerups();
+    }
+
+    // A fuel cell not yet found: rolled into, it is taken (banked by a clear).
+    if (fuelCell && !fuelCell.found && !fuelCell.taken) {
+        const fdx = p.x - fuelCell.spot.x, fdz = p.z - fuelCell.spot.z;
+        if (fdx * fdx + fdz * fdz <= FUEL_REACH * FUEL_REACH) takeFuel();
     }
 
     // The rescue: rolling into the cage frees the friend and opens the exit.
@@ -1716,6 +1753,11 @@ function win() {
     }
     emitRun('clear', { ms, tier: (result && result.tier) || null, coins: coinsTaken, coinsOf: Array.isArray(level.coins) ? level.coins.length : 0 });
     if (result && dailyWasLocked && !store.dailyMaze().locked) result.dailyUnlocked = true;
+    // A fuel cell carried out: banked for the ship.
+    if (fuelCell && fuelCell.taken && store && result && result.accepted && !isDaily(level)) {
+        const f = store.recordFuel(level.id);
+        if (f.ok) { fuelCell.found = true; result.fuel = { world: level.world, count: fuelCount(store.get(), level.world) }; }
+    }
     // A friend freed and brought out: they join the player for good.
     if (rescue && rescue.freed && store && result && result.accepted) {
         const r = store.recordRescue(rescue.world);
@@ -1744,7 +1786,10 @@ function win() {
     showEl('mazeLevelsBtn', true);
     // NEXT MAZE only exists when there IS one. On the final level the panel
     // collapses to EXIT, rather than offering a button that would do nothing.
-    showEl('mazeNextBtn', !walkMode && !isDaily(level) && !!nextLevelAfter(level));
+    // Nor when the ship lacks the fuel to fly to the next planet (fuel.js):
+    // the line under the result says how many cells it needs.
+    const nextLv = nextLevelAfter(level);
+    showEl('mazeNextBtn', !walkMode && !isDaily(level) && !!nextLv && !fuelGate(progressNow(), nextLv));
     // A level just rolled can be walked next (the Labyrinth).
     showEl('mazeWalkBtn', !walkMode && !isDaily(level) && !!(result && result.accepted));
     renderGift();
@@ -1837,6 +1882,9 @@ function restart() {
         if (rescue.cage) rescue.cage.reset();
         lockGoal(true);
     }
+    // And the fuel cell back where it was.
+    if (fuelCell) { fuelCell.taken = false; if (fuelCell.mesh) fuelCell.mesh.reset(); }
+    renderFuelChip();
     renderCoins();
     renderPowerups();
     phase = 'running';
@@ -2026,7 +2074,9 @@ function enterMenus(tab) {
     if (phase !== 'menu' && level && !isDaily(level)) {
         const played = level.world, next = nextLevel();
         const done = allLevels.filter(l => l.world === played).every(l => progressNow().cleared[l.id]);
-        homeWorldN = done && next && next.world > played ? next.world : played;
+        // (Not while the ship lacks the fuel to fly there: home stays on the
+        // planet the cells are found on.)
+        homeWorldN = done && next && next.world > played && !fuelGate(progressNow(), next) ? next.world : played;
         homePick = {};       // back from a level: PLAY offers what is next again
     }
     keepAwake(false);   // the menus let the phone sleep as usual (wakeLock.js)
@@ -2177,7 +2227,10 @@ let planetSlide = null;                // { from, t0 }: the planet sliding in
 let planetSlideFrom = 0;               // where the last slide started (tests: a slide outruns a slow page's reads)
 const PLANET_SLIDE_X = 9, PLANET_SLIDE_MS = 380;
 export function homeWorld() {
-    const n = homeWorldN || (nextLevel() ? nextLevel().world : 1);
+    // The ladder's world -- or, while the ship lacks the fuel to fly on to
+    // it, the planet the missing cells are on.
+    const next = nextLevel(), gate = next ? fuelGate(progressNow(), next) : null;
+    const n = homeWorldN || (gate ? gate.from : next ? next.world : 1);
     return Math.max(1, Math.min(LAUNCH_WORLDS, n));
 }
 export function homeLevel() {
@@ -2306,6 +2359,12 @@ function startLevel(levelId, opts = {}) {
         levelSky.tick(0);
     }
 
+    // The fuel cell: every ladder level, rolled or walked.
+    fuelCell = null;
+    if (!isDaily(lv)) {
+        const spot = fuelSpot(lv);
+        if (spot) fuelCell = { spot, found: (prog.fuel || []).includes(lv.id), taken: false, mesh: null };
+    }
     // The rescue: rolling (not walking), a floor 10, the friend not yet free.
     rescue = null;
     if (!walkMode && isRescueLevel(lv) && !(prog.rescued || []).includes(lv.world)) {
@@ -2357,6 +2416,7 @@ function startLevel(levelId, opts = {}) {
     beginShow(openingShow(lv, { walk: walkMode }), lv.start);
     smoothed = null;
     setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : rescue ? readyLine(rescue.world) : storyReadyLine(lv, prog) || readyHint());
+    renderFuelChip();
     freeShieldTaken = false;
     rewardedThisBreak = false;   // that break is over; this level's are its own
     closeFallOffer();
@@ -2397,6 +2457,7 @@ function teardownLevel() {
     winStarMs = 0;
     props = null;
     rescue = null;
+    fuelCell = null;
     goalMesh = null;
     show = null;
     ship = null;
@@ -2454,6 +2515,8 @@ window.__mazeDebug = {
     // The rescue on this level: where the cage is, whether it is open.
     rescue: () => (rescue ? { world: rescue.world, x: rescue.spot.x, z: rescue.spot.z, freed: rescue.freed, captive: rescue.captive.id, cage: !!rescue.cage, cageShown: !!(rescue.cage && rescue.cage.group.visible) } : null),
     goalLocked: () => !!(goalMesh && rescue && !rescue.freed),
+    // This level's fuel cell: where, found before, taken this run, drawn.
+    fuel: () => (fuelCell ? { x: fuelCell.spot.x, z: fuelCell.spot.z, found: fuelCell.found, taken: fuelCell.taken, shown: !!(fuelCell.mesh && fuelCell.mesh.group.visible) } : null),
     // The show between levels: which, how far in, and where the DRAWN ball is
     // (the body never moves for it).
     show: () => ({ kind: show ? show.kind : null, ms: show ? show.ms : 0, ship: !!ship, shipShown: !!(ship && ship.group.visible),
@@ -2795,6 +2858,12 @@ function showClearResult(res, ms) {
         // The friend's own word: where the Baron went next.
         if (friendLine(res.rescued)) { status2Later(friendLine(res.rescued), beat); beat += 2400; }
     }
+    if (res.fuel) {
+        const lvls = allLevels.filter(l => l.world === res.fuel.world).length;
+        status2Later(`FUEL CELL BANKED  ·  ${worldName(res.fuel.world).toUpperCase()} ${res.fuel.count} / ${lvls}`, beat); beat += 1800;
+        const need = launchNeed(res.fuel.world + 1);
+        if (need && res.fuel.count === need && allLevels.some(l => l.world === res.fuel.world + 1)) { status2Later(`SHIP FUELED FOR ${worldName(res.fuel.world + 1).toUpperCase()}!`, beat); beat += 1800; }
+    }
     if (res.prize) { status2Later('PRIZE  ' + prizeName(res.prize), beat); beat += 1600; }
     if (res.levelUps && res.levelUps.length) {
         const L = res.levelUps[res.levelUps.length - 1].level;
@@ -2812,6 +2881,10 @@ function showClearResult(res, ms) {
     if (res.dailyUnlocked) status2Later('DAILY MAZE UNLOCKED  ·  ON HOME', beat);
     // Today's daily maze done: tomorrow has another.
     if (isDaily(level)) status2Later('A NEW DAILY MAZE TOMORROW', beat);
+    // The ship cannot fly on yet: the last word, since NEXT is gone.
+    const nx = !walkMode && !isDaily(level) ? nextLevelAfter(level) : null;
+    const gate = nx ? fuelGate(progressNow(), nx) : null;
+    if (gate) status2Later(`SHIP NEEDS ${gate.need} FUEL CELLS FOR ${worldName(nx.world).toUpperCase()}  ·  ${gate.have} FOUND`, beat + 200);
     if (res.prize) {
         try { uiSfx.open(); } catch (e) { /* ignore */ }
     }

@@ -26,6 +26,7 @@ import { achievementList, achievementsReady, claimAchievement, parseAchievements
 import * as daily from './daily.js';
 import * as levelUp from './playerLevel.js';
 import { XP } from './shopCatalog.js';
+import { fuelGate, isLadderId } from './fuel.js';
 
 // The game was called Marble Rush when saves began; the key keeps that name
 // on purpose -- renaming it would wipe every player's progress.
@@ -71,6 +72,9 @@ export function freshProgress() {
         // Friends freed from the Baron (rescue.js): the worlds whose floor-10
         // captive the player has rescued. Each one's marble is in `marbles`.
         rescued: [],
+        // Fuel cells found (fuel.js): the ids of the levels whose cell has
+        // been banked. A planet's count flies the ship to the next.
+        fuel: [],
         // The Labyrinth (walkMode.js): best walk per level, explorer kit
         // owned, and the comfort settings.
         walks: {}, explorer: [], comfort: defaultComfort(),
@@ -146,6 +150,7 @@ export function parseProgress(text) {
         const id = Object.keys(MARBLES).find(k => MARBLES[k].rescue === w);
         if (id && !p.marbles.includes(id)) p.marbles.push(id);
     }
+    p.fuel = Array.isArray(raw.fuel) ? [...new Set(raw.fuel.filter(isLadderId))].sort() : [];
     return p;
 }
 
@@ -182,8 +187,11 @@ export function nearMiss(lv, runMs, bestMs, goldMs = lv && lv.goldMs) {
     return { tier: target, gapMs, close: gapMs <= Math.max(1000, 0.15 * limit) };
 }
 
+// Open: within one of the ladder position -- and, for a planet's first
+// level, the ship has the fuel to fly there (fuel.js; a planet already
+// played on stays open).
 export function isUnlocked(progress, lv) {
-    return !!lv && lv.index <= (progress.highestIndex || 0) + 1;
+    return !!lv && lv.index <= (progress.highestIndex || 0) + 1 && !fuelGate(progress, lv);
 }
 
 // What clearing a level is worth, from the payout table in mazeLevels.json.
@@ -350,8 +358,9 @@ export function mergeProgress(a, b) {
         const n = p.walks[id];
         p.walks[id] = n ? { bestMs: Math.min(n.bestMs, w.bestMs), coins: Math.max(n.coins, w.coins), gold: n.gold || w.gold } : w;
     }
-    for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer', 'achievements', 'rescued']) p[key] = union(p[key], older[key]);
+    for (const key of ['goldClaimed', 'prizes', 'marbles', 'skins', 'trails', 'explorer', 'achievements', 'rescued', 'fuel']) p[key] = union(p[key], older[key]);
     p.rescued.sort((a, b) => a - b);
+    p.fuel.sort();
     for (const [id, n] of Object.entries(older.upgrades)) p.upgrades[id] = Math.max(p.upgrades[id] || 0, n);
     // A prize only the older save has earned brings its uses with it.
     for (const id of older.prizes) if (!newer.prizes.includes(id) && older.prizeUses[id]) p.prizeUses[id] = older.prizeUses[id];
@@ -429,6 +438,15 @@ export function recordRescue(progress, world) {
     p.rescued = [...(p.rescued || []), world].sort((a, b) => a - b);
     if (!p.marbles.includes(id)) p.marbles.push(id);
     return { progress: p, ok: true, marble: id };
+}
+
+// A fuel cell banked with a clear of `levelId` (fuel.js). Once found, found.
+export function recordFuel(progress, levelId) {
+    if (!isLadderId(levelId)) return { progress, ok: false, reason: 'unknown' };
+    if ((progress.fuel || []).includes(levelId)) return { progress, ok: false, reason: 'found' };
+    const p = JSON.parse(JSON.stringify(progress));
+    p.fuel = [...(p.fuel || []), levelId].sort();
+    return { progress: p, ok: true };
 }
 
 // Choosing among marbles already owned is free.
@@ -649,6 +667,12 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             apply(out);
             if (out.ok) act('rescue:w' + world);
             return { ok: out.ok, reason: out.reason || null, marble: out.marble || null };
+        },
+        recordFuel: levelId => {
+            const out = recordFuel(progress, levelId);
+            apply(out);
+            if (out.ok) act('fuel:' + levelId);
+            return { ok: out.ok, reason: out.reason || null };
         },
         selectMarble: id => apply(selectMarble(progress, id)),
         buyUpgrade: id => did(apply(buyUpgrade(progress, id)), 'buy:upgrade:' + id),

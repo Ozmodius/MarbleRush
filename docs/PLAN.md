@@ -318,6 +318,19 @@ world's floor 10 count.
   Slipstonia, embers and smoke over Magmars, bubbles and confetti over
   Bouncelot, sparks and steam over Gearth.
 
+## Exploring (decided 2026-10-10)
+
+The user's call: exploring should be required and rewarding.
+- *Fuel cells* (built): one per ladder level in its deepest dead end, banked
+  by a clear and kept. The ship needs 3 of Sawturn's to fly to Slipstonia,
+  5 of Slipstonia's for Magmars, 7 for each planet after; a planet already
+  played on stays open. Home, the Worlds sheet and the HUD show the count.
+- *Survey* (next): how much of a level's floor a run covered, the best kept;
+  SURVEYED at 90%.
+- *Secret pockets* (after): a dead end hidden behind a wall that only looks
+  solid, holding a page of the Baron's diary.
+- Not doing: the Baron's locks (gates and keys on every run).
+
 ## Open questions
 
 - Allow a midgame ad after repeated falls? (Ball Smack never shows one there.)

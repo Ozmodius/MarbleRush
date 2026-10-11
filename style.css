@@ -204,6 +204,14 @@ html, body {
    where most levels start the marble (it covered the marble on level 1). */
 .maze-status.is-ready { top: auto; bottom: calc(86px + var(--safe-bottom)); }
 .maze-powerups { top: calc(94px + var(--safe-top)); font-size: 0.85rem; color: #9fe6ff; }
+/* A phone's top bar holds the buttons and the coin, fuel and map chips; the
+   level's name gets its own line under them (in the row it had 0-40px). */
+@media (max-width: 560px) {
+  .maze-levelname { position: absolute; top: 52px; left: 0; right: 0; font-size: 0.7rem; color: var(--ink-dim); }
+  #mazeCamBtn, #mazeCamBtn[style*="none"] + #mazeSoundBtn { margin-left: auto; }
+  .maze-status { top: calc(80px + var(--safe-top)); }
+  .maze-powerups { top: calc(108px + var(--safe-top)); }
+}
 .maze-bottombar, .maze-winpanel {
   position: absolute;
   left: 0;
@@ -1594,6 +1602,7 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
    else the clear brought appears one after another on a line under it. */
 .maze-status2 { position: absolute; left: 0; right: 0; top: calc(96px + var(--safe-top)); padding: 0 16px; text-align: center; font-size: 0.9rem; font-weight: 800; letter-spacing: 0.1em; color: #ffd66e; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9); opacity: 0; transition: opacity 220ms ease; pointer-events: none; }
 .maze-status2.is-on { opacity: 1; }
+@media (max-width: 560px) { .maze-status2 { top: calc(110px + var(--safe-top)); } }
 /* On the CLEARED panel, NEXT is the one bright choice: EXPLORE IT keeps its
    compass but dresses like the other secondary buttons. */
 #mazeWinPanel .maze-walkbtn { background: rgba(24, 32, 62, 0.9); color: var(--ink); border: 1px solid var(--line); box-shadow: 0 3px 0 rgba(0, 0, 0, 0.45); }
@@ -1622,3 +1631,37 @@ html.kbd-first .key-hint { display: inline-block; }
 }
 .world-arrow:disabled { box-shadow: none; }
 .tabbar { box-shadow: inset 0 1.5px 0 rgba(190, 235, 255, 0.18), 0 -6px 16px rgba(0, 0, 0, 0.35); }
+
+/* --- fuel cells (fuel.js, the user's call, 2026-10-10) -------------------- */
+/* A cell as an icon: brass caps, a cyan core. Dim until found. */
+.fuel-icon {
+  display: inline-block;
+  width: 9px;
+  height: 15px;
+  border-radius: 3px;
+  background: linear-gradient(#d9a548 0 20%, #2fd8ff 20% 80%, #d9a548 80%);
+  box-shadow: 0 0 6px rgba(47, 216, 255, 0.55);
+  vertical-align: -2px;
+}
+.maze-fuel { display: inline-flex; align-items: center; gap: 5px; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.12em; color: var(--ink-dim); opacity: 0.55; }
+.maze-fuel .fuel-icon { filter: grayscale(1) brightness(0.7); box-shadow: none; }
+.maze-fuel.is-found, .maze-fuel.is-taken { opacity: 1; color: #9fe9ff; }
+.maze-fuel.is-found .fuel-icon, .maze-fuel.is-taken .fuel-icon { filter: none; box-shadow: 0 0 6px rgba(47, 216, 255, 0.55); }
+.maze-fuel.is-taken .fuel-icon { animation: fuel-pulse 0.9s ease-in-out infinite; }
+@keyframes fuel-pulse { 50% { box-shadow: 0 0 12px rgba(47, 216, 255, 0.95); } }
+/* Home: the shown planet's cells. */
+.world-fuel { display: inline-flex; align-items: center; gap: 6px; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.14em; color: #9fe9ff; }
+.world-fuel.is-short { color: #ffd66e; }
+/* A site or node whose cell is found: a small cell at its top left. */
+.home-site.has-fuel::before, .level-node.has-fuel::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -5px;
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  background: linear-gradient(#d9a548 0 20%, #2fd8ff 20% 80%, #d9a548 80%);
+  box-shadow: 0 0 5px rgba(47, 216, 255, 0.7);
+}
+.world-sheetfuel { color: #9fe9ff; }

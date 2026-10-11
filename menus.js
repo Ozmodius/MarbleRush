@@ -6,6 +6,7 @@ import { showBanner, adsAvailable, showRewardedAd, adFailureMessage } from './pl
 import { sfx } from './sfx.js';
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { captiveFor, isRescueLevel, VILLAIN } from './rescue.js';
+import { fuelGate, fuelCount, launchNeed } from './fuel.js';
 import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, showLevelUps } from './dailyUi.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
@@ -174,7 +175,11 @@ function renderHome() {
     play.setAttribute('aria-disabled', String(home.locked));
     if (home.locked) {
         // Locked: say what opens it -- the world before, finished.
-        $('homeGoal').textContent = `Finish ${worldName(home.world - 1)} to unlock`;
+        // Short of fuel, or still to finish the planet before (fuel.js).
+        const gate = fuelGate(p, levels.find(l => l.world === home.world && l.index === (home.world - 1) * 10 + 1));
+        $('homeGoal').textContent = gate && (p.highestIndex || 0) + 1 >= (home.world - 1) * 10 + 1
+            ? `The ship needs ${gate.need} fuel cells from ${worldName(gate.from)}  ·  ${gate.have} found`
+            : `Finish ${worldName(home.world - 1)} to unlock`;
         $('homePlayLabel').textContent = 'LOCKED';
         $('homePlayLevel').textContent = '';
     } else {
@@ -207,6 +212,19 @@ function renderWorldNav(home) {
         if (w.n === n) d.className = 'is-on';
         else if (w.state !== 'open') d.className = 'is-locked';
         dots.append(d);
+    }
+    // The shown planet's fuel cells, and what the ship needs from them.
+    const fuelEl = $('homeWorldFuel');
+    if (fuelEl) {
+        const lvls = ctx.game.getLevels().filter(l => l.world === n);
+        const have = fuelCount(ctx.store.get(), n), need = launchNeed(n + 1);
+        const nextBuilt = ctx.game.getLevels().some(l => l.world === n + 1);
+        fuelEl.innerHTML = '';
+        if (lvls.length && !home.locked) {
+            const ic = document.createElement('span'); ic.className = 'fuel-icon';
+            fuelEl.append(ic, document.createTextNode(`FUEL ${have} / ${lvls.length}` + (nextBuilt && have < need ? `  ·  ${need} TO FLY ON` : '')));
+        }
+        fuelEl.classList.toggle('is-short', nextBuilt && have < need);
     }
     $('homePrevWorld').disabled = n <= 1;
     $('homeNextWorld').disabled = n >= LAUNCH_WORLDS;
@@ -252,6 +270,7 @@ function renderSites(home) {
         b.className = 'home-site' + (c ? ' is-cleared' : '') + (open ? '' : ' is-locked')
             + (lv.index === nextIdx ? ' is-next' : '') + (lv.id === home.level.id && !home.locked ? ' is-picked' : '');
         if (tier) b.dataset.tier = tier; else delete b.dataset.tier;
+        if ((p.fuel || []).includes(lv.id)) b.classList.add('has-fuel');
         const cap = isRescueLevel(lv) ? captiveFor(lv.world) : null;
         if (cap) {
             b.classList.add('is-rescue');
@@ -375,7 +394,12 @@ function renderSheet(w) {
     const nextIdx = (p.highestIndex || 0) + 1;
     const next = w.levels.find(l => l.index === nextIdx);
     if (w.state === 'coming') $('worldSheetNote').textContent = 'Coming in an update. Its levels are still being built.';
-    else if (w.state === 'locked') $('worldSheetNote').textContent = `Finish ${worldName(w.n - 1)} to land here.`;
+    else if (w.state === 'locked') {
+        const gate = fuelGate(p, w.levels[0]);
+        $('worldSheetNote').textContent = gate && (p.highestIndex || 0) + 1 >= w.levels[0].index
+            ? `The ship needs ${gate.need} fuel cells from ${worldName(gate.from)} to land here (${gate.have} found).`
+            : `Finish ${worldName(w.n - 1)} to land here.`;
+    }
     else if (walk) $('worldSheetNote').textContent = 'Explore any level you have rolled, from inside the maze. Find the exit; the traps are real.';
     else if (next) $('worldSheetNote').textContent = `Next: ${next.name}  ·  gold under ${(next.goldMs / 1000).toFixed(1)}s`;
     else $('worldSheetNote').textContent = 'Every level cleared. Replay any for a better medal.';
@@ -389,6 +413,7 @@ function renderSheet(w) {
         b.type = 'button';
         b.className = 'level-node' + (c ? ' is-cleared' : '') + (open ? '' : ' is-locked') + (!walk && lv.index === nextIdx ? ' is-next' : '');
         if (tier) b.dataset.tier = tier;
+        if (!walk && (p.fuel || []).includes(lv.id)) b.classList.add('has-fuel');
         // Floor 10 holds a friend (rescue.js): a caged dot, or a free one.
         const cap = !walk && isRescueLevel(lv) ? captiveFor(lv.world) : null;
         if (cap) {
@@ -419,6 +444,16 @@ function renderSheet(w) {
             dot.className = 'captive-dot' + (freed ? ' is-freed' : '');
             dot.style.setProperty('--m', cap.swatch);
             capEl.append(dot, document.createTextNode(freed ? `${cap.name} is free, and rolls with you (Gear).` : `${VILLAIN} has caged ${cap.name} on floor 10. Find the cage before the exit.`));
+        }
+    }
+
+    const fuelEl = $('worldSheetFuel');
+    if (fuelEl) {
+        fuelEl.innerHTML = '';
+        if (!walk && w.levels.length && w.state !== 'coming') {
+            const have = fuelCount(p, w.n), need = launchNeed(w.n + 1), next = ctx.game.worldsInfo().find(x => x.n === w.n + 1);
+            const ic = document.createElement('span'); ic.className = 'fuel-icon';
+            fuelEl.append(ic, document.createTextNode(`Fuel cells ${have} / ${w.levels.length}, one hidden in each maze's deepest dead end.` + (next && next.levels.length ? ` ${worldName(w.n + 1)} needs ${need}.` : '')));
         }
     }
 

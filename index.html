@@ -200,7 +200,7 @@
     <!-- Swipe the planet, or these arrows, to pick a world (menus.js) -->
     <div class="home-worldnav">
       <button id="homePrevWorld" class="world-arrow" type="button" aria-label="Previous world"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-      <div class="home-worldname"><span id="homeWorldName" class="world-planet"></span><span id="homeWorldPlace" class="world-place"></span><span id="homeWorldDots" class="world-dots" aria-hidden="true"></span></div>
+      <div class="home-worldname"><span id="homeWorldName" class="world-planet"></span><span id="homeWorldPlace" class="world-place"></span><span id="homeWorldDots" class="world-dots" aria-hidden="true"></span><span id="homeWorldFuel" class="world-fuel"></span></div>
       <button id="homeNextWorld" class="world-arrow" type="button" aria-label="Next world"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
     </div>
     <p id="homeGoal" class="home-goal"></p>
@@ -229,6 +229,7 @@
     <p id="worldSheetNote" class="world-sheetnote"></p>
     <div id="mazeSelectList" class="level-grid"></div>
     <p id="worldSheetCaptive" class="world-sheetprize world-sheetcaptive"></p>
+    <p id="worldSheetFuel" class="world-sheetprize world-sheetfuel"></p>
     <p id="worldSheetPrize" class="world-sheetprize"></p>
   </div>
 </section>
@@ -323,6 +324,7 @@
     <button id="mazeExitBtn" class="maze-btn maze-btn-small" type="button" aria-label="Back to levels">◀</button>
     <span id="mazeLevelName" class="maze-levelname"></span>
     <span class="maze-coins"><span class="coin-dot"></span><span id="mazeCoins"></span></span>
+    <span id="mazeFuel" class="maze-fuel" hidden><span class="fuel-icon" aria-hidden="true"></span><span class="fuel-word">FUEL</span></span>
     <button id="mazeCamBtn" class="maze-btn maze-btn-small maze-cambtn" type="button" aria-label="Ball cam" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.4-2h7.8l1.4 2h2.2A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.6"/></svg></button>
     <button id="mazeSoundBtn" class="maze-btn maze-btn-small maze-cambtn maze-soundbtn" type="button" aria-label="Sound" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="sound-on" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/><path class="sound-off" d="m15.5 9.5 5 5m0-5-5 5"/></svg></button>
     <button id="mazeRecenterBtn" class="maze-btn maze-btn-small" type="button" aria-label="Recenter tilt">⊙</button>
