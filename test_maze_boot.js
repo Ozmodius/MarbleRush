@@ -819,6 +819,22 @@ const failures = [];
         const sites = await rp.$$eval('#homeSites .home-site', bs => bs.map(b => ({ id: b.dataset.level, picked: b.classList.contains('is-picked'), off: b.disabled, x: parseFloat(b.style.left), y: parseFloat(b.style.top) })));
         check(sites.length === 10 && sites.filter(x => x.picked).map(x => x.id).join() === 'w1_10' && sites.every(x => !x.off),
             `ten sites on Sawturn, floor 10 (next) picked, all open: ${JSON.stringify(sites.map(x => [x.id, x.picked, x.off]))}`);
+        // Home fits the planet to the room it has (the user's S25: a browser's
+        // bars ate the height): no site over the planet's name or the header,
+        // no side button over the header -- tall phone or short.
+        const overlaps = () => rp.evaluate(() => {
+            const R = e => e.getBoundingClientRect();
+            const nav = R(document.querySelector('.home-worldnav')), hud = R(document.querySelector('.home-hud'));
+            const hit = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+            const sites = [...document.querySelectorAll('.home-site')].map(R), rails = [...document.querySelectorAll('.home-side')].map(R);
+            return sites.filter(x => hit(x, nav) || hit(x, hud)).length + rails.filter(x => hit(x, hud)).length;
+        });
+        check(await overlaps() === 0, 'nothing on home overlaps (390x844)');
+        await rp.setViewportSize({ width: 412, height: 734 });
+        await rp.evaluate(() => new Promise(r => { let n = 20; const f = () => (--n ? requestAnimationFrame(f) : r()); requestAnimationFrame(f); setTimeout(r, 4000); }));
+        check(await overlaps() === 0, `nothing on home overlaps on a short phone (412x734): ${await overlaps()}`);
+        await rp.setViewportSize({ width: 390, height: 844 });
+        await rp.evaluate(() => new Promise(r => { let n = 20; const f = () => (--n ? requestAnimationFrame(f) : r()); requestAnimationFrame(f); setTimeout(r, 4000); }));
         let closest = Infinity;
         for (let i = 0; i < sites.length; i++) for (let j = i + 1; j < sites.length; j++) closest = Math.min(closest, Math.hypot(sites[i].x - sites[j].x, sites[i].y - sites[j].y));
         check(closest >= 32, `the sites are a finger apart on a phone (closest ${closest.toFixed(0)} px)`);

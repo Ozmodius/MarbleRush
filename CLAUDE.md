@@ -28,7 +28,10 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
 - `npm test` is the Node suite. `npm run test:browser` boots the page in
   Chromium and plays level 1; `npm run test:browser:bundle` does the same
   against the built CrazyGames bundle. Run the browser test for any change to
-  `mazeGame.js`, `main.js`, `index.html` or the seams.
+  `mazeGame.js`, `main.js`, `index.html` or the seams -- against the two
+  builds players get ONLY (the user's call, 2026-10-10): `MAZE_ROOT=dist/web`
+  and `MAZE_ROOT=dist/crazygames`, built first with
+  `node scripts/buildCrazyGames.js` (`--web`). Not the unbundled source.
 - `scripts/themePreview.html?level=w1_10&theme=lava` renders any level in any
   theme, for screenshots of visual changes.
 

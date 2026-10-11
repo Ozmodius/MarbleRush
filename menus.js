@@ -309,10 +309,24 @@ function renderRescue() {
     $('homeRescue').setAttribute('aria-label', `${freed} of ${worlds.length} friends rescued from ${VILLAIN}. Open the worlds map.`);
 }
 
+// HOME'S LAYOUT: the header (stats, level bar, logo, rescue tracker) and the
+// play block (planet name, goal, PLAY) are whatever height the screen makes
+// them; the planet gets the band between, and the side buttons sit just
+// under the header, never over the tracker.
+function layoutHome() {
+    const view = $('homeView');
+    const hud = view && view.querySelector('.home-hud'), nav = view && view.querySelector('.home-worldnav');
+    if (!hud || !nav) return;
+    const top = hud.getBoundingClientRect().bottom, bottom = nav.getBoundingClientRect().top;
+    const vr = view.getBoundingClientRect();
+    view.style.setProperty('--home-top', Math.round(top - vr.top + 10) + 'px');
+    ctx.game.setHomeBand(top + 4, bottom - 8);
+}
 // Each frame on home: the buttons ride their sites (the planet slides in on
 // a swipe).
 function placeSites() {
     if (current !== 'home') return;
+    layoutHome();
     for (const s of ctx.game.homeSites()) {
         const b = $('homeSite_' + s.id);
         if (!b) continue;
