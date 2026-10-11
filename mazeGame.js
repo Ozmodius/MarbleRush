@@ -310,6 +310,11 @@ let offerAt = 0;                 // when the CONTINUE offer went up
 let offerAdPending = false;      // the offer's countdown waits while its ad runs
 let offerHeld = false;           // tests only: hold the countdown (it runs on the wall clock)
 let freeShieldTaken = false;     // one free shield per level visit
+// FUEL BEACON (a rewarded ad, the user's call 2026-10-11: "ad opportunities
+// where sensible"): exploring a maze whose cell is still hidden, the ready
+// screen offers a beam of light over it for the rest of the visit. A hint,
+// never the cell itself: the player still walks there and out.
+let fuelBeaconFx = null, fuelBeaconOn = false;
 let lastClear = null;            // the clear the x2 COINS button would double
 let rewardedThisBreak = false;   // a rewarded ad on this panel stands in for the break ad
 // TRY A MARBLE (rewarded, from the Gear page): an unowned marble for one level
@@ -834,7 +839,14 @@ function buildLevelMeshes(lv, theme) {
     }
     // The crew: Glint's Clear Sight (only for Glint), and the aura of a
     // character at the end of their track.
-    sightFx = null; auraFx = null;
+    sightFx = null; auraFx = null; fuelBeaconFx = null;
+    // The fuel beacon's light, ready for a rewarded ad to switch on.
+    if (walkMode && fuelCell && !fuelCell.found) {
+        const tracked = [];
+        fuelBeaconFx = buildSight({ walls: [], beacons: [{ x: fuelCell.spot.x, z: fuelCell.spot.z, gone: () => !fuelCell || fuelCell.taken }] }, WALL_HEIGHT, tracked);
+        tracked.forEach(track);
+        group.add(fuelBeaconFx.group);
+    }
     {
         const id = ballMarbleId, sig = SIGNATURES[id];
         // Clear Sight is an Explore power: the hidden things are there only.
@@ -1125,6 +1137,7 @@ function step() {
     if (fuelCell && fuelCell.mesh) fuelCell.mesh.tick(now / 1000);
     if (pocket && pocket.mesh) pocket.mesh.tick(now / 1000);
     if (sightFx) sightFx.set(!!(crewRun && crewRun.sightMs > 0 && phase === 'running'), now / 1000);
+    if (fuelBeaconFx) fuelBeaconFx.set(!!(fuelBeaconOn && fuelCell && !fuelCell.taken && !fuelCell.found), now / 1000);
     if (auraFx && ballMesh) auraFx.place(ballMesh.position.x, ballMesh.position.z, now / 1000);
     if (ship) ship.tick(now / 1000);
     if (levelSky) levelSky.tick(now / 1000);
@@ -1772,6 +1785,7 @@ function checkOutcomes() {
         // (A frame counts at most 100 ms: one stall must not eat the sight.)
         if (crewRun && crewRun.sightMs > 0) crewRun.sightMs = Math.max(0, crewRun.sightMs - Math.min(100, lastFrameMs));
         if (sightFx) sightFx.set(!!(crewRun && crewRun.sightMs > 0), performance.now() / 1000);
+        if (fuelBeaconFx) fuelBeaconFx.set(!!(fuelBeaconOn && fuelCell && !fuelCell.taken && !fuelCell.found), performance.now() / 1000);
         for (const e of events) {
             if (e.type === 'coin') { props.takeCoin(e.index); if (audio) audio.event('coin'); }
             else { props.takePickup(e.index); setStatus(e.kind.toUpperCase()); if (audio) audio.event('pickup'); }
@@ -1989,6 +2003,20 @@ function offerFreeShield() {
     const owned = store ? (store.get().charges.shield || 0) : 0;
     showEl('mazeAdShieldBtn', phase === 'ready' && adsAvailable() && !freeShieldTaken && !owned && !beginnerShieldOn());
 }
+function offerFuelBeacon() {
+    showEl('mazeAdBeaconBtn', phase === 'ready' && walkMode && adsAvailable() && !!fuelCell && !fuelCell.found && !fuelBeaconOn);
+}
+async function fuelBeaconFromAd() {
+    if (phase !== 'ready' || fuelBeaconOn || !fuelCell || fuelCell.found) return;
+    const ok = await showRewardedAd();
+    if (!ok) { setStatus(adFailureMessage()); return; }
+    fuelBeaconOn = true;
+    rewardedThisBreak = true;
+    if (store && store.noteAd) store.noteAd('fuel-beacon');
+    offerFuelBeacon();
+    setStatus('FUEL BEACON ON  —  FOLLOW THE LIGHT');
+    requestRender();
+}
 async function freeShieldFromAd() {
     if (phase !== 'ready' || freeShieldTaken) return;
     const ok = await showRewardedAd();
@@ -2167,7 +2195,7 @@ function restart() {
     revivedThisAttempt = false;
     closeFallOffer();
     showEl('mazeDoubleBtn', false);
-    showEl('mazeAdShieldBtn', false);
+    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false);
     placeBallAtStart();
     if (walkMode) { walkYaw = walkStartYaw; walkPitch = -0.08; if (walkHud) walkHud.show(true); }
     smoothed = null;
@@ -2760,9 +2788,11 @@ function startLevel(levelId, opts = {}) {
     survey = null;
     renderSurveyChip();
     freeShieldTaken = false;
+    fuelBeaconOn = false;
     rewardedThisBreak = false;   // that break is over; this level's are its own
     closeFallOffer();
     offerFreeShield();
+    offerFuelBeacon();
     if (rescue && !opts.noStory) openStory(rescue.world);
     requestRender();
 }
@@ -2882,6 +2912,7 @@ window.__mazeDebug = {
     holdFall: (ms) => { fallHeldMs = Number.isFinite(ms) ? ms : null; if (fallFx && ballMesh) drawFallFx(); requestRender(); return !!fallFx; },
     fallFx: () => (fallFx ? { cause: fallFx.cause, drawn: ballMesh ? { x: ballMesh.position.x, y: ballMesh.position.y, z: ballMesh.position.z, s: ballMesh.scale.x, sy: ballMesh.scale.y } : null, body: { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z }, fx: !!(fallFxMesh && fallFxMesh.group.visible) } : null),
     // This level's fuel cell: where, found before, taken this run, drawn.
+    fuelBeacon: () => ({ offered: !!(el('mazeAdBeaconBtn') && el('mazeAdBeaconBtn').style.display !== 'none'), on: fuelBeaconOn, shown: !!(fuelBeaconFx && fuelBeaconFx.group.visible) }),
     medalClock: () => { const e = el('mazeMedal'); return e && !e.hidden ? { tier: e.className.replace(/.*is-/, ''), time: el('mazeMedalTime').textContent, par: el('mazeMedalPar').textContent } : null; },
     mission: () => { const b = el('mazeMission'); return b && !b.hidden ? [...b.querySelectorAll('li:not(.mission-medals)')].map(li => ({ kind: li.className.replace(/^mission-| is-done$/g, ''), text: li.querySelector('.mission-text').firstChild.textContent, done: li.classList.contains('is-done') })) : null; },
     fuel: () => (fuelCell ? { x: fuelCell.spot.x, z: fuelCell.spot.z, found: fuelCell.found, taken: fuelCell.taken, shown: !!(fuelCell.mesh && fuelCell.mesh.group.visible) } : null),
@@ -3158,7 +3189,7 @@ async function startRun() {
         // Walking needs no motion sensor: joystick and look, or keys.
         clearManual();
         showEl('mazeStartBtn', false);
-        showEl('mazeAdShieldBtn', false);
+        showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false);
         restart();
         walkHintShown = true;
         setStatus(WALK_HINT);
@@ -3177,7 +3208,7 @@ async function startRun() {
     }
     clearManual();
     showEl('mazeStartBtn', false);
-    showEl('mazeAdShieldBtn', false);
+    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false);
     recenterPending = true;      // first reading becomes neutral
     neutral = captureNeutral(latestReading.beta, latestReading.gamma);
     restart();
@@ -3310,6 +3341,7 @@ export function initMazeControls() {
     bindTap('mazeDoubleBtn', () => { doubleClearFromAd(); });
     bindTap('mazeGiftBtn', () => { claimGift(); });
     bindTap('mazeAdShieldBtn', () => { freeShieldFromAd(); });
+    bindTap('mazeAdBeaconBtn', () => { fuelBeaconFromAd(); });
     bindTap('mazeExitBtn', () => { leave(); });
     bindTap('mazeWinExitBtn', () => { leave(); });
     bindTap('mazeLevelsBtn', () => { afterBreak(() => showLevelSelect()); });

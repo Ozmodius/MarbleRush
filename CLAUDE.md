@@ -136,6 +136,14 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   ads only on a tap the player chose. Leaving a level is a break only if a
   run was played on that visit (`ranThisVisit`). `platform.js`'s `showMidgameAd` /
   `showRewardedAd` already resolve false on the web and on any SDK failure.
+  The ad map (reviewed 2026-10-11 for CrazyGames): BREAK ads on moving on
+  from CLEARED and on leaving a level after a run; REWARDED for CONTINUE
+  after a fall, FREE SHIELD and -- exploring a maze whose cell is still
+  hidden -- FUEL BEACON (a beam over the cell for that visit, a hint only)
+  on a ready screen, x2 COINS on CLEARED, the daily double, free coins
+  (home, store), a free crew step and TRY a marble; BANNERS on Store, Crew
+  and Gear. Never sell or rent progress: no ad ever grants a fuel cell, a
+  diary page or a friend.
 - **The CrazyGames bundle is flat** (no folders): CrazyGames' drag-and-drop
   upload can drop subfolders. Ball Smack's `scripts/buildCrazyGames.js` is the
   model when the build script is written.

@@ -65,11 +65,11 @@ function show(tab) {
     // Arriving home: a level-up first (its OK goes on to the calendar), else
     // the calendar if today's reward waits.
     if (tab === 'home') { renderHome(); if (!showLevelUps()) maybeAutoOpenDaily(); }
-    // Banners only on these two: pages players read for a while, never play.
+    // Banners only on these three: pages players read for a while, never play.
     else if (tab === 'gear') { clearShopMessages(); renderProfile(); showBanner('profileBanner'); }
     else if (tab === 'store') { clearShopMessages(); renderStore(); showBanner('storeBanner'); }
     else if (tab === 'planet') renderWorlds();
-    else if (tab === 'crew') { clearShopMessages(); renderCrew(); }
+    else if (tab === 'crew') { clearShopMessages(); renderCrew(); showBanner('crewBanner'); }
     renderWallets();
     renderBadges();
 }

@@ -13,14 +13,15 @@ change so the listing never drifts from what players get.
 | `video-landscape-1920x1080.mp4` | Landscape preview video, 18.4 s |
 | `video-portrait-1080x1620.mp4` | Portrait preview video (2:3), 18.4 s |
 
-All three covers are one scene -- Magma Works level 10, the Ember marble with
+All three covers are one scene -- Magmars floor 10, the Ember marble with
 the Flame trail -- framed for each shape, so the game is recognised in any
 format (CrazyGames asks for consistent covers). Text is the wordmark only.
 
-Each video opens on its cover (0.8 s), then four worlds at level 10 joined
-mid-run, each in a different marble and trail: Slipstonia (Prism, Aurora),
-Magma Works (Ember, Flame), Bouncelot (Galaxy, Rainbow), Foundry (Eight Ball,
-Gold Dust); then the wordmark (1.6 s). No audio, no cursor, no promotional text.
+Each video opens on its cover (0.8 s), then four planets at floor 10 joined
+mid-run (the Baron's cages on three of them), each in a different marble and
+trail: Slipstonia (Prism, Aurora), Magmars (Ember, Flame), Bouncelot (Galaxy,
+Rainbow), Gearth (Eight Ball, Gold Dust); then the wordmark on the home
+planet (1.6 s). No audio, no cursor, no promotional text.
 
 Checked against CrazyGames' docs on 2026-10-08
 (docs.crazygames.com/requirements/game-covers): covers 1920×1080, 800×1200,
@@ -52,16 +53,29 @@ from ending a capture run. Both are debug-surface only, never set in play.
 
 **Title:** PlaneTilt
 
-**Short description:** Tilt the board, roll the marble, escape the maze. 50
-hand-checked levels across five worlds — then explore them from the inside.
+**Short description:** Tilt the board and roll to the rescue: 50 mazes on
+five planets, a friend caged on every tenth floor, and secrets you only find
+by exploring the mazes from the inside.
 
-**Description:** Tilt your phone (or use the arrow keys) to roll a marble
-through 50 mazes across five worlds: a workshop that grows into a forest, a
-glacier, a lava foundry, a toy box and a steel works. Every world brings new
-traps — sliding gates, ice, wind, lava flares, bumpers, crushers — and a prize
-that helps in the next. Chase gold times, collect coins, unlock marbles,
-skins and trails, take on the daily maze, and once a level is beaten, explore it
-from inside the maze.
+**Description:** Baron Von Ratchet has caged Rolle's friends deep in the
+mazes of five planets. Tilt your phone (or use the arrow keys) to roll Rolle
+through 50 mazes: a workbench that grows into a forest, snowy peaks and slick
+ice, black rock over lava, a box of toy bricks, and the Baron's own steel
+foundry. Every planet brings three new traps -- sliding gates, ice, wind,
+lava flares, bumpers, crushers, live rails -- and holds a friend in a cage on
+its tenth floor: free them and they join your crew, each with a trick of
+their own. Beat a maze, then shrink down and explore it from the inside to
+find the fuel cells that fly Rolle's ship to the next planet, and the pages of
+the Baron's diary hidden behind walls that aren't walls. Race the medal clock
+for gold, take on the daily maze, and grow each character's bond to upgrade
+them.
 
 **Controls:** Tilt the device; or arrow keys / WASD / drag. Explore mode: left
 side to move, right side to look (or WASD + mouse).
+
+**Ads (for the review):** break ads only when moving on from a cleared level
+or leaving a level after a run, at most one every 3 minutes; rewarded ads only
+on a button the player taps (continue after a fall, a free shield, a fuel
+beacon while exploring, double coins, double daily reward, free coins, a free
+crew upgrade, try a marble); banners on the Store, Crew and Gear pages only.
+Never during a run.

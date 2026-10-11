@@ -309,6 +309,10 @@ const raking = (dist, height, side) => (pos, vel) => {
     const dx = vel.x / sp, dz = vel.z / sp;
     return { px: pos.x - dx * dist + dz * side, py: pos.y + height, pz: pos.z - dz * dist - dx * side, lx: pos.x + dx * 0.9, ly: 0, lz: pos.z + dz * 0.9 };
 };
+// A camera in front of and above a spot (the start), looking up at the
+// ship over it: `side` across, `back` toward the viewer, `up` high, aimed
+// at height `look` over the spot.
+const shipCam = (side, back, up, look) => (p) => ({ px: p.x + side, py: up, pz: p.z + back, lx: p.x, ly: look, lz: p.z });
 // For a wide frame of a long, narrow board: a camera that stays near the
 // board's middle (x pulled toward 0 by `k`), `back` behind the ball and
 // `height` up, looking down the maze -- the board fills the frame.
@@ -318,14 +322,22 @@ const over = (height, back, k, ahead = 1.2) => (pos) => ({
 
 // A rendered scene, then the PlaneTilt wordmark over it (the same CSS logo as
 // the home screen), screenshotted at the exact size.
-async function cover(browser, base, { name, width, height, level, skin, trail, at, cam, logo, out }) {
+async function cover(browser, base, { name, width, height, level, skin, trail, at, cam, logo, out, ship }) {
     const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor({ skin, trail }) });
-    // Roll partway along the route so the trail is laid, then frame the shot.
-    let state = null;
-    const stopAt = Math.round(at * FPS);
-    await runLevel(page, dbg, level, at, async (i, s) => { state = s; }, {});
-    void stopAt;
-    await dbg('cameraOverride', cam(state.pos, state.vel));
+    if (ship) {
+        // Rolle's ship beaming the marble down onto a planet's first maze,
+        // the show held at `ship.ms` (levelShow.js shipDrop).
+        await dbg('startLevelForTest', level);
+        await dbg('holdShow', ship.ms);
+        await dbg('advanceFrames', 1, DT);
+        const st = LEVELS.find(l => l.id === level).start;
+        await dbg('cameraOverride', cam({ x: st.x, y: 0, z: st.z }));
+    } else {
+        // Roll partway along the route so the trail is laid, then frame the shot.
+        let state = null;
+        await runLevel(page, dbg, level, at, async (i, s) => { state = s; }, {});
+        await dbg('cameraOverride', cam(state.pos, state.vel));
+    }
     const shot = path.join(TMP, `${name}-scene.png`);
     await frameTo(dbg, shot, 'image/png');
     await page.close();
@@ -359,7 +371,7 @@ async function covers(browser, base) {
     ];
     // COVER_JOBS='[{"name":..,"width":..,"height":..,"level":..,"skin":..,"trail":..,"at":..,"rk":[dist,height,side],"logo":..}]'
     // renders candidate framings instead (for choosing a shot).
-    if (process.env.COVER_JOBS) jobs = JSON.parse(process.env.COVER_JOBS).map(j => ({ ...j, cam: j.over ? over(...j.over) : raking(...j.rk) }));
+    if (process.env.COVER_JOBS) jobs = JSON.parse(process.env.COVER_JOBS).map(j => ({ ...j, cam: j.shipCam ? shipCam(...j.shipCam) : j.over ? over(...j.over) : raking(...j.rk) }));
     for (const j of jobs) if (!only || j.name.includes(only)) await cover(browser, base, j);
 }
 

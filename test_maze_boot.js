@@ -1529,6 +1529,7 @@ const failures = [];
         await ad.tap('#tab_crew');
         await ad.waitForSelector('#crewView', { state: 'visible' });
         check(await ad.locator('.crew-card[data-crew="classic"] .shop-free').count() === 0, 'no free crew step before bond allows one');
+        check((await adLog()).includes('banner:crewBanner'), 'the crew page asks for a banner');
         await ad.tap('#tab_gear');
         check((await adLog()).includes('banner:profileBanner'), 'the gear page asks for a banner');
         await ad.tap('#tab_store');
@@ -1606,6 +1607,20 @@ const failures = [];
         await ad.tap('#mazeExitBtn');
         await homeUp(ad);
         check((await adLog()).filter(x => x === 'ad:midgame').length === mid0 + 1, 'leaving a level shows a break ad');
+        // FUEL BEACON: exploring a maze whose fuel cell is still hidden, the
+        // ready screen offers a beam of light over it for an ad.
+        check(await adbg('walkLevel', levels[0].id), 'a cleared level can be explored');
+        await ad.waitForFunction(() => window.__mazeDebug.phase() === 'ready');
+        check((await adbg('fuelBeacon')).offered && await ad.isVisible('#mazeAdBeaconBtn'), 'exploring, the ready screen offers a fuel beacon for an ad');
+        const rw0 = (await adLog()).filter(x => x === 'ad:rewarded').length;
+        await ad.tap('#mazeAdBeaconBtn');
+        await ad.waitForFunction(() => window.__mazeDebug.fuelBeacon().on, null, { timeout: 5000 }).catch(() => {});
+        await adbg('advanceFrames', 1);
+        const fb = await adbg('fuelBeacon');
+        check(fb.on && fb.shown && !fb.offered && (await adLog()).filter(x => x === 'ad:rewarded').length === rw0 + 1, `the ad lights a beacon over the cell, offered once: ${JSON.stringify(fb)}`);
+        await ad.tap('#mazeExitBtn');
+        await homeUp(ad);
+        check((await adLog()).filter(x => x === 'ad:midgame').length === mid0 + 1, 'backing out of an explore with no run shows no break ad');
 
         // TRY A MARBLE: CREW offers TRY on each marble not owned; the ad starts
         // the next level with it, for that level only, and grants nothing.
