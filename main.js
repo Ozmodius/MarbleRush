@@ -1,4 +1,4 @@
-import { features, initPlatform, loadingStart, loadingStop, loadSave, writeSave, onAdBusy, apiBase, getPlatformUserToken, onPlatformAuthChange, isPlatformLoginAvailable, showPlatformLogin } from './platform.js';
+import { PLATFORM, features, initPlatform, loadingStart, loadingStop, loadSave, writeSave, onAdBusy, apiBase, getPlatformUserToken, onPlatformAuthChange, isPlatformLoginAvailable, showPlatformLogin } from './platform.js';
 import { initSceneHost, setCovered } from './sceneHost.js';
 import { createProgressStore } from './progressStore.js';
 import * as game from './mazeGame.js';
@@ -53,7 +53,7 @@ async function boot() {
     loadingStop();
     bootMessage(ok ? '' : 'COULD NOT LOAD THE LEVELS. RELOAD TO TRY AGAIN.');
 
-    const sync = createCloudSync({ store, api: apiBase(), getCrazyToken: getPlatformUserToken, onRemoteChange: progressChanged });
+    const sync = createCloudSync({ store, api: apiBase(), getCrazyToken: getPlatformUserToken, onRemoteChange: progressChanged, platform: PLATFORM });
     const privacy = initPrivacy({ online: !!sync.enabled, isNew: game.isNewPlayer });
     game.setClearListener(initCloudUi({ sync, login: { available: isPlatformLoginAvailable, show: showPlatformLogin }, cover: setCovered }));
     game.setRunListener((ev) => { if (ev && ev.type === 'start') privacy.runStarted(); sync.track(ev); });

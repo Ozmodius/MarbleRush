@@ -79,7 +79,14 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   `test_sync.js`. The server does saves, leaderboards, anonymous play
   tracking (per-level counts for the `/admin` stats page, 2026-10-08) and
   player accounts (2026-10-08); anything further (real-money purchases,
-  personal data beyond an account's email) needs the user's call.
+  personal data beyond an account's email) needs the user's call. The
+  `/admin` page (ADMIN_TOKEN; the user's call, 2026-10-11) is PLAYERS and
+  METRICS, both filtered by PLATFORM (web | crazygames): the build says
+  which in every session and event (cloudSync's `platform`, from
+  platform.js via main.js); a player keeps the last, the counts carry it
+  ('unknown' before). Its player actions -- rename, sign out everywhere,
+  off the leaderboards, delete (the name typed to confirm) -- are logged
+  `[admin]` in the server's log.
   `npm test` runs `server/` tests too (`npm ci --prefix server` first);
   `TEST_DATABASE_URL` runs them against a real Postgres.
 - **The web build opens on its front door** (`features.requireLogin`, the
@@ -177,7 +184,9 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   its how-to), floor 9 warning the cage is near, a freed friend pointing to
   the next planet.
 - **Fuel cells fly the ship** (`fuel.js`, the user's call, 2026-10-10): one
-  in every ladder level's deepest dead end, found by the shared spot finder
+  in every ladder level's deepest dead end, found in EXPLORE MODE ONLY (the
+  user's call, 2026-10-11: the one thing a world needs explored -- a rolling
+  run never shows or takes one; Explore opens on a rolled clear), found by the shared spot finder
   (`levelSpots.js`, which the rescue's cage uses too -- never written into
   `mazeLevels.json`; `test_fuel.js` proves each safe, reachable also 50%
   wider, a real detour). Banked by a clear (like coins), kept for good
@@ -192,7 +201,10 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   proves the shortest route alone never surveys a level and a sweep does.
   It only counts: nothing in a run changes for it.
 - **Secret pockets hide the Baron's diary** (`pockets.js`, the user's call,
-  2026-10-10): on two floors a planet (`POCKET_LEVELS`), a false wall --
+  2026-10-10), in EXPLORE MODE ONLY (the user's call, 2026-10-11, like the
+  fuel cells: rolling, the dead end is a plain dead end, no wall, no page;
+  Glint's Clear Sight is an Explore power for the same reason): on two
+  floors a planet (`POCKET_LEVELS`), a false wall --
   drawn like the others, with NO body -- closes off a dead end with a
   diary page (`diary.js`) at its far end. No physics changes, so every
   route, verifier guarantee and gold time stands. The wall and page are
@@ -204,7 +216,8 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
 - **Lines under CLEARED come in order, the last one stays**: the survey,
   then a fuel cell, then a diary page, then a freed friend's word, then a
   bond level, then a planet's gift and level-ups. A find outranks a
-  percentage.
+  percentage. A fuel gate (or, rolled, a cell still hidden: EXPLORE IT TO
+  FIND IT) is the last word.
 - **The Crew** (`crew.js`, the user's call, 2026-10-10; docs/PLAN.md): the
   CREW tab (crewUi.js) replaced WORLDS; the Worlds sheet is the planet page,
   opened from home's planet name. Every marble carries a SIGNATURE, free a
@@ -225,6 +238,17 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   it runs once at start, in one transaction, is recorded in `wipes` so no
   restart repeats it, and copies what it deletes into backup tables named
   after it. Never delete accounts or the play stats without the user's say.
+- **A level's jobs are on its ready screen** (`mission.js`, the user's
+  call, 2026-10-11: "make sure the main objectives are clear"): MISSION
+  lists, in the order they are done -- rolling: a floor 10's caged friend,
+  the exit, then exploring it for the fuel cell; exploring: the fuel cell,
+  then the exit -- the fuel row with what the ship still needs from this
+  planet to fly on, ticked once found. A rolled clear with the cell still
+  hidden ends on EXPLORE IT TO FIND IT, a fuel gate on EXPLORE TO FIND THEM.
+  The card sits under the top bar on a phone, beside the board
+  on a wide screen, clear of the ready line and START, gone once the run
+  starts. The daily maze is a race and gets none. A new main objective
+  belongs in `missionFor` (`test_mission.js`).
 - **A run's end is shown, never a vanishing** (`fallFx.js`, the user's
   call, 2026-10-11): rolling, the body is held where it went and the DRAWN
   ball tips over a hole's rim and sinks shrinking into the dark, chars under

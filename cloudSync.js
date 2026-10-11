@@ -53,6 +53,9 @@ export function scoresInSave(p) {
 export function createCloudSync({
     store, api, fetchImpl = globalThis.fetch && globalThis.fetch.bind(globalThis), storage = null,
     getCrazyToken = async () => null, onRemoteChange = null, debounceMs = 1500,
+    // Which build this is ('web' | 'crazygames', from platform.js via
+    // main.js): sessions and events say so, for the admin page's filter.
+    platform = null,
     setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = id => clearTimeout(id)
 }) {
     const base = api ? String(api).replace(/\/+$/, '') : null;
@@ -111,11 +114,11 @@ export function createCloudSync({
         try { crazyToken = await getCrazyToken(); } catch (_) { crazyToken = null; }
         let r;
         const sent = token;
-        try { r = await req('POST', '/v1/session', { token, crazyToken }); }
+        try { r = await req('POST', '/v1/session', { token, crazyToken, platform }); }
         catch (e) {
             // A CrazyGames token the server cannot check: carry on as the guest.
             if (!crazyToken || e.status !== 401 && e.status !== 501) throw e;
-            r = await req('POST', '/v1/session', { token });
+            r = await req('POST', '/v1/session', { token, platform });
         }
         // Signed in (or out) while this was out: that is who this device is
         // now, and an older session's answer must not undo it.
@@ -249,8 +252,8 @@ export function createCloudSync({
         try {
             if (keepalive) {
                 await fetchImpl(base + '/v1/events', { method: 'POST', keepalive: true,
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ events: batch }) });
-            } else await req('POST', '/v1/events', { events: batch });
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ events: batch, platform }) });
+            } else await req('POST', '/v1/events', { events: batch, platform });
         } catch (_) { events.unshift(...batch.slice(0, 200 - events.length)); }
         if (events.length && !eventTimer) eventTimer = setTimer(() => { eventTimer = null; flushEvents(); }, 30e3);
     }

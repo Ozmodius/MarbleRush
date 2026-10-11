@@ -423,12 +423,86 @@ async function landingRescue(browser, base, { name, width, height, level }) {
     await page.close();
     console.log('wrote', `landing/${name}.jpg`);
 }
-// The secrets: Glint's Clear Sight showing a false wall, the diary page
-// glowing in the pocket behind it.
+// The mission: the marble rolling up to one of a level's objectives -- the
+// exit, the fuel cell (in its dead end) or a friend's cage.
+async function landingNear(browser, base, { name, width, height, level, target, skin = 'plain', trail = 'comet', marble = 'classic', dists, cam = {} }) {
+    const lv = LEVELS.find(l => l.id === level);
+    const save = { ...saveFor({ skin, trail, marble }), fuel: [] };
+    const { page, dbg } = await openGame(browser, base, { width, height, save });
+    await startStill(page, dbg, level);
+    const t = target === 'exit' ? lv.goal : await dbg(target === 'cage' ? 'rescue' : 'fuel');
+    if (!t) throw new Error(`${level}: no ${target}`);
+    const at = besideOf(lv, t.x, t.z, dists);
+    if (!at) throw new Error(`${level}: no clear spot by the ${target}`);
+    await dbg('placeBall', at.x, at.z);
+    await dbg('advanceFrames', 3, DT);
+    await dbg('cameraOverride', lookPast(at, t, { back: 2.0, up: 3.2, side: 1.1, ...cam }));
+    const url = await dbg('snapshot', 'image/jpeg', 0.82);
+    fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
+    await page.close();
+    console.log('wrote', `landing/${name}.jpg`);
+}
+// Exploring: turn the view from `at` toward `to` (the yaw's sign is
+// measured, not assumed).
+async function faceToward(dbg, at, to) {
+    const heading = (e) => Math.atan2(e.lx - e.x, e.lz - e.z);
+    const want = Math.atan2(to.x - at.x, to.z - at.z);
+    const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+    for (let k = 0; k < 3; k++) {
+        const e = (await dbg('walk')).eye;
+        const d = wrap(want - heading(e));
+        if (Math.abs(d) < 0.03) break;
+        await dbg('walkTurn', d);
+        await dbg('advanceFrames', 1, DT);
+        const e2 = (await dbg('walk')).eye;
+        if (Math.abs(wrap(want - heading(e2))) > Math.abs(d)) { await dbg('walkTurn', -2 * d); await dbg('advanceFrames', 1, DT); }
+    }
+}
+// A fuel cell, found the only way there is: exploring the maze from inside
+// (Explore mode), the marble turned to face it down its dead end.
+async function landingExploreFuel(browser, base, { name, width, height, level, marble = 'pip', dists = [1.2, 1.0, 1.4, 0.8] }) {
+    const lv = LEVELS.find(l => l.id === level);
+    const { page, dbg } = await openGame(browser, base, { width, height, save: { ...saveFor({ skin: 'plain', trail: 'mint', marble }), fuel: [] } });
+    await dbg('walkLevel', level);
+    await page.evaluate(() => document.getElementById('mazeStartBtn').click());
+    for (let k = 0; k < 40 && (await dbg('phase')) !== 'running'; k++) await page.clock.runFor(50);
+    const cell = await dbg('fuel');
+    if (!cell) throw new Error(`${level}: no fuel cell when exploring`);
+    const at = besideOf(lv, cell.x, cell.z, dists);
+    if (!at) throw new Error(`${level}: no clear spot by the cell`);
+    await dbg('placeBall', at.x, at.z);
+    await dbg('advanceFrames', 2, DT);
+    await faceToward(dbg, at, cell);
+    await dbg('advanceFrames', 20, DT);
+    const url = await dbg('snapshot', 'image/jpeg', 0.82);
+    fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
+    await page.close();
+    console.log('wrote', `landing/${name}.jpg`);
+}
+// The ship: Rolle's ship beaming the marble down onto a planet's first maze.
+async function landingShip(browser, base, { name, width, height, level, at = 1300, cam = {} }) {
+    const lv = LEVELS.find(l => l.id === level);
+    const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor({ skin: 'plain', trail: 'comet' }) });
+    await dbg('startLevelForTest', level);
+    await dbg('holdShow', at);
+    await dbg('advanceFrames', 1, DT);
+    console.log('  show', JSON.stringify(await dbg('show')).slice(0, 300));
+    const s = lv.start;
+    const c = { back: 4.2, up: 4.6, side: 1.8, ...cam };
+    await dbg('cameraOverride', { px: s.x + c.side, py: c.up, pz: s.z + c.back, lx: s.x, ly: 1.2, lz: s.z });
+    const url = await dbg('snapshot', 'image/jpeg', 0.82);
+    fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
+    await page.close();
+    console.log('wrote', `landing/${name}.jpg`);
+}
+// The secrets: exploring as Glint, Clear Sight showing a false wall, the
+// diary page glowing in the pocket behind it (pockets are Explore-only).
 async function landingSecrets(browser, base, { name, width, height, level }) {
     const lv = LEVELS.find(l => l.id === level);
     const { page, dbg } = await openGame(browser, base, { width, height, save: { ...saveFor({ skin: 'prism', trail: 'aurora', marble: 'glass' }), diary: [] } });
-    await startStill(page, dbg, level);
+    await dbg('walkLevel', level);
+    await page.evaluate(() => document.getElementById('mazeStartBtn').click());
+    for (let k = 0; k < 40 && (await dbg('phase')) !== 'running'; k++) await page.clock.runFor(50);
     const pk = await dbg('pocket');
     if (!pk) throw new Error(`${level}: no pocket`);
     const w = pk.wall;
@@ -441,10 +515,14 @@ async function landingSecrets(browser, base, { name, width, height, level }) {
         if (clearAt(lv, p.x, p.z, 1.05)) { at = p; break; }
     }
     if (!at) at = besideOf(lv, w.x, w.z) || { x: lv.start.x, z: lv.start.z };
+    // Back off further, facing the wall and the page beyond it.
+    const L2 = Math.hypot(at.x - w.x, at.z - w.z) || 1;
+    for (const d of [1.3, 1.1, 0.9]) { const p = { x: w.x + (at.x - w.x) / L2 * d, z: w.z + (at.z - w.z) / L2 * d }; if (clearAt(lv, p.x, p.z, 1.05)) { at = p; break; } }
     await dbg('placeBall', at.x, at.z);
+    await dbg('advanceFrames', 2, DT);
+    await faceToward(dbg, at, { x: pk.x, z: pk.z });
     await dbg('useSignature');
-    await dbg('advanceFrames', 8, DT);
-    await dbg('cameraOverride', lookPast(at, { x: pk.x, z: pk.z }, { back: 2.0, up: 3.1, side: 0.9 }));
+    await dbg('advanceFrames', 20, DT);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -481,6 +559,9 @@ async function landing(browser, base) {
         { name: 'world-5', width: 960, height: 640, level: 'w5_10', skin: 'plain', trail: 'gold', marble: 'glass', at: 3.4, cam: raking(2.2, 4.0, 1.0) }
     ];
     for (const j of scenes) if (!only || j.name === only) await landingScene(browser, base, j);
+    if (!only || only === 'exit') await landingNear(browser, base, { name: 'exit', width: 960, height: 640, level: 'w1_06', target: 'exit', trail: 'comet', dists: [1.3, 1.1, 1.5, 0.9], cam: { back: 2.4, up: 3.6, side: 1.3 } });
+    if (!only || only === 'fuel') await landingExploreFuel(browser, base, { name: 'fuel', width: 960, height: 640, level: 'w2_05' });
+    if (!only || only === 'ship') await landingShip(browser, base, { name: 'ship', width: 960, height: 640, level: 'w2_01' });
     if (!only || only === 'rescue') await landingRescue(browser, base, { name: 'rescue', width: 960, height: 640, level: 'w3_10' });
     if (!only || only === 'secrets') await landingSecrets(browser, base, { name: 'secrets', width: 960, height: 640, level: 'w1_07' });
     if (!only || only === 'explore') await landingExplore(browser, base, { name: 'explore', width: 960, height: 640, level: 'w2_04' });

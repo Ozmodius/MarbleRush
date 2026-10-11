@@ -45,7 +45,8 @@ export function storyCard(world, firstEver) {
         lines: [
             ...(firstEver ? [`${VILLAIN} wound up five planets like clocks. To keep them ticking, he kidnapped Rolle's friends from MarbleTopia and set them rolling his maze-engines.`] : []),
             `${c.name} is caged somewhere in this maze on ${planet}.`,
-            `Roll through the cage to free ${c.name}. The exit stays locked until you do.`
+            `Roll through the cage to free ${c.name}. The exit stays locked until you do.`,
+            ...(firstEver ? ['And grab the fuel cell hidden in every maze: Rolle\'s ship needs them to fly on to the next planet.'] : [])
         ],
         go: `FREE ${c.name.toUpperCase()}!`
     };

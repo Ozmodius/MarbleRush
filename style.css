@@ -1738,3 +1738,48 @@ button.home-worldname:focus-visible { outline: 2px solid #7fe8ff; outline-offset
 .lp-friend i::after { content: ""; position: absolute; inset: -4px; border-radius: 10px; border: 2px solid rgba(200, 210, 230, 0.7); background: repeating-linear-gradient(90deg, rgba(200, 210, 230, 0.75) 0 2px, transparent 2px 10px); }
 .lp-friend b { font-size: 0.85rem; color: var(--ink); }
 .lp-friend small { font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; color: #7fe8ff; }
+
+/* --- the mission (mission.js, the user's call, 2026-10-11) ---------------- */
+/* The level's objectives on its ready screen: a compact navy plate with a
+   cyan edge under the top bar (above the board, clear of the ready line and
+   START at the bottom), one row each in the order they are done. */
+.maze-mission {
+  position: absolute;
+  left: 50%;
+  top: calc(64px + var(--safe-top));
+  transform: translateX(-50%);
+  width: min(330px, calc(100% - 32px));
+  padding: 7px 12px 8px;
+  border: 1px solid rgba(90, 210, 255, 0.45);
+  border-radius: 12px;
+  background: rgba(10, 16, 38, 0.84) var(--bevel-face);
+  box-shadow: var(--bevel);
+  pointer-events: none;
+}
+@media (max-width: 560px) { .maze-mission { top: calc(80px + var(--safe-top)); } }
+/* A wide screen has room beside the board: the card goes to the left, off
+   the marble's start at the board's top. */
+@media (min-width: 900px) and (min-aspect-ratio: 5/4) { .maze-mission { left: 20px; transform: none; width: 340px; top: calc(72px + var(--safe-top)); } }
+.maze-mission[hidden] { display: none; }
+.mission-title { display: block; margin-bottom: 4px; font-size: 0.56rem; font-weight: 900; letter-spacing: 0.22em; color: #7fdcff; }
+.maze-mission ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.maze-mission li { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; font-weight: 800; color: var(--ink); line-height: 18px; }
+.mission-text { flex: 1; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.maze-mission small { flex: none; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.06em; color: #9fe9ff; text-transform: uppercase; }
+.mission-icon { flex: none; position: relative; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: rgba(150, 200, 255, 0.1); border: 1px solid rgba(150, 200, 255, 0.28); }
+/* fuel: the cell itself */
+.mission-fuel .mission-icon::before { content: ''; width: 6px; height: 11px; border-radius: 2px; background: linear-gradient(#d9a548 0 20%, #2fd8ff 20% 80%, #d9a548 80%); box-shadow: 0 0 6px rgba(47, 216, 255, 0.6); }
+/* exit: the glowing pad */
+.mission-exit .mission-icon::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: #ffd66e; box-shadow: 0 0 7px rgba(255, 214, 110, 0.85); }
+/* cage: bars */
+.mission-cage .mission-icon::before { content: ''; width: 10px; height: 11px; border-radius: 2px; background: repeating-linear-gradient(90deg, #cfd8ea 0 2px, transparent 2px 4px); border-top: 2px solid #cfd8ea; border-bottom: 2px solid #cfd8ea; }
+/* done: a green tick on the ring, the text dimmed */
+.maze-mission li.is-done { color: var(--ink-dim); }
+.maze-mission li.is-done .mission-icon { background: rgba(63, 191, 127, 0.18); border-color: rgba(63, 191, 127, 0.7); }
+.maze-mission li.is-done .mission-icon::after { content: '✓'; position: absolute; right: -5px; bottom: -5px; width: 11px; height: 11px; border-radius: 50%; display: grid; place-items: center; font-size: 0.5rem; font-weight: 900; line-height: 1; color: #06210f; background: #6ff0a8; }
+/* The landing's mission: three jobs side by side; the fuel card wears the
+   cell's cyan (the job players missed). */
+@media (min-width: 720px) { .lp-worlds.lp-mission { grid-template-columns: repeat(3, 1fr); } .lp-mission .lp-world { grid-column: auto; } }
+.lp-world.lp-fuel { box-shadow: 0 0 0 1.5px rgba(47, 216, 255, 0.55), 0 10px 24px rgba(0, 0, 0, 0.35); }
+.lp-world.lp-fuel h3 span { background: #2fd8ff; color: #04202a; }
+.lp-world.lp-fuel li { background: rgba(47, 216, 255, 0.12); color: #9fe9ff; }

@@ -29,7 +29,7 @@ Environment variables:
 | `CRAZYGAMES_PUBLIC_KEY_URL` | optional; default `https://sdk.crazygames.com/publicKey.json` |
 | `RATE_LIMIT` | optional; requests per IP per minute, default 240 |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | optional; email for account codes (port 465 by default). Without them, accounts are made with no emailed code and "Forgot password?" says it is not available |
-| `ADMIN_TOKEN` | optional; a long random string of your choosing. Opens the stats page at `/admin`. Unset, the page is off |
+| `ADMIN_TOKEN` | optional; a long random string of your choosing. Opens the admin page at `/admin`. Unset, the page is off |
 
 Tables are created on first start. Without `DATABASE_URL` the server runs on
 an in-memory store (handy to try it; everything is lost on restart).
@@ -75,9 +75,21 @@ Passwords are salted scrypt hashes; codes and session tokens are stored
 hashed. For email, any SMTP service works (e.g. a Gmail app password, Brevo,
 Mailgun, SendGrid's SMTP).
 
-## Stats page (play tracking)
+## Admin page (players and play tracking)
 
 Open `https://<your-service>.onrender.com/admin` and enter your `ADMIN_TOKEN`.
+A PLATFORM filter (all, web, CrazyGames) applies to both tabs; the game says
+which it is in every session and event.
+
+**Players:** search by name, username, email or id; filter by kind (accounts,
+guests, CrazyGames sign-ins); sort by last seen, newest, furthest or name. A
+player's page shows their platform, devices, days played and what their save
+says (coins, level, clears, fuel cells, diary pages, friends freed, marbles),
+with their leaderboard times, and can **rename** them, **sign them out
+everywhere**, **take them off the leaderboards**, or **delete** them for good
+(type their name to confirm). Each action is logged as `[admin]`.
+
+**Metrics:**
 
 - **Retention:** players today (and how many are new), day-1 / day-7 /
   day-30 return rates, and a table of them by the day players started.
@@ -113,7 +125,10 @@ is sent when the game is built without a server.
 | `POST /v1/scores/batch {scores}` | `{ accepted }`: best times already in a save, sent once |
 | `GET /v1/leaderboard?board=&limit=` | `{ top: [{rank, name, ms, you}], you, total }`; no token needed |
 | `POST /v1/events {events}` | `{ accepted }`: play tracking -- runs `{type: start/clear/fall/quit/revive/shield, level, mode, ms?, tier?, coins?, coinsOf?, cause?, hole?}`, `{type: 'act', name}`, `{type: 'session', ms}` |
-| `GET /v1/admin/stats?days=&idle=` | the stats page's data; `Authorization: Bearer <ADMIN_TOKEN>` |
+| `GET /v1/admin/stats?days=&idle=&platform=` | the metrics; `Authorization: Bearer <ADMIN_TOKEN>` (every admin route) |
+| `GET /v1/admin/players?q=&platform=&kind=&sort=&limit=&offset=` | `{ total, players }` |
+| `GET /v1/admin/player?id=` | `{ player, save (a summary), scores }` |
+| `POST /v1/admin/player/rename {id, name}` · `/signout {id}` · `/scores {id}` · `/delete {id, confirm}` | `{ ok }`; `confirm` is the player's name |
 | `GET /v1/account` | `{ player, account, email }` (email: whether codes can be sent) |
 | `POST /v1/account/register {username, email, password}` | a session, or `{ verify: true, email }` when a code was emailed |
 | `POST /v1/account/verify {email, code}` | a session |

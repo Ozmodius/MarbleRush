@@ -22,6 +22,7 @@ import { drop as dropPose, shipDrop as shipDropPose, shipPickup as shipPickupPos
 import { buildShip } from './ship3d.js';
 import { buildBackdrop } from './backdrop3d.js';
 import { fuelSpot, fuelGate, fuelCount, launchNeed, FUEL_REACH } from './fuel.js';
+import { missionFor } from './mission.js';
 import { buildFuelCell } from './fuel3d.js';
 import { createSurvey, surveyOf, SURVEYED } from './survey.js';
 import { levelGrid as levelGridFor } from './levelSpots.js';
@@ -836,7 +837,8 @@ function buildLevelMeshes(lv, theme) {
     sightFx = null; auraFx = null;
     {
         const id = ballMarbleId, sig = SIGNATURES[id];
-        if (sig && sig.power === 'sight' && !walkMode) {
+        // Clear Sight is an Explore power: the hidden things are there only.
+        if (sig && sig.power === 'sight' && walkMode) {
             const tracked = [];
             const beacons = [];
             if (fuelCell && !fuelCell.found) beacons.push({ x: fuelCell.spot.x, z: fuelCell.spot.z, gone: () => !fuelCell || fuelCell.taken });
@@ -1341,6 +1343,7 @@ function covered(kind) {
 // A tap signature (Rolle's Coin Sense, Glint's Clear Sight): the HUD button.
 export function useSignature() {
     if (!crewRun || !crewRun.sig || crewRun.sig.kind !== 'tap' || crewRun.free <= 0 || phase !== 'running' || !pickupState) return false;
+    if (!tapWorksHere(crewRun.sig)) return false;
     crewRun.free--;
     if (crewRun.sig.power === 'magnet') pickupState.magnetMs = Math.max(pickupState.magnetMs, 8000);
     else if (crewRun.sig.power === 'sight') crewRun.sightMs = SIGHT_MS;
@@ -1350,13 +1353,16 @@ export function useSignature() {
     renderPowerups();
     return true;
 }
+// Where a tap signature works: Clear Sight in Explore (the only place there
+// is anything hidden to see), Coin Sense rolling.
+function tapWorksHere(sig) { return sig.power === 'sight' ? walkMode : !walkMode; }
 // The signature's HUD button: a tap one shows while it has uses; an auto one
 // says how many are left on the power-ups line instead (renderPowerups).
 function renderSignature() {
     const b = el('mazeUse_sig');
     if (!b) return;
     const tap = !!(crewRun && crewRun.sig && crewRun.sig.kind === 'tap');
-    b.style.display = tap && crewRun.free > 0 && phase === 'running' && !walkMode ? '' : 'none';
+    b.style.display = tap && crewRun.free > 0 && phase === 'running' && tapWorksHere(crewRun.sig) ? '' : 'none';
     if (tap) {
         const nm = b.querySelector('.sig-name'); if (nm) nm.textContent = crewRun.sig.name.toUpperCase();
         const c = b.querySelector('.count'); if (c) c.textContent = String(crewRun.free);
@@ -1577,9 +1583,32 @@ function tickGoal(now) {
 function takeFuel() {
     fuelCell.taken = true;
     if (fuelCell.mesh) fuelCell.mesh.take();
-    setStatus('FUEL CELL!  CLEAR THE LEVEL TO BANK IT');
+    setStatus('FUEL CELL!  REACH THE EXIT TO BANK IT');
     if (audio) audio.event('pickup', { x: fuelCell.spot.x, z: fuelCell.spot.z });
     renderFuelChip();
+}
+// THE MISSION (mission.js): the level's objectives on its ready screen, in
+// the order they are done; gone once the run starts.
+function renderMission(on) {
+    const box = el('mazeMission'), list = el('mazeMissionList');
+    if (!box || !list) return;
+    const m = on && level ? missionFor(level, store ? store.get() : {}, { walk: walkMode, nextBuilt: allLevels.some(l => l.world === level.world + 1) }) : null;
+    box.hidden = !m;
+    if (!m) return;
+    list.textContent = '';
+    for (const r of m.rows) {
+        const li = document.createElement('li');
+        li.className = 'mission-' + r.kind + (r.done ? ' is-done' : '');
+        const ic = document.createElement('span');
+        ic.className = 'mission-icon';
+        ic.setAttribute('aria-hidden', 'true');
+        const tx = document.createElement('span');
+        tx.className = 'mission-text';
+        tx.textContent = r.text;
+        if (r.note) { const n = document.createElement('small'); n.textContent = r.note; tx.appendChild(n); }
+        li.append(ic, tx);
+        list.appendChild(li);
+    }
 }
 // The HUD's cell: none on a level without one; dim until found; lit once
 // found (before, or taken this run).
@@ -1590,7 +1619,7 @@ function renderFuelChip() {
     if (!fuelCell) return;
     e.classList.toggle('is-found', !!fuelCell.found);
     e.classList.toggle('is-taken', !!fuelCell.taken);
-    e.title = fuelCell.found ? 'Fuel cell: found' : fuelCell.taken ? 'Fuel cell: clear the level to bank it' : 'Fuel cell: hidden in this maze';
+    e.title = fuelCell.found ? 'Fuel cell: found' : fuelCell.taken ? 'Fuel cell: reach the exit to bank it' : 'Fuel cell: hidden in this maze';
 }
 // The HUD's map: this run's share of the floor, lit once the level has been
 // surveyed (now or before).
@@ -2126,6 +2155,7 @@ function restart() {
     if (survey) survey.mark(ballBody.position.x, ballBody.position.z);
     renderSurveyChip();
     renderCoins();
+    renderMission(false);
     phase = 'running';
     renderPowerups();   // after the phase: the tap buttons show only while running
     attemptOpen = true;
@@ -2604,12 +2634,16 @@ function startLevel(levelId, opts = {}) {
         levelSky.tick(0);
     }
 
-    // A secret pocket, on its two floors of a planet (rolled or walked).
+    // A secret pocket, on its two floors of a planet: in Explore mode ONLY
+    // (the user's call, 2026-10-11, like the fuel cell). Rolling, there is no
+    // false wall and no page: the dead end is a plain dead end.
     pocket = null;
-    { const pk = pocketOn(lv); if (pk) pocket = { wall: pk.wall, page: pk.page, found: (prog.diary || []).includes(lv.id), taken: false, mesh: null }; }
-    // The fuel cell: every ladder level, rolled or walked.
+    if (walkMode) { const pk = pocketOn(lv); if (pk) pocket = { wall: pk.wall, page: pk.page, found: (prog.diary || []).includes(lv.id), taken: false, mesh: null }; }
+    // The fuel cell: every ladder level, found in Explore mode ONLY (the
+    // user's call, 2026-10-11: it is the one thing a world needs explored).
+    // A rolling run never shows or takes one.
     fuelCell = null;
-    if (!isDaily(lv)) {
+    if (walkMode && !isDaily(lv)) {
         const spot = fuelSpot(lv);
         if (spot) fuelCell = { spot, found: (prog.fuel || []).includes(lv.id), taken: false, mesh: null };
     }
@@ -2665,6 +2699,7 @@ function startLevel(levelId, opts = {}) {
     smoothed = null;
     setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : rescue ? readyLine(rescue.world) : storyReadyLine(lv, prog) || readyHint());
     renderFuelChip();
+    renderMission(true);
     survey = null;
     renderSurveyChip();
     freeShieldTaken = false;
@@ -2789,6 +2824,7 @@ window.__mazeDebug = {
     holdFall: (ms) => { fallHeldMs = Number.isFinite(ms) ? ms : null; if (fallFx && ballMesh) drawFallFx(); requestRender(); return !!fallFx; },
     fallFx: () => (fallFx ? { cause: fallFx.cause, drawn: ballMesh ? { x: ballMesh.position.x, y: ballMesh.position.y, z: ballMesh.position.z, s: ballMesh.scale.x, sy: ballMesh.scale.y } : null, body: { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z }, fx: !!(fallFxMesh && fallFxMesh.group.visible) } : null),
     // This level's fuel cell: where, found before, taken this run, drawn.
+    mission: () => { const b = el('mazeMission'); return b && !b.hidden ? [...b.querySelectorAll('li')].map(li => ({ kind: li.className.replace(/^mission-| is-done$/g, ''), text: li.querySelector('.mission-text').firstChild.textContent, done: li.classList.contains('is-done') })) : null; },
     fuel: () => (fuelCell ? { x: fuelCell.spot.x, z: fuelCell.spot.z, found: fuelCell.found, taken: fuelCell.taken, shown: !!(fuelCell.mesh && fuelCell.mesh.group.visible) } : null),
     // The show between levels: which, how far in, and where the DRAWN ball is
     // (the body never moves for it).
@@ -3058,6 +3094,7 @@ async function startRun() {
     // bound to, and placeBallAtStart would dereference a null body. Cheap guard
     // against a real crash rather than a theoretical one.
     if (!level || !ballBody) return;
+    renderMission(false);
     if (walkMode) {
         // Walking needs no motion sensor: joystick and look, or keys.
         clearManual();
@@ -3169,7 +3206,9 @@ function showClearResult(res, ms) {
     // The ship cannot fly on yet: the last word, since NEXT is gone.
     const nx = !walkMode && !isDaily(level) ? nextLevelAfter(level) : null;
     const gate = nx ? fuelGate(progressNow(), nx) : null;
-    if (gate) status2Later(`SHIP NEEDS ${gate.need} FUEL CELLS FOR ${worldName(nx.world).toUpperCase()}  ·  ${gate.have} FOUND`, beat + 200);
+    if (gate) status2Later(`SHIP NEEDS ${gate.need} FUEL CELLS FOR ${worldName(nx.world).toUpperCase()}  ·  ${gate.have} FOUND  ·  EXPLORE TO FIND THEM`, beat + 200);
+    // Rolled, with this maze's cell still hidden: EXPLORE IT is where it is.
+    else if (!walkMode && !isDaily(level) && fuelSpot(level) && !((progressNow().fuel || []).includes(level.id))) status2Later('THIS MAZE\'S FUEL CELL IS STILL HIDDEN  ·  EXPLORE IT TO FIND IT', beat + 200);
     if (res.prize) {
         try { uiSfx.open(); } catch (e) { /* ignore */ }
     }
