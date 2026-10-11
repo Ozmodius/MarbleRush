@@ -202,6 +202,12 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
 - **Lines under CLEARED come in order, the last one stays**: the survey,
   then a fuel cell, then a diary page, then a freed friend's word, then
   prizes and level-ups. A find outranks a percentage.
+- **Safe areas come from `--safe-top` / `--safe-bottom` only** (style.css),
+  and `safeArea.js` decides whether to trust the browser's insets: an
+  Android tab, not fullscreen or installed, gets zero and no
+  `viewport-fit=cover` (2026-10-10: the user's S25 Ultra browser reported
+  the status and nav bars as insets, leaving ~38px and ~54px empty). Never
+  read `env(safe-area-inset-*)` anywhere else.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused
