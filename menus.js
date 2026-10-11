@@ -1,7 +1,8 @@
 import { tierForMs, isUnlocked, walkTierForMs, walkGoldMs } from './progressStore.js';
-import { PRIZES, CHARGE_IDS, AD_REWARDS } from './shopCatalog.js';
+import { CHARGES, CHARGE_IDS, AD_REWARDS, TRAP_GRANT, planetCharge } from './shopCatalog.js';
 import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
-import { onFrame, getRenderer } from './sceneHost.js';
+import { renderCrew, crewReady } from './crewUi.js';
+import { onFrame, getRenderer, setCovered } from './sceneHost.js';
 import { showBanner, adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { sfx } from './sfx.js';
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
@@ -11,7 +12,7 @@ import { isSurveyed } from './survey.js';
 import { POCKET_LEVELS } from './pockets.js';
 import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, showLevelUps } from './dailyUi.js';
 
-// THE MENUS: a bottom tab bar (HOME, GEAR, WORLDS, STORE) over the spinning
+// THE MENUS: a bottom tab bar (HOME, GEAR, CREW, STORE) over the spinning
 // board mazeGame.js keeps as the backdrop, plus the home screen's top HUD.
 //
 // mazeGame.js decides WHEN the menus are up (leaving a level, boot) and calls
@@ -19,14 +20,17 @@ import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, 
 // starts. This module only decides what is on screen.
 //
 // initMenus({ store, game }) once; `game` is mazeGame's module (showMenus,
-// playLevel, nextLevel, getLevels, worldsInfo, pickWorld, selectWorld,
-// worldAnchors, refreshShowcase, setMenuHandler).
+// playLevel, nextLevel, getLevels, worldsInfo, homeWorld, refreshShowcase,
+// setMenuHandler).
 
+// `planet` is no tab of its own: the planet page (a planet's levels, its
+// roll/explore switch and its log) opens from home's planet name, with HOME lit.
 const TABS = {
     home: 'homeView',
     gear: 'profileView',
-    worlds: 'mazeSelect',
-    store: 'storeView'
+    crew: 'crewView',
+    store: 'storeView',
+    planet: 'mazeSelect'
 };
 
 let ctx = null;
@@ -38,17 +42,24 @@ let sheetMode = 'roll';
 const $ = id => document.getElementById(id);
 const fmt = n => Number(n).toLocaleString('en-US');
 
+// Pages that hide the planet (Gear, Crew, Store: near-opaque panels over
+// it) freeze the scene behind them (sceneHost.setCovered): its shader was the
+// costliest thing on screen, and no one was watching it.
+const COVERING = new Set(['gear', 'crew', 'store']);
+
 function show(tab) {
     current = tab;
+    setCovered(COVERING.has(tab), 'menuPage');
     for (const [t, id] of Object.entries(TABS)) {
         const e = $(id);
         if (e) e.style.display = t === tab ? '' : 'none';
     }
     const bar = $('tabBar');
     if (bar) bar.style.display = tab ? '' : 'none';
+    const lit = tab === 'planet' ? 'home' : tab;
     for (const t of Object.keys(TABS)) {
         const b = $('tab_' + t);
-        if (b) { b.classList.toggle('is-active', t === tab); b.setAttribute('aria-current', t === tab ? 'page' : 'false'); }
+        if (b) { b.classList.toggle('is-active', t === lit); b.setAttribute('aria-current', t === lit ? 'page' : 'false'); }
     }
     if (tab !== 'home') closeDailyPanels();
     // Arriving home: a level-up first (its OK goes on to the calendar), else
@@ -57,7 +68,8 @@ function show(tab) {
     // Banners only on these two: pages players read for a while, never play.
     else if (tab === 'gear') { clearShopMessages(); renderProfile(); showBanner('profileBanner'); }
     else if (tab === 'store') { clearShopMessages(); renderStore(); showBanner('storeBanner'); }
-    else if (tab === 'worlds') renderWorlds();
+    else if (tab === 'planet') renderWorlds();
+    else if (tab === 'crew') { clearShopMessages(); renderCrew(); }
     renderWallets();
     renderBadges();
 }
@@ -84,6 +96,9 @@ function bump(id) {
 function renderBadges() {
     const b = $('storeBadge');
     if (b) b.hidden = !(adsAvailable() && ctx.store.adCoinsWaitMs() <= 0);
+    // CREW's !: someone's next upgrade is open and affordable.
+    const c = $('crewBadge');
+    if (c) c.hidden = !crewReady(ctx.store.get());
 }
 
 // The side rail's FREE button: the store's free-coins ad, one tap from home.
@@ -168,7 +183,7 @@ function renderHome() {
         if (t) medals[t]++;
     }
     for (const t of Object.keys(medals)) $('homeMedal_' + t).textContent = String(medals[t]);
-    for (const id of CHARGE_IDS) $('homeCharge_' + id).textContent = String(p.charges?.[id] || 0);
+    for (const id of CHARGE_IDS.filter(k => !CHARGES[k].cover)) $('homeCharge_' + id).textContent = String(p.charges?.[id] || 0);
 
     const best = p.cleared[lv.id];
     const play = $('homePlayBtn');
@@ -350,35 +365,11 @@ function stepHomeWorld(d) {
 // follow the planets, and the sheet for the selected world: its ten levels as
 // tappable nodes, each ringed in the medal its best time earned.
 
+// The planet page: home's planet's levels, roll or explore, and its log.
 function renderWorlds() {
     const worlds = ctx.game.worldsInfo();
-    if (selectedWorld === null) {
-        const nl = ctx.game.nextLevel();
-        selectedWorld = nl ? nl.world : 1;
-    }
-    const labels = $('worldLabels');
-    labels.innerHTML = '';
-    for (const w of worlds) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.id = 'worldLabel_' + w.n;
-        b.className = 'world-label' + (w.n === selectedWorld ? ' is-selected' : '') + (w.state === 'coming' ? ' is-coming' : '');
-        b.textContent = w.name.toUpperCase();
-        b.style.visibility = 'hidden';   // placed on the next frame
-        b.addEventListener('click', (e) => { e.preventDefault(); pickWorld(w.n); });
-        labels.append(b);
-    }
+    selectedWorld = ctx.game.homeWorld();
     renderSheet(worlds.find(w => w.n === selectedWorld) || worlds[0]);
-    ctx.game.selectWorld(selectedWorld);
-    placeLabels();
-}
-
-function pickWorld(n) {
-    if (n === null || n === undefined) return;
-    selectedWorld = n;
-    for (const b of document.querySelectorAll('.world-label')) b.classList.toggle('is-selected', b.id === 'worldLabel_' + n);
-    ctx.game.selectWorld(n);
-    renderSheet(ctx.game.worldsInfo().find(w => w.n === n));
 }
 
 function renderSheet(w) {
@@ -447,7 +438,7 @@ function renderSheet(w) {
             const dot = document.createElement('span');
             dot.className = 'captive-dot' + (freed ? ' is-freed' : '');
             dot.style.setProperty('--m', cap.swatch);
-            capEl.append(dot, document.createTextNode(freed ? `${cap.name} is free, and rolls with you (Gear).` : `${VILLAIN} has caged ${cap.name} on floor 10. Find the cage before the exit.`));
+            capEl.append(dot, document.createTextNode(freed ? `${cap.name} is free, and rolls with you (Crew).` : `${VILLAIN} has caged ${cap.name} on floor 10. Find the cage before the exit.`));
         }
     }
 
@@ -463,29 +454,16 @@ function renderSheet(w) {
         }
     }
 
-    const prizeId = (w.levels[w.levels.length - 1] || {}).prize;
+    // What finishing this planet gives: the next one's trap charges.
+    const lastLv = w.levels[w.levels.length - 1] || {};
+    const giftId = lastLv.prize ? planetCharge(w.n + 1) : null;
     const prizeEl = $('worldSheetPrize');
     prizeEl.innerHTML = '';
-    if (prizeId && PRIZES[prizeId]) {
-        const z = PRIZES[prizeId];
+    if (giftId) {
         const badge = document.createElement('span');
         badge.className = 'prize-badge';
-        prizeEl.append(badge, document.createTextNode(`Prize for level ${w.levels.length}: ${z.name}. ${z.blurb}${p.prizes.includes(prizeId) ? ' (earned)' : ''}`));
-    }
-}
-
-// Labels ride under their planets: re-placed every frame while WORLDS is up.
-function placeLabels() {
-    if (current !== 'worlds') return;
-    for (const a of ctx.game.worldAnchors()) {
-        const b = $('worldLabel_' + a.n);
-        if (!b) continue;
-        // Kept whole on screen: an outer planet near the edge would cut its
-        // name in half.
-        const half = b.offsetWidth / 2 + 6, W = b.parentElement ? b.parentElement.clientWidth : window.innerWidth;
-        b.style.left = Math.max(half, Math.min(W - half, a.x)) + 'px';
-        b.style.top = a.y + 'px';
-        b.style.visibility = '';
+        const got = (p.prizes || []).includes(lastLv.prize);
+        prizeEl.append(badge, document.createTextNode(`Finish ${w.name}: ${TRAP_GRANT} ${CHARGES[giftId].name} for ${worldName(w.n + 1)}. ${CHARGES[giftId].blurb}${got ? ' (given)' : ''}`));
     }
 }
 
@@ -521,12 +499,14 @@ export function initMenus({ store, game }) {
         }
     });
     // The HUD chips go where their thing is: more gold and power-ups in the
-    // store, medals on the worlds map.
+    // store, medals on the planet page, the rescued friends in the crew.
     const go = (id, tab) => { const b = $(id); if (b) b.addEventListener('click', (e) => { e.preventDefault(); game.showMenus(tab); }); };
     go('homeGoldChip', 'store');
     go('homeChargeChip', 'store');
-    go('homeMedalChip', 'worlds');
-    go('homeRescue', 'worlds');
+    go('homeMedalChip', 'planet');
+    go('homeRescue', 'crew');
+    go('homeWorldInfo', 'planet');
+    go('planetBackBtn', 'home');
     for (const [id, mode] of [['modeRoll', 'roll'], ['modeWalk', 'walk']]) {
         const b = $(id);
         if (b) b.addEventListener('click', (e) => {
@@ -546,15 +526,9 @@ export function initMenus({ store, game }) {
     if (free) free.addEventListener('click', (e) => { e.preventDefault(); freeCoinsFromAd(); });
     // The FREE countdown and the store badge tick while the menus are up.
     setInterval(() => { if (current === 'home') renderFreeCoins(); if (current) renderBadges(); }, 1000);
-    onFrame(placeLabels);
     onFrame(placeSites);
-    // On the canvas while WORLDS is up: a drag sideways spins the solar
-    // system (and coasts when let go); a tap picks the planet under it. A
-    // drag past DRAG_PX is never also a tap.
     const canvas = getRenderer() && getRenderer().domElement;
     if (canvas) {
-        const DRAG_PX = 8, RAD_PER_PX = 0.008;
-        let drag = null;
         // HOME: a swipe across the planet moves to the next world -- left
         // brings in the one on the right, as a page turns.
         const SWIPE_PX = 45;
@@ -578,49 +552,16 @@ export function initMenus({ store, game }) {
         };
         window.addEventListener('pointerup', swipeEnd);
         canvas.addEventListener('pointercancel', () => { swipe = null; });
-        canvas.addEventListener('pointerdown', (e) => {
-            if (current !== 'worlds') return;
-            drag = { id: e.pointerId, x0: e.clientX, x: e.clientX, t: performance.now(), v: 0, moved: false };
-        });
-        canvas.addEventListener('pointermove', (e) => {
-            // A mouse moving with no button held is hovering, not dragging --
-            // whatever drag was left over (a pointerup that never arrived)
-            // is over.
-            if (drag && !drag.ended && e.pointerType === 'mouse' && !(e.buttons & 1)) { end(e); return; }
-            if (!drag || drag.ended || e.pointerId !== drag.id || current !== 'worlds') return;
-            if (!drag.moved && Math.abs(e.clientX - drag.x0) < DRAG_PX) return;
-            if (!drag.moved) { drag.moved = true; try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ } }
-            const now = performance.now(), dx = e.clientX - drag.x;
-            // Dragging right carries the near planets right: the angle runs
-            // from screen right toward the viewer, so it goes down.
-            game.spinWorlds(-dx * RAD_PER_PX);
-            const dt = Math.max(1, now - drag.t) / 1000;
-            drag.v = drag.v * 0.6 + (-dx * RAD_PER_PX / dt) * 0.4;
-            drag.x = e.clientX; drag.t = now;
-        });
-        // The ended drag stays put until the next press replaces it, so the
-        // click that follows its pointerup can still see it was a drag. (A
-        // timer clearing it once let a slow device wipe out the NEXT drag.)
-        const end = (e) => {
-            if (!drag || drag.ended || e.pointerId !== drag.id) return;
-            // A pause before letting go means no fling.
-            if (drag.moved) game.releaseWorlds(performance.now() - drag.t > 120 ? 0 : drag.v);
-            drag.ended = true;
-        };
-        canvas.addEventListener('pointerup', end);
-        canvas.addEventListener('pointercancel', end);
-        canvas.addEventListener('click', (e) => {
-            if (current !== 'worlds' || (drag && drag.moved)) return;
-            pickWorld(game.pickWorld(e.clientX, e.clientY));
-        });
     }
 }
 
-// After the marble changed: rebuild the backdrop so it shows the new one.
+// After the marble changed, or anything was bought: rebuild the backdrop so
+// it shows the marble, and redraw the wallets and tab badges.
 export function marbleChanged() {
     if (!ctx) return;
     ctx.game.refreshShowcase();
     renderWallets();
+    renderBadges();   // a purchase or a free ad can change STORE's and CREW's !
 }
 
 // After progress arrived from another device (cloudSync.js): redraw whatever
@@ -630,7 +571,8 @@ export function progressChanged() {
     if (current === 'home') renderHome();
     else if (current === 'gear') renderProfile();
     else if (current === 'store') renderStore();
-    else if (current === 'worlds') renderWorlds();
+    else if (current === 'planet') renderWorlds();
+    else if (current === 'crew') renderCrew();
     renderWallets();
     renderBadges();
     ctx.game.refreshShowcase();

@@ -1,4 +1,6 @@
-// THE SHOP CATALOG -- every marble, upgrade, power-up and prize refill, with
+import { tuneFor } from './crew.js';
+
+// THE SHOP CATALOG -- every marble, look, power-up and trap charge, with
 // its price and what it does. Pure data plus the arithmetic that turns a
 // player's choices into ball numbers, so test_shop.js can check it in Node.
 //
@@ -188,40 +190,29 @@ export const COMFORT = {
     thirdPerson: { def: true }  // the camera behind and above the marble (off: through its eyes)
 };
 
-// --- upgrades (the plan's "4 upgrade tracks") --------------------------------
-// Three tiers each, bought in order. `per` is added per tier.
-export const UPGRADES = {
-    grip:      { name: 'Grip', blurb: 'More grip on every surface. Tighter turns.', prices: [200, 500, 1000], per: 0.04, unit: 'grip' },
-    brakes:    { name: 'Air Brake', blurb: 'The marble coasts to a stop sooner.', prices: [200, 500, 1000], per: 0.03, unit: 'damping' },
-    powerTime: { name: 'Power Time', blurb: 'Slow-mo and magnet last 20% longer per tier.', prices: [250, 600, 1200], per: 0.2, unit: 'duration' },
-    coinReach: { name: 'Coin Reach', blurb: 'Pick up coins from a little further away.', prices: [150, 400, 800], per: 0.06, unit: 'reach' }
-};
-export const UPGRADE_IDS = Object.keys(UPGRADES);
-
 // --- power-ups, bought one at a time (mazePickups.js POWERUPS) ---------------
+// TRAP CHARGES (crew.js, the user's call, 2026-10-10) are each planet's
+// answer to its own trap -- the same trick that planet's rescued friend
+// carries free. Sold once that planet is OPENED (`world`: its first level
+// unlocked, progressStore.js chargeOpen), and the first time a planet is
+// finished, TRAP_GRANT of the next planet's are given free. One is armed per
+// run and spent only when it fires (`cover`, crew.js COVER).
 export const CHARGES = {
     shield: { name: 'Shield', blurb: 'Armed at the start of a run. Saves you from one fall.', price: 80 },
     slowmo: { name: 'Slow-mo', blurb: 'Tap during a run: the world slows for 6 seconds.', price: 60 },
-    magnet: { name: 'Magnet', blurb: 'Tap during a run: pull in nearby coins for 8 seconds.', price: 60 }
+    magnet: { name: 'Magnet', blurb: 'Tap during a run: pull in nearby coins for 8 seconds.', price: 60 },
+    sureFoot: { name: 'Sure Foot', world: 1, cover: 'belt', blurb: 'The first conveyor belt in a run cannot carry you.', price: 50 },
+    iceSkates: { name: 'Ice Skates', world: 2, cover: 'ice', blurb: 'Full grip across the first patch of ice in a run.', price: 60 },
+    fireShield: { name: 'Fire Shield', world: 3, cover: 'burn', blurb: 'The first lava flare or molten gate in a run cannot burn you.', price: 70 },
+    shrug: { name: 'Shrug', world: 4, cover: 'bump', blurb: 'The first bumper or spring in a run barely moves you.', price: 80 },
+    demagnetize: { name: 'Demagnetize', world: 5, cover: 'magnet', blurb: 'The first magnet in a run cannot grab you.', price: 90 }
 };
 export const CHARGE_IDS = Object.keys(CHARGES);
-
-// --- world prizes (docs/PLAN.md's world table) -------------------------------
-// Clearing a world's last level grants PRIZE_GRANT uses of its prize. Each use
-// lasts one level: it is spent the first time the prize's trap is met in that
-// level, and covers every retry of it. Refills are sold only once the prize has
-// been earned -- the store never sells a world's reward before the world.
-// `trap` names the level field the prize answers; only prizes whose world is
-// built so far appear in the store.
-export const PRIZE_GRANT = 3;
-export const PRIZES = {
-    rubberCoat: { name: 'Rubber Coat', world: 1, blurb: 'Full grip on ice.', trap: 'ice', refill: { uses: 3, price: 250 } },
-    heatShield: { name: 'Heat Shield', world: 2, blurb: 'Lava flares cannot burn you.', trap: 'flares', refill: { uses: 3, price: 300 } },
-    obsidianCore: { name: 'Obsidian Core', world: 3, blurb: 'Bumpers push you half as hard.', trap: 'bumpers', refill: { uses: 3, price: 350 } },
-    plasticBall: { name: 'Plastic Ball', world: 4, blurb: 'Magnets cannot grab you.', trap: 'magnets', refill: { uses: 3, price: 400 } },
-    chromePolish: { name: 'Chrome Polish', world: 5, blurb: 'Slides through mud.', trap: 'mud', refill: { uses: 3, price: 450 } }
-};
-export const PRIZE_IDS = Object.keys(PRIZES);
+export const TRAP_CHARGE_IDS = CHARGE_IDS.filter(id => CHARGES[id].cover);
+export const TRAP_GRANT = 3;
+// The trap charge answering a cover kind, and the one a planet sells.
+export const trapChargeFor = (cover) => TRAP_CHARGE_IDS.find(id => CHARGES[id].cover === cover) || null;
+export const planetCharge = (world) => TRAP_CHARGE_IDS.find(id => CHARGES[id].world === world) || null;
 
 // --- rewarded ads (platform.js; CrazyGames only) -----------------------------
 // What a rewarded ad the player CHOSE to watch pays. Never anything that makes
@@ -235,11 +226,12 @@ export const PRIZE_IDS = Object.keys(PRIZES);
 //                  of run -- a fall in the first seconds costs nothing to retry.
 //   try a marble   (Gear page) an unowned marble for the next level, every
 //                  retry of it, then gone -- never ownership, never saved.
-//   upgrade step   (Store) the next tier of an upgrade, free, once per
-//                  upgradeCooldownMs, and only for tiers priced at most
-//                  upgradeMaxPrice -- the top tiers stay something to save for.
+//   crew step      (Crew page) a character's next track step, free, once per
+//                  upgradeCooldownMs, only once its bond allows it and only
+//                  for steps priced at most upgradeMaxPrice -- the top steps
+//                  stay something to save for. Bond is never given by ad.
 export const AD_REWARDS = { coins: 60, coinsCooldownMs: 3 * 60 * 1000, doubleCap: 500, reviveAfterMs: 8000,
-    upgradeCooldownMs: 30 * 60 * 1000, upgradeMaxPrice: 600 };
+    upgradeCooldownMs: 30 * 60 * 1000, upgradeMaxPrice: 700 };
 
 // --- daily rewards and missions (daily.js) ----------------------------------
 // A 7-day calendar: one claim per local calendar day, rising through the week.
@@ -279,21 +271,23 @@ export const MISSIONS_BONUS = 100;
 // day's first gold adds `goldBonus`. Replays chase the day's best time.
 export const DAILY_MAZE = { unlockAfter: 3, reward: 150, goldBonus: 100 };
 
-// The ball a player will roll: their marble plus their upgrades. One function
-// so the profile page's stat bars and buildWorld() can never disagree.
-export function ballSetup(marbleId, upgrades = {}) {
-    const m = MARBLES[marbleId] || MARBLES.classic;
-    const tier = id => Math.max(0, Math.min(UPGRADES[id].prices.length, upgrades[id] | 0));
+// The ball a player will roll: their marble plus its own tuned steps
+// (crew.js). One function so the Crew page's stat bars and buildWorld() can
+// never disagree.
+export function ballSetup(marbleId, step = 0) {
+    const id = MARBLES[marbleId] ? marbleId : 'classic';
+    const m = MARBLES[id];
+    const add = tuneFor(id, Number(step) || 0);
     return {
-        id: MARBLES[marbleId] ? marbleId : 'classic',
+        id,
         look: m.look,
-        grip: m.stats.grip + tier('grip') * UPGRADES.grip.per,
+        grip: m.stats.grip + add.grip,
         bounce: m.stats.bounce,
-        damping: m.stats.damping + tier('brakes') * UPGRADES.brakes.per,
+        damping: m.stats.damping + add.damping,
         spin: m.stats.spin,
-        response: m.stats.response,
-        // mazePickups.js modifiers
-        durationScale: 1 + tier('powerTime') * UPGRADES.powerTime.per,
-        coinReach: tier('coinReach') * UPGRADES.coinReach.per
+        response: m.stats.response + add.response,
+        // mazePickups.js modifiers (ship upgrades once set these; none now)
+        durationScale: 1,
+        coinReach: 0
     };
 }

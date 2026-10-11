@@ -3,18 +3,19 @@
 // progressStore.js).
 //
 //   1. THE RULE (CLAUDE.md): nothing bought makes the ball faster or smaller.
-//      No marble or upgrade has a radius; no combination has less damping than
-//      Classic; response never lifts the tilt ceiling (mazeTilt.js clamps).
-//   2. Prices come from the catalog, are positive, and upgrade tiers rise.
-//   3. Purchases: refused when short, refused twice for a marble, refused past
-//      the last upgrade tier, refused for a prize not yet earned; each takes
+//      No marble or crew step has a radius; no step leaves a marble with less
+//      damping or grip than it had, or adds to any stat but grip, stopping and
+//      response; response never lifts the tilt ceiling (mazeTilt.js clamps).
+//   2. Prices come from the catalog, are positive, and track steps rise.
+//   3. Purchases: refused when short, refused twice for a marble; each takes
 //      exactly its price and gives exactly its thing.
 //   4. Selecting a marble needs owning it; Classic is always owned.
-//   5. A world's clear grants PRIZE_GRANT uses; consume spends one at a time.
+//   5. Finishing a planet grants TRAP_GRANT of the next one's trap charge;
+//      consume spends one at a time.
 //   6. Old saves (from before the shop) load with Classic owned and selected.
 //
-// Negative control: give Glass `damping: 0.01` and 1 fails; drop the
-// 'not-earned' check in buyPrizeRefill and 3 fails.
+// Negative control: give Glass `damping: 0.01` and 1 fails; give a TUNE entry
+// `stat: 'bounce'` and 1 fails.
 
 const failures = [];
 const check = (c, m) => { if (!c) failures.push(m); };
@@ -25,16 +26,22 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const T = await import('./mazeTilt.js');
 
     // 1. never faster, never smaller
-    const classic = C.ballSetup('classic', {});
+    const CR = await import('./crew.js');
+    const classic = C.ballSetup('classic');
     for (const id of C.MARBLE_IDS) {
         const m = C.MARBLES[id];
         check(!('radius' in m) && !('radius' in m.stats), `${id}: a marble must not carry a radius -- radius belongs to the world`);
-        for (const tiers of [{}, { grip: 3, brakes: 3, powerTime: 3, coinReach: 3 }]) {
-            const b = C.ballSetup(id, tiers);
-            check(b.damping >= classic.damping - 1e-9, `${id}: damping ${b.damping} is below Classic's ${classic.damping} -- that is a faster ball`);
+        const base = C.ballSetup(id, 0);
+        for (let st = 0; st <= CR.TRACK_MAX; st++) {
+            const b = C.ballSetup(id, st);
+            check(b.damping >= classic.damping - 1e-9, `${id} step ${st}: damping ${b.damping} is below Classic's ${classic.damping} -- that is a faster ball`);
+            check(b.damping >= base.damping - 1e-9 && b.grip >= base.grip - 1e-9 && b.bounce === base.bounce && b.spin === base.spin, `${id} step ${st}: a step only ever adds grip, stopping or response`);
+            check(b.response <= 1.5 + 1e-9, `${id} step ${st}: response ${b.response} past 1.5`);
             check(!('radius' in b), `${id}: ballSetup must not produce a radius`);
         }
         check(m.stats.response > 0 && m.stats.response <= 1.5, `${id}: response ${m.stats.response} out of range`);
+        check(CR.TUNE[id] && CR.TUNE_STATS.includes(CR.TUNE[id].stat) && CR.TUNE[id].per > 0, `${id}: tuned on grip, stopping or response only`);
+        check(CR.SIGNATURES[id] && CR.SIGNATURES[id].name, `${id}: every marble carries a signature`);
     }
     // Response reaches full tilt with less lean; full tilt is still the same pull.
     for (const r of [1, 1.35, 1.5]) {
@@ -44,13 +51,17 @@ const check = (c, m) => { if (!c) failures.push(m); };
 
     // 2. prices
     for (const id of C.MARBLE_IDS) check(id === 'classic' ? C.MARBLES[id].price === 0 : C.MARBLES[id].rescue ? !(C.MARBLES[id].price > 0) : C.MARBLES[id].price > 0, `${id}: bad price`);
-    for (const id of C.UPGRADE_IDS) {
-        const ps = C.UPGRADES[id].prices;
-        check(ps.length === 3 && ps.every((v, i) => v > 0 && (i === 0 || v > ps[i - 1])), `${id}: upgrade tiers must be three rising prices, got ${ps}`);
-    }
+    const ps = CR.TRACK.map(t => t.price);
+    check(ps.every((v, i) => v > 0 && (i === 0 || v > ps[i - 1])) && CR.TRACK.every((t, i) => t.bond >= 2 && (i === 0 || t.bond > CR.TRACK[i - 1].bond)),
+        `track steps must rise in price and bond, got ${ps}`);
     for (const id of C.CHARGE_IDS) check(C.CHARGES[id].price > 0, `${id}: bad charge price`);
     const P = await import('./mazePickups.js');
-    check(C.CHARGE_IDS.every(id => P.POWERUP_KINDS.includes(id)), 'every power-up sold must be one the game can fire');
+    check(C.CHARGE_IDS.filter(id => !C.CHARGES[id].cover).every(id => P.POWERUP_KINDS.includes(id)), 'every power-up sold must be one the game can fire');
+    check(C.TRAP_CHARGE_IDS.length === 5 && C.TRAP_CHARGE_IDS.every(id => CR.COVER[C.CHARGES[id].cover] && C.CHARGES[id].world >= 1), 'each planet sells one trap charge, answering a kind the game covers');
+    for (const id of C.MARBLE_IDS.filter(k => C.MARBLES[k].rescue)) {
+        const sig = CR.SIGNATURES[id], ch = C.planetCharge(C.MARBLES[id].rescue);
+        check(sig.kind === 'auto' && ch && sig.covers.includes(C.CHARGES[ch].cover) && sig.name === C.CHARGES[ch].name, `${id}: a friend's signature is their planet's trap charge (${sig.name} / ${ch})`);
+    }
 
     // 3. purchases
     let p = S.freshProgress();
@@ -64,31 +75,18 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(S.buyMarble(p, 'steel').reason === 'owned', 'a marble cannot be bought twice');
     check(S.buyMarble(p, 'gold').reason === 'unknown', 'an unknown marble is refused');
 
-    for (let i = 0; i < 3; i++) {
-        const price = S.upgradePrice(p, 'grip');
-        r = S.buyUpgrade(p, 'grip');
-        check(r.ok && r.progress.wallet === p.wallet - price && r.progress.upgrades.grip === i + 1, `grip tier ${i + 1} costs ${price}`);
-        p = r.progress;
-    }
-    check(S.buyUpgrade(p, 'grip').reason === 'maxed' && S.upgradePrice(p, 'grip') === null, 'no tier past the last');
-
     r = S.buyCharge(p, 'shield');
     check(r.ok && r.progress.charges.shield === 1 && r.progress.wallet === p.wallet - C.CHARGES.shield.price, 'buying a power-up adds one charge');
     p = r.progress;
 
-    check(S.buyPrizeRefill(p, 'rubberCoat').reason === 'not-earned', 'a prize refill is not sold before the prize is earned');
-
-    // 5. prize grant via a clear, then refill and consume
+    // 5. a planet's trap charges via a clear, then consume
     const levels = [{ id: 'w1_10', world: 1, index: 1, minMs: 1000, goldMs: 5000, coins: [], prize: 'rubberCoat' }];
     const clr = S.applyClear(p, levels, { byWorld: {} }, 'w1_10', 6000, 0);
     p = clr.progress;
-    check(p.prizeUses.rubberCoat === C.PRIZE_GRANT, `clearing the world grants ${C.PRIZE_GRANT} uses, got ${p.prizeUses.rubberCoat}`);
-    r = S.buyPrizeRefill(p, 'rubberCoat');
-    check(r.ok && r.progress.prizeUses.rubberCoat === C.PRIZE_GRANT + C.PRIZES.rubberCoat.refill.uses, 'a refill adds its uses once earned');
-    p = r.progress;
+    check(p.charges.iceSkates === C.TRAP_GRANT, `finishing Sawturn grants ${C.TRAP_GRANT} Ice Skates, got ${p.charges.iceSkates}`);
     let n = 0;
-    while (S.consume(p, 'prizeUses', 'rubberCoat').ok) { p = S.consume(p, 'prizeUses', 'rubberCoat').progress; n++; }
-    check(n === 6 && !p.prizeUses.rubberCoat, `consume spends uses one at a time down to none (spent ${n})`);
+    while (S.consume(p, 'charges', 'iceSkates').ok) { p = S.consume(p, 'charges', 'iceSkates').progress; n++; }
+    check(n === C.TRAP_GRANT && !p.charges.iceSkates, `consume spends them one at a time down to none (spent ${n})`);
     check(!S.consume(p, 'charges', 'magnet').ok, 'cannot spend a charge you do not have');
 
     // 4. selection
@@ -98,9 +96,9 @@ const check = (c, m) => { if (!c) failures.push(m); };
     // 6. old saves
     const old = S.parseProgress(JSON.stringify({ v: 1, wallet: 10, highestIndex: 2, cleared: {}, goldClaimed: [], prizes: [], charges: {} }));
     check(old.marble === 'classic' && old.marbles.join() === 'classic' && old.wallet === 10, 'a pre-shop save loads with Classic owned and selected');
-    const tamper = S.parseProgress(JSON.stringify({ v: 1, marbles: ['glass', 'nonsense'], marble: 'nonsense', upgrades: { grip: 99, bogus: 2 } }));
+    const tamper = S.parseProgress(JSON.stringify({ v: 1, marbles: ['glass', 'nonsense'], marble: 'nonsense', crew: { glass: 99, bogus: 2 } }));
     check(tamper.marble === 'classic' && !tamper.marbles.includes('nonsense'), 'unknown marbles in a save are dropped');
-    check(tamper.upgrades.grip === 3 && !('bogus' in tamper.upgrades), 'upgrade tiers in a save are capped and unknown tracks dropped');
+    check(tamper.crew.glass === CR.TRACK_MAX && !('bogus' in tamper.crew), 'track steps in a save are capped and strangers dropped');
 
     // Skins and trails: looks only, bought or earned, never both.
     for (const [kind, L] of Object.entries(C.LOOKS)) {
@@ -122,7 +120,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(gr.ok && gr.progress.trails.includes('rainbow') && gr.progress.trail === 'none' && S.selectLook(gr.progress, 'trail', 'rainbow').ok, 'a granted look is owned, and worn once chosen');
     const back = S.parseProgress(JSON.stringify({ ...lr.progress, skins: ['stripe', 'bogus'], trails: ['flame'], trail: 'bogus' }));
     check(back.skins.join() === 'plain,stripe' && back.skin === 'stripe' && back.trails.join() === 'none,flame' && back.trail === 'none', `looks round-trip and junk is dropped: ${JSON.stringify([back.skins, back.skin, back.trails, back.trail])}`);
-    check(C.ballSetup('steel', {}).grip === C.ballSetup('steel', {}).grip, 'ballSetup takes no look at all');
+    check(C.ballSetup('steel').grip === C.ballSetup('steel', 0).grip, 'ballSetup takes no look at all');
 
     // Rescued friends (rescue.js) are earned on a floor 10, never bought.
     const rich = { ...S.freshProgress(), wallet: 1e6 };
@@ -135,6 +133,6 @@ const check = (c, m) => { if (!c) failures.push(m); };
         console.error('FAIL: shop\n - ' + failures.join('\n - '));
         process.exitCode = 1;
     } else {
-        console.log('PASS: shop -- nothing bought makes the ball faster or smaller, prices are sane, purchases take exactly their price and refuse what they should, prizes are granted then refilled only once earned, and old saves load cleanly');
+        console.log('PASS: shop -- nothing bought makes the ball faster or smaller, crew steps only add grip, stopping or response, prices are sane, purchases take exactly their price and refuse what they should, a finished planet grants the next one\'s trap charges, and old saves load cleanly');
     }
 })().catch(e => { console.error(e); process.exitCode = 1; });

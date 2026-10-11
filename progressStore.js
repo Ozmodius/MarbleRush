@@ -21,7 +21,8 @@
 // player who edits their own save cheats only themselves; these rules exist so
 // the HONEST game behaves -- a replay must not pay a first clear twice.
 
-import { MARBLES, UPGRADES, CHARGES, PRIZES, PRIZE_GRANT, AD_REWARDS, LOOKS, DAILY_MAZE, WALK, EXPLORER, COMFORT } from './shopCatalog.js';
+import { MARBLES, CHARGES, TRAP_GRANT, planetCharge, AD_REWARDS, LOOKS, DAILY_MAZE, WALK, EXPLORER, COMFORT } from './shopCatalog.js';
+import { TRACK_MAX, bondInfo, bondForClear, crewStep, nextStep } from './crew.js';
 import { achievementList, achievementsReady, claimAchievement, parseAchievements } from './achievements.js';
 import * as daily from './daily.js';
 import * as levelUp from './playerLevel.js';
@@ -54,9 +55,12 @@ export function freshProgress() {
         v: SAVE_VERSION, wallet: 0, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: [], charges: {},
         // The shop (shopCatalog.js). Added after the first saves existed, so
         // parseProgress fills them in for a save that predates them.
-        marbles: ['classic'], marble: 'classic', upgrades: {}, prizeUses: {},
+        marbles: ['classic'], marble: 'classic',
+        // The crew (crew.js): bond XP by marble id, and how far along its
+        // track each character's upgrades are (0-4).
+        bond: {}, crew: {},
         // When the store's free-coins ad last paid (AD_REWARDS.coinsCooldownMs),
-        // and when the last free upgrade step was given (upgradeCooldownMs).
+        // and when the last free crew step was given (upgradeCooldownMs).
         adCoinsAt: 0, adUpgradeAt: 0,
         // The 7-day calendar and today's missions (daily.js).
         daily: { streak: 0, last: '', doubled: '' }, missions: null,
@@ -117,9 +121,9 @@ export function parseProgress(text) {
         return out;
     };
     p.charges = counts(raw.charges, CHARGES);
-    p.prizeUses = counts(raw.prizeUses, PRIZES);
-    p.upgrades = counts(raw.upgrades, UPGRADES);
-    for (const [k, n] of Object.entries(p.upgrades)) p.upgrades[k] = Math.min(n, UPGRADES[k].prices.length);
+    p.bond = counts(raw.bond, MARBLES);
+    p.crew = counts(raw.crew, MARBLES);
+    for (const [k, n] of Object.entries(p.crew)) p.crew[k] = Math.min(n, TRACK_MAX);
     if (Array.isArray(raw.marbles)) p.marbles = ['classic', ...raw.marbles.filter(id => MARBLES[id] && id !== 'classic')];
     p.marble = p.marbles.includes(raw.marble) ? raw.marble : 'classic';
     p.adCoinsAt = Math.max(0, Number(raw.adCoinsAt) || 0);
@@ -253,11 +257,14 @@ export function applyClear(progress, levels, payouts, levelId, durationMs, coins
     };
     if (goldFirst) p.goldClaimed.push(lv.id);
     p.highestIndex = Math.max(p.highestIndex, lv.index);
+    // A planet finished for the first time (its last level carries a `prize`
+    // mark in mazeLevels.json) gives TRAP_GRANT of the NEXT planet's trap
+    // charge. `prizes` keeps which planets have been finished.
     let prize = null;
     if (lv.prize && !p.prizes.includes(lv.prize)) {
         p.prizes.push(lv.prize);
-        p.prizeUses[lv.prize] = (p.prizeUses[lv.prize] || 0) + PRIZE_GRANT;
-        prize = lv.prize;
+        const id = planetCharge((lv.world || 0) + 1);
+        if (id) { p.charges[id] = (p.charges[id] || 0) + TRAP_GRANT; prize = id; }
     }
 
     return {
@@ -375,9 +382,9 @@ export function mergeProgress(a, b) {
     p.rescued.sort((a, b) => a - b);
     p.fuel.sort();
     for (const [id, n] of Object.entries(older.survey || {})) p.survey[id] = Math.max(p.survey[id] || 0, n);
-    for (const [id, n] of Object.entries(older.upgrades)) p.upgrades[id] = Math.max(p.upgrades[id] || 0, n);
-    // A prize only the older save has earned brings its uses with it.
-    for (const id of older.prizes) if (!newer.prizes.includes(id) && older.prizeUses[id]) p.prizeUses[id] = older.prizeUses[id];
+    // Bond only grows, and a track step bought anywhere stays bought.
+    for (const [id, n] of Object.entries(older.bond)) p.bond[id] = Math.max(p.bond[id] || 0, n);
+    for (const [id, n] of Object.entries(older.crew)) p.crew[id] = Math.max(p.crew[id] || 0, n);
     p.xp = A.xp === null && B.xp === null ? null : Math.max(A.xp || 0, B.xp || 0);
     p.levelPaid = Math.max(A.levelPaid, B.levelPaid);
     p.adCoinsAt = Math.max(A.adCoinsAt, B.adCoinsAt);
@@ -491,12 +498,6 @@ export function selectMarble(progress, id) {
     return { progress: p, ok: true };
 }
 
-// Upgrades are bought a tier at a time, in order.
-export function upgradePrice(progress, id) {
-    const u = UPGRADES[id];
-    const tier = progress.upgrades[id] || 0;
-    return u && tier < u.prices.length ? u.prices[tier] : null;
-}
 // Skins and trails: bought with coins, or given as a player-level reward
 // (grantLook) -- a reward is never for sale. Buying one wears it.
 export function buyLook(progress, kind, id) {
@@ -521,28 +522,47 @@ export function selectLook(progress, kind, id) {
     return { progress: p, ok: true };
 }
 
-export function buyUpgrade(progress, id) {
-    const price = upgradePrice(progress, id);
-    return purchase(progress, price === null ? NaN : price, p => { p.upgrades[id] = (p.upgrades[id] || 0) + 1; },
-        !UPGRADES[id] ? 'unknown' : price === null ? 'maxed' : null);
+// THE CREW (crew.js). A clear as `marbleId` earns it bond; a trial marble
+// (a rewarded-ad try) is not the player's, so it earns none.
+export function recordBond(progress, marbleId, result) {
+    const gain = bondForClear(result);
+    if (!gain || !progress.marbles.includes(marbleId)) return { progress, ok: false, gained: 0 };
+    const p = JSON.parse(JSON.stringify(progress));
+    const before = bondInfo(p.bond[marbleId]).level;
+    p.bond[marbleId] = (p.bond[marbleId] || 0) + gain;
+    const after = bondInfo(p.bond[marbleId]).level;
+    return { progress: p, ok: true, gained: gain, level: after, levelUp: after > before ? after : 0 };
+}
+// A character's next track step: in order, owned characters only, once
+// their bond level allows it.
+export function buyCrewStep(progress, marbleId) {
+    const n = MARBLES[marbleId] ? nextStep(progress, marbleId) : null;
+    return purchase(progress, n ? n.price : NaN, p => { p.crew[marbleId] = crewStep(progress, marbleId) + 1; },
+        !MARBLES[marbleId] ? 'unknown' : !progress.marbles.includes(marbleId) ? 'not-owned' : !n ? 'maxed' : !n.ready ? 'bond' : null);
 }
 
-export function buyCharge(progress, id) {
+// Whether a planet is OPENED: its first level unlocked, or any of it played.
+// A trap charge is sold only once its planet is (CHARGES `world`).
+export function worldOpen(progress, levels, world) {
+    if (!(world > 1)) return true;
+    const lvls = (levels || []).filter(l => l.world === world);
+    if (!lvls.length) return false;
+    if (lvls.some(l => progress.cleared[l.id])) return true;
+    const first = lvls.reduce((a, b) => (a.index <= b.index ? a : b));
+    return isUnlocked(progress, first);
+}
+export const chargeOpen = (progress, levels, id) => !!CHARGES[id] && (!CHARGES[id].world || worldOpen(progress, levels, CHARGES[id].world));
+
+export function buyCharge(progress, id, levels = null) {
     const c = CHARGES[id];
-    return purchase(progress, c ? c.price : NaN, p => { p.charges[id] = (p.charges[id] || 0) + 1; }, !c ? 'unknown' : null);
+    const shut = c && c.world && levels && !chargeOpen(progress, levels, id);
+    return purchase(progress, c ? c.price : NaN, p => { p.charges[id] = (p.charges[id] || 0) + 1; }, !c ? 'unknown' : shut ? 'not-open' : null);
 }
 
-// Refills of a world prize: only once the world has given it.
-export function buyPrizeRefill(progress, id) {
-    const z = PRIZES[id];
-    return purchase(progress, z ? z.refill.price : NaN, p => { p.prizeUses[id] = (p.prizeUses[id] || 0) + z.refill.uses; },
-        !z ? 'unknown' : !progress.prizes.includes(id) ? 'not-earned' : null);
-}
-
-// Spend one owned power-up charge or prize use (fired in a run). False if
-// there is none to spend.
+// Spend one owned power-up or trap charge (fired in a run). False if there
+// is none to spend.
 export function consume(progress, bucket, id) {
-    if (!['charges', 'prizeUses'].includes(bucket) || !(progress[bucket][id] > 0)) return { progress, ok: false, reason: 'none' };
+    if (bucket !== 'charges' || !(progress.charges[id] > 0)) return { progress, ok: false, reason: 'none' };
     const p = JSON.parse(JSON.stringify(progress));
     p[bucket][id]--;
     if (!p[bucket][id]) delete p[bucket][id];
@@ -572,22 +592,23 @@ export function adDoubleClear(progress, earned) {
     p.wallet += n;
     return { progress: p, ok: true, amount: n };
 }
-// A free upgrade step: the next tier of `id`, if it is cheap enough to be
-// given away (AD_REWARDS.upgradeMaxPrice) and the cooldown is over.
-export function adUpgradeEligible(progress, id) {
-    const price = upgradePrice(progress, id);
-    return price !== null && price <= AD_REWARDS.upgradeMaxPrice;
+// A free crew step (a rewarded ad): `marbleId`'s next track step, if its
+// bond allows it, it is cheap enough to give away (AD_REWARDS.upgradeMaxPrice)
+// and the cooldown is over. Bond is never given.
+export function adUpgradeEligible(progress, marbleId) {
+    const n = MARBLES[marbleId] && progress.marbles.includes(marbleId) ? nextStep(progress, marbleId) : null;
+    return !!n && n.ready && n.price <= AD_REWARDS.upgradeMaxPrice;
 }
 export function adUpgradeWaitMs(progress, now = Date.now()) {
     return Math.max(0, (progress.adUpgradeAt || 0) + AD_REWARDS.upgradeCooldownMs - now);
 }
-export function adUpgrade(progress, id, now = Date.now()) {
-    if (!UPGRADES[id]) return { progress, ok: false, reason: 'unknown' };
-    if (upgradePrice(progress, id) === null) return { progress, ok: false, reason: 'maxed' };
-    if (!adUpgradeEligible(progress, id)) return { progress, ok: false, reason: 'too-dear' };
+export function adUpgrade(progress, marbleId, now = Date.now()) {
+    if (!MARBLES[marbleId]) return { progress, ok: false, reason: 'unknown' };
+    if (!nextStep(progress, marbleId)) return { progress, ok: false, reason: 'maxed' };
+    if (!adUpgradeEligible(progress, marbleId)) return { progress, ok: false, reason: 'not-eligible' };
     if (adUpgradeWaitMs(progress, now) > 0) return { progress, ok: false, reason: 'cooldown' };
     const p = JSON.parse(JSON.stringify(progress));
-    p.upgrades[id] = (p.upgrades[id] || 0) + 1;
+    p.crew[marbleId] = crewStep(progress, marbleId) + 1;
     p.adUpgradeAt = now;
     return { progress: p, ok: true };
 }
@@ -720,18 +741,24 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
             return { ok: out.ok, reason: out.reason || null };
         },
         selectMarble: id => apply(selectMarble(progress, id)),
-        buyUpgrade: id => did(apply(buyUpgrade(progress, id)), 'buy:upgrade:' + id),
         buyLook: (kind, id) => did(apply(buyLook(progress, kind, id)), `buy:${kind}:${id}`),
         selectLook: (kind, id) => apply(selectLook(progress, kind, id)),
-        buyCharge: id => did(apply(buyCharge(progress, id)), 'buy:charge:' + id),
-        buyPrizeRefill: id => did(apply(buyPrizeRefill(progress, id)), 'buy:refill:' + id),
+        buyCharge: id => did(apply(buyCharge(progress, id, levels)), 'buy:charge:' + id),
+        chargeOpen: id => chargeOpen(progress, levels, id),
+        worldOpen: world => worldOpen(progress, levels, world),
+        // The crew: bond from a clear as `marbleId`, and buying track steps.
+        recordBond: (marbleId, result) => {
+            const out = recordBond(progress, marbleId, result);
+            apply(out);
+            return { ok: out.ok, gained: out.gained || 0, level: out.level || 0, levelUp: out.levelUp || 0 };
+        },
+        buyCrewStep: marbleId => did(apply(buyCrewStep(progress, marbleId)), 'buy:crew:' + marbleId),
         // A spent power-up also counts toward a "use power-ups" mission.
         useCharge: id => {
             const out = consume(progress, 'charges', id);
             if (out.ok) out.progress = daily.trackMissions(out.progress, { powerup: 1 }, clock()).progress;
             return did(apply(out), 'use:charge:' + id).ok;
         },
-        usePrize: id => did(apply(consume(progress, 'prizeUses', id)), 'use:prize:' + id).ok,
         // Rewarded-ad payouts: call only once the ad has finished.
         adCoins: () => did(apply(adCoins(progress)), 'ad:coins'),
         adCoinsWaitMs: () => adCoinsWaitMs(progress),

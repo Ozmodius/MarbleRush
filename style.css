@@ -1682,3 +1682,50 @@ html.kbd-first .key-hint { display: inline-block; }
 .diary-head { margin: 0 0 4px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.14em; color: #ffb38a; }
 .diary-text { margin: 0; font-size: 0.86rem; line-height: 1.45; color: var(--ink); }
 .diary-page:not(.is-found) .diary-text { color: var(--ink-dim); font-style: italic; }
+
+/* --- the crew (crewUi.js, 2026-10-10) ------------------------------------------- */
+/* One card a character: who, bond, signature, the four-step track, select. */
+.crew-list { display: flex; flex-direction: column; gap: 10px; }
+.crew-note { margin: 0 0 2px; }
+.crew-card { gap: 10px; box-shadow: var(--bevel); background: var(--bevel-face), rgba(12, 18, 40, 0.88); }
+.crew-card.is-selected { border-color: var(--accent); background: var(--bevel-face), rgba(52, 38, 14, 0.75); }
+.crew-who { display: flex; flex-direction: column; gap: 2px; }
+.crew-from { font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; color: #7fe8ff; }
+.crew-bond { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; font-size: 0.72rem; }
+.crew-bondlvl { font-weight: 900; letter-spacing: 0.14em; color: #7fe8ff; }
+.crew-bondtrack { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); overflow: hidden; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5); }
+.crew-bondfill { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #2fd8ff, #9ff6ff); }
+.crew-bondxp { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.crew-sig { padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(127, 232, 255, 0.28); background: rgba(47, 216, 255, 0.07); }
+.crew-signame { font-weight: 900; letter-spacing: 0.12em; color: #bff4ff; }
+.crew-siguses { float: right; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.14em; color: var(--accent); margin-top: 2px; }
+.crew-sigblurb { margin: 4px 0 0; font-size: 0.78rem; font-weight: 500; color: var(--ink-dim); }
+.crew-track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.crew-step { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; font-size: 0.62rem; line-height: 1.2; color: var(--ink-dim); }
+.crew-steppip { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(150, 190, 255, 0.35); background: rgba(255, 255, 255, 0.04); }
+.crew-step.is-on .crew-steppip { border-color: transparent; background: radial-gradient(circle at 35% 35%, #fff3cf, var(--accent)); box-shadow: 0 0 8px rgba(240, 178, 58, 0.6); }
+.crew-step.is-on { color: var(--ink); }
+.crew-step.is-next .crew-steppip { border-color: #7fe8ff; box-shadow: 0 0 6px rgba(127, 232, 255, 0.5); }
+.crew-stepneed { font-size: 0.56rem; letter-spacing: 0.1em; opacity: 0.7; }
+.crew-actions { display: flex; gap: 8px; }
+.crew-actions .crew-upgrade { flex: 1; justify-content: center; }
+.crew-upword { margin-right: 6px; letter-spacing: 0.1em; }
+.gear-crewnote { margin: 2px 0 6px; }
+/* Planet gear in the store and Gear: a planet-coloured badge each. */
+.trap-dot { flex: none; display: inline-block; width: 16px; height: 16px; border-radius: 4px; transform: rotate(45deg); margin-right: 4px; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35); }
+.trap-sureFoot { background: #c98a3c; }
+.trap-iceSkates { background: #bfe6ff; }
+.trap-fireShield { background: #ff6a2b; }
+.trap-shrug { background: #b77bff; }
+.trap-demagnetize { background: #c9a24a; }
+/* The run's tap signature (Rolle's Coin Sense, Glint's Clear Sight). */
+.maze-sig { border-color: rgba(127, 232, 255, 0.55); }
+.maze-sig .sig-star { color: #7fe8ff; }
+/* Home's planet name opens the planet page. */
+button.home-worldname { font: inherit; background: none; border: 0; padding: 2px 6px; cursor: pointer; border-radius: 10px; }
+button.home-worldname:focus-visible { outline: 2px solid #7fe8ff; outline-offset: 2px; }
+.home-worldname .world-planet::after { content: '  \203A'; opacity: 0.55; }
+/* The planet page (once the Worlds tab): a back button in its header. */
+.worlds-head { pointer-events: auto; gap: 10px; }
+.worlds-head h1 { flex: 1; }
+.planet-back { flex: none; }

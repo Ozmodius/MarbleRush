@@ -33,7 +33,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
     for (const lv of levels.slice(0, 12)) cleared[lv.id] = { bestMs: lv.goldMs, coins: lv.coins.length, at: 1 };
     const veteran = S.parseProgress(JSON.stringify({ v: 1, wallet: 0, xp: 800, highestIndex: 12, cleared,
         goldClaimed: levels.slice(0, 10).map(l => l.id), prizes: ['rubberCoat'], walks: { w1_01: { bestMs: 9e4, coins: 0 } },
-        upgrades: { grip: 3 }, daily: { streak: 7, last: '2026-10-06' } }));
+        crew: { classic: 4 }, daily: { streak: 7, last: '2026-10-06' } }));
     const byId = Object.fromEntries(A.achievementList(veteran, levels).map(r => [r.id, r]));
     for (const id of ['clear1', 'clear10', 'gold1', 'gold10', 'world1', 'coins5', 'explore1', 'week', 'level5', 'tuned'])
         check(byId[id] && byId[id].done && !byId[id].claimed, `${id} is already earned by what the save holds`);

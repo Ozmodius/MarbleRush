@@ -200,7 +200,7 @@
     <!-- Swipe the planet, or these arrows, to pick a world (menus.js) -->
     <div class="home-worldnav">
       <button id="homePrevWorld" class="world-arrow" type="button" aria-label="Previous world"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-      <div class="home-worldname"><span id="homeWorldName" class="world-planet"></span><span id="homeWorldPlace" class="world-place"></span><span id="homeWorldDots" class="world-dots" aria-hidden="true"></span><span id="homeWorldFuel" class="world-fuel"></span></div>
+      <button id="homeWorldInfo" class="home-worldname" type="button" aria-label="This planet's levels and log"><span id="homeWorldName" class="world-planet"></span><span id="homeWorldPlace" class="world-place"></span><span id="homeWorldDots" class="world-dots" aria-hidden="true"></span><span id="homeWorldFuel" class="world-fuel"></span></button>
       <button id="homeNextWorld" class="world-arrow" type="button" aria-label="Next world"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
     </div>
     <p id="homeGoal" class="home-goal"></p>
@@ -211,10 +211,10 @@
 <!-- WORLDS: a solar system (solarSystem3d.js) behind this; tap a planet -->
 <section id="mazeSelect" class="worlds" style="display:none">
   <header class="worlds-head">
-    <h1>WORLDS</h1>
+    <button id="planetBackBtn" class="maze-btn maze-btn-small planet-back" type="button" aria-label="Back to home">◀</button>
+    <h1>PLANET</h1>
     <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="mazeWallet">0</span></span>
   </header>
-  <div id="worldLabels" class="world-labels"></div>
   <div id="worldSheet" class="world-sheet">
     <div class="world-sheethead">
       <div>
@@ -232,6 +232,16 @@
     <p id="worldSheetFuel" class="world-sheetprize world-sheetfuel"></p>
     <p id="worldSheetPrize" class="world-sheetprize"></p>
   </div>
+</section>
+
+<!-- CREW: every marble a character -- bond, signature, the track (crewUi.js) -->
+<section id="crewView" class="maze-select" style="display:none">
+  <header class="maze-selecthead">
+    <h1>CREW</h1>
+    <span class="maze-wallet" title="Coins"><span class="coin-dot"></span><span id="crewWallet">0</span></span>
+  </header>
+  <p id="crewMsg" class="shop-msg" role="status"></p>
+  <div id="crewList" class="maze-selectlist crew-list"></div>
 </section>
 
 <!-- STORE -->
@@ -258,8 +268,7 @@
       <div><p class="shop-section">NEXT GAME</p><p id="profileMarbleName" class="profile-marblename"></p></div>
     </div>
     <div id="profileStats" class="profile-stats"></div>
-    <p class="shop-section">MARBLES</p>
-    <div id="profileMarbles" class="marble-grid"></div>
+    <p class="shop-note gear-crewnote">Pick and upgrade your marble in CREW.</p>
     <p class="shop-section">SKINS</p>
     <div id="profileSkins" class="look-grid"></div>
     <p class="shop-section">TRAILS</p>
@@ -310,9 +319,10 @@
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M8.5 9.5a4 4 0 0 1 3-2.5"/></svg>
     <span>GEAR</span>
   </button>
-  <button id="tab_worlds" class="tab" type="button">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z"/><path d="M9 4v13.5M15 6.5V20"/></svg>
-    <span>WORLDS</span>
+  <button id="tab_crew" class="tab" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="9" r="3.2"/><circle cx="16" cy="10" r="2.6"/><path d="M3 19.5c.6-3.4 2.9-5.2 5.5-5.2s4.9 1.8 5.5 5.2"/><path d="M14.2 14.6c.6-.2 1.2-.3 1.8-.3 2.2 0 4 1.5 4.6 4.6"/></svg>
+    <span>CREW</span>
+    <span id="crewBadge" class="tab-badge" aria-label="A crew upgrade is ready" hidden>!</span>
   </button>
   <button id="tab_store" class="tab" type="button">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>
@@ -352,6 +362,7 @@
   <div class="maze-charges">
     <button id="mazeUse_slowmo" class="maze-btn maze-charge" type="button" style="display:none"><span class="pu-dot pu-slowmo"></span>SLOW-MO <span class="count"></span></button>
     <button id="mazeUse_magnet" class="maze-btn maze-charge" type="button" style="display:none"><span class="pu-dot pu-magnet"></span>MAGNET <span class="count"></span></button>
+    <button id="mazeUse_sig" class="maze-btn maze-charge maze-sig" type="button" style="display:none"><span class="sig-star" aria-hidden="true">✦</span><span class="sig-name">SIGNATURE</span> <span class="count"></span></button>
   </div>
   <!-- A new player's notice, under START, when a server is on (privacy.js) -->
   <p id="privacyNote" class="privacy-note" hidden>Progress and best times are saved online. <button type="button" data-privacy>Privacy</button></p>

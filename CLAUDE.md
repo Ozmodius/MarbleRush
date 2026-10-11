@@ -117,8 +117,10 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
 - **A failed first connect retries in 3 s, then 10 s, then every 30 s**
   (`cloudSync.js` RETRY_STEPS_MS): a busy phone at boot can miss the 10 s
   request timeout, and a 30 s wait left a new player unsaved.
-- **Nothing renders behind the landing site** (`sceneHost.setCovered`): the
-  spinning home planet cost a visitor's CPU and battery while they read it.
+- **Nothing renders behind the landing site, Gear, Crew or Store**
+  (`sceneHost.setCovered(on, why)`): the spinning home planet cost a
+  visitor's CPU and battery while they read a page over it. A new cover
+  draws one last frame, then the scene holds still until every cover lifts.
 - **The privacy policy lives in the game** (`privacy.js`, an in-game panel
   from Gear, the landing footer and a new player's line under START when a
   server is on). It must stay TRUE to `server/`: change it with anything the
@@ -200,8 +202,22 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   cage), and recomputes `POCKET_LEVELS`. Banked by a clear (`diary` in the
   save, merged by union), read in Gear.
 - **Lines under CLEARED come in order, the last one stays**: the survey,
-  then a fuel cell, then a diary page, then a freed friend's word, then
-  prizes and level-ups. A find outranks a percentage.
+  then a fuel cell, then a diary page, then a freed friend's word, then a
+  bond level, then a planet's gift and level-ups. A find outranks a
+  percentage.
+- **The Crew** (`crew.js`, the user's call, 2026-10-10; docs/PLAN.md): the
+  CREW tab (crewUi.js) replaced WORLDS; the Worlds sheet is the planet page,
+  opened from home's planet name. Every marble carries a SIGNATURE, free a
+  set number of times PER RUN (once; twice from track step 2) -- never a
+  permanent bonus. Clears AS a character earn its bond (`bond` in the save,
+  merged by max); bond levels open the four track steps, bought with coins
+  (`crew`, merged by max). Tuned steps add only grip, stopping or response
+  (test_shop.js, test_crew.js). Each planet sells its trap answer as a
+  PLANET CHARGE (shopCatalog.js CHARGES with `cover`) once opened; one is
+  armed per run, spent only when it fires, after the signature's free uses.
+  Every hazard asks `covered(kind)` in mazeGame.js; a new trap that hurts or
+  holds the ball needs a cover kind there. No ship upgrades until space
+  battles (the user's call). Alpha: saves are wiped, not migrated.
 - **Safe areas come from `--safe-top` / `--safe-bottom` only** (style.css),
   and `safeArea.js` decides whether to trust the browser's insets: an
   Android tab, not fullscreen or installed, gets zero and no

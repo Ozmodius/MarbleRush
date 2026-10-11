@@ -1,4 +1,5 @@
-import { MARBLE_IDS, UPGRADES, DAILY_CALENDAR } from './shopCatalog.js';
+import { MARBLE_IDS, DAILY_CALENDAR } from './shopCatalog.js';
+import { TRACK_MAX } from './crew.js';
 import { levelForXp } from './playerLevel.js';
 
 // ACHIEVEMENTS: one-off goals across the whole game, each paying coins once
@@ -26,7 +27,7 @@ const allCoins = (p, levels) => (levels || []).filter(lv => {
 }).length;
 const playerLevel = p => levelForXp(p.xp || 0);
 const marbles = p => (p.marbles || []).filter(id => MARBLE_IDS.includes(id)).length;
-const maxedUpgrade = p => Object.entries(p.upgrades || {}).some(([id, n]) => UPGRADES[id] && n >= UPGRADES[id].prices.length) ? 1 : 0;
+const maxedCrew = p => Object.values(p.crew || {}).some(n => n >= TRACK_MAX) ? 1 : 0;
 const fuelCells = p => (p.fuel || []).length;
 const surveyed = p => Object.values(p.survey || {}).filter(n => n >= 90).length;
 const friends = p => (p.rescued || []).length;
@@ -54,7 +55,7 @@ export const ACHIEVEMENTS = [
     { id: 'level10', name: 'Veteran', text: 'Reach player level 10', goal: 10, coins: 150, count: playerLevel },
     { id: 'level15', name: 'Legend', text: 'Reach player level 15', goal: 15, coins: 250, count: playerLevel },
     { id: 'marbles', name: 'Full Set', text: `Own all ${MARBLE_IDS.length} marbles`, goal: MARBLE_IDS.length, coins: 150, count: marbles },
-    { id: 'tuned', name: 'Fully Tuned', text: 'Max out an upgrade', goal: 1, coins: 75, count: maxedUpgrade },
+    { id: 'tuned', name: 'Fully Tuned', text: 'Take a crew member to the end of their track', goal: 1, coins: 75, count: maxedCrew },
     // Exploring (the user's call, 2026-10-10): fuel cells, surveys, friends.
     { id: 'fuel10', name: 'Fuel Run', text: 'Find 10 fuel cells', goal: 10, coins: 50, count: fuelCells },
     { id: 'fuel50', name: 'Full Tank', text: 'Find all 50 fuel cells', goal: 50, coins: 200, count: fuelCells },

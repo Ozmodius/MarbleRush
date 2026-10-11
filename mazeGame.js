@@ -34,7 +34,9 @@ import { wallForLevel, floorForLevel } from './soundModel.js';
 import { setSoundOn, isSoundOn, unlockSound } from './sound.js';
 import { keepAwake } from './wakeLock.js';
 import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
-import { ballSetup, PRIZES, AD_REWARDS, MARBLES, WALK } from './shopCatalog.js';
+import { ballSetup, CHARGES, TRAP_CHARGE_IDS, TRAP_GRANT, AD_REWARDS, MARBLES, WALK } from './shopCatalog.js';
+import { SIGNATURES, COVER, SIGHT_MS, signatureUses, crewStep, hasAura } from './crew.js';
+import { buildSight, buildAura } from './crew3d.js';
 const marbleName = id => (MARBLES[id] ? MARBLES[id].name.toUpperCase() : String(id));
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { buildPlanet } from './planet3d.js';
@@ -384,10 +386,12 @@ let ballMarbleId = 'classic';
 // the marble hits it: 'floor', or a soundModel.js WALLS key.
 let audio = null;
 const bodySound = new Map();
-// The world prize answering a trap in this level (shopCatalog.js PRIZES), and
-// whether one use of it has been spent on this level visit. A use covers every
-// retry of the level, so it is reset when a level is built, not on restart.
-let prizeOn = {};
+// THE CREW IN A RUN (crew.js): the marble's signature and its free uses
+// left this run, the trap charges armed for it, and what each covers until.
+// Built afresh on every restart (startCrewRun).
+let crewRun = null;
+let sightFx = null;     // Glint's Clear Sight, drawn (crew3d.js)
+let auraFx = null;      // the last track step's ring under the ball
 let floorBody = null;            // material swapped per frame when the ball is on ice
 let solidMaterial = null;
 let iceMaterial = null;
@@ -819,6 +823,27 @@ function buildLevelMeshes(lv, theme) {
         tracked.forEach(track);
         group.add(fuelCell.mesh.group);
     }
+    // The crew: Glint's Clear Sight (only for Glint), and the aura of a
+    // character at the end of their track.
+    sightFx = null; auraFx = null;
+    {
+        const id = ballMarbleId, sig = SIGNATURES[id];
+        if (sig && sig.power === 'sight' && !walkMode) {
+            const tracked = [];
+            const beacons = [];
+            if (fuelCell && !fuelCell.found) beacons.push({ x: fuelCell.spot.x, z: fuelCell.spot.z, gone: () => !fuelCell || fuelCell.taken });
+            if (pocket && !pocket.found) beacons.push({ x: pocket.page.x, z: pocket.page.z, gone: () => !pocket || pocket.taken });
+            sightFx = buildSight({ walls: pocket ? [pocket.wall] : [], beacons }, WALL_HEIGHT, tracked);
+            tracked.forEach(track);
+            group.add(sightFx.group);
+        }
+        if (!trialMarble && hasAura(crewStep(progressNow(), id)) && MARBLES[id]) {
+            const tracked = [];
+            auraFx = buildAura(MARBLES[id].swatch, lv.ballRadius, tracked);
+            tracked.forEach(track);
+            group.add(auraFx.group);
+        }
+    }
     if (rescue) {
         const tracked = [];
         rescue.cage = buildCage(rescue.spot, rescue.captive.look, lv.ballRadius, tracked);
@@ -1080,6 +1105,8 @@ function step() {
     if (rescue && rescue.cage) rescue.cage.tick(now / 1000);
     if (fuelCell && fuelCell.mesh) fuelCell.mesh.tick(now / 1000);
     if (pocket && pocket.mesh) pocket.mesh.tick(now / 1000);
+    if (sightFx) sightFx.set(!!(crewRun && crewRun.sightMs > 0 && phase === 'running'), now / 1000);
+    if (auraFx && ballMesh) auraFx.place(ballMesh.position.x, ballMesh.position.z, now / 1000);
     if (ship) ship.tick(now / 1000);
     if (levelSky) levelSky.tick(now / 1000);
     tickGoal(now);
@@ -1192,7 +1219,7 @@ function advance(elapsedMs) {
             running: phase === 'running',
             walk: walkMode, yaw: walkYaw,
             dt: elapsedMs / 1000,
-            magnetsOff: !!prizeOn.plasticBall
+            magnetsOff: !!(crewRun && crewRun.until.magnet !== undefined && runClockMs <= crewRun.until.magnet)
         });
     }
 
@@ -1243,24 +1270,79 @@ function updateGates() {
 function updateFloorSurface() {
     if (!floorBody || !solidMaterial) return;
     let onIce = !!(iceRects.length && isOnIce(iceRects, ballBody.position.x, ballBody.position.z));
-    if (onIce && usePrizeFor('ice')) onIce = false;   // Rubber Coat: ice grips like floor
+    if (onIce && covered('ice')) onIce = false;   // Ice Skates: this patch grips like floor
     ballOnIce = onIce;
     const want = onIce ? iceMaterial : solidMaterial;
     if (floorBody.material !== want) floorBody.material = want;
 }
 
-// A world prize answering `trap`, if the player has one: spends one use the
-// first time the trap is met on this level visit (status line says so), and
-// answers true for the rest of it. The prize HELPS, never is required
-// (docs/PLAN.md) -- without one, this answers false and the trap is the trap.
-function usePrizeFor(trap) {
-    const id = Object.keys(PRIZES).find(k => PRIZES[k].trap === trap);
-    if (!id) return false;
-    if (prizeOn[id]) return true;
-    if (!store || !store.usePrize(id)) return false;
-    prizeOn[id] = true;
-    setStatus(PRIZES[id].name.toUpperCase());
+// THE CREW IN A RUN (crew.js). Every attempt gets the marble's signature
+// back: its free uses this run, and one of each bought trap charge armed
+// (spent from the store only when it fires, after the free uses).
+function startCrewRun() {
+    const id = ballMarbleId;
+    const sig = SIGNATURES[id] || null;
+    const step = trialMarble ? 0 : crewStep(progressNow(), id);
+    const charges = store ? store.get().charges : {};
+    const armed = {};
+    for (const cid of TRAP_CHARGE_IDS) if ((charges[cid] || 0) > 0) armed[CHARGES[cid].cover] = cid;
+    crewRun = { id, sig, step, free: sig ? signatureUses(step) : 0, armed, until: {}, sightMs: 0, fired: [] };
+    renderSignature();
+}
+// Whether `kind` (crew.js COVER, or 'fall') is covered for the ball right
+// now. The first time it would hurt or hold the ball, a free signature use
+// fires, else an armed trap charge; then it covers for its window (a burn, a
+// crush, a kick) or for as long as the ball stays in that one (ice, a belt,
+// a magnet, a gust). False when nothing is left: the trap is the trap.
+function covered(kind) {
+    if (!crewRun || phase !== 'running' || walkMode) return false;
+    const c = COVER[kind] || {};
+    const now = runClockMs;
+    if (crewRun.until[kind] !== undefined && now <= crewRun.until[kind]) {
+        if (c.lingerMs) crewRun.until[kind] = now + c.lingerMs;
+        return true;
+    }
+    const sig = crewRun.sig;
+    let by = null;
+    if (sig && sig.kind === 'auto' && sig.covers.includes(kind) && crewRun.free > 0) { crewRun.free--; by = sig.name; }
+    else if (crewRun.armed[kind]) {
+        const cid = crewRun.armed[kind];
+        delete crewRun.armed[kind];
+        if (store) store.useCharge(cid);
+        by = CHARGES[cid].name;
+    }
+    if (!by) return false;
+    crewRun.until[kind] = now + (c.windowMs || c.lingerMs || 0);
+    crewRun.fired.push(kind);
+    setStatus(by.toUpperCase() + '!');
+    if (audio) audio.event('shield');
+    emitRun('signature', { kind });
+    renderSignature();
     return true;
+}
+// A tap signature (Rolle's Coin Sense, Glint's Clear Sight): the HUD button.
+export function useSignature() {
+    if (!crewRun || !crewRun.sig || crewRun.sig.kind !== 'tap' || crewRun.free <= 0 || phase !== 'running' || !pickupState) return false;
+    crewRun.free--;
+    if (crewRun.sig.power === 'magnet') pickupState.magnetMs = Math.max(pickupState.magnetMs, 8000);
+    else if (crewRun.sig.power === 'sight') crewRun.sightMs = SIGHT_MS;
+    crewRun.fired.push(crewRun.sig.power);
+    setStatus(crewRun.sig.name.toUpperCase() + '!');
+    renderSignature();
+    renderPowerups();
+    return true;
+}
+// The signature's HUD button: a tap one shows while it has uses; an auto one
+// says how many are left on the power-ups line instead (renderPowerups).
+function renderSignature() {
+    const b = el('mazeUse_sig');
+    if (!b) return;
+    const tap = !!(crewRun && crewRun.sig && crewRun.sig.kind === 'tap');
+    b.style.display = tap && crewRun.free > 0 && phase === 'running' && !walkMode ? '' : 'none';
+    if (tap) {
+        const nm = b.querySelector('.sig-name'); if (nm) nm.textContent = crewRun.sig.name.toUpperCase();
+        const c = b.querySelector('.count'); if (c) c.textContent = String(crewRun.free);
+    }
 }
 
 // A belt under the ball's centre drags it toward the belt's speed, once per
@@ -1272,7 +1354,7 @@ function applyConveyor(dt) {
     if (!level || !level.conveyors || !ballBody) return;
     const p = ballBody.position, v = ballBody.velocity;
     const belt = conveyorAt(level.conveyors, p.x, p.z);
-    if (!belt) return;
+    if (!belt || covered('belt')) return;   // Sure Foot: this belt cannot carry the ball
     const a = conveyorAccel(belt, v.x, v.z);
     v.x += a.ax * dt;
     v.z += a.az * dt;
@@ -1287,6 +1369,7 @@ function applyWind(dt) {
     const fan = windAt(level.fans, p.x, p.z);
     if (!fan) return;
     const a = windAccel(fan, runClockMs);
+    if ((a.ax || a.az) && covered('gust')) return;   // Iron Shell: this gust cannot push
     ballBody.velocity.x += a.ax * dt;
     ballBody.velocity.z += a.az * dt;
 }
@@ -1300,9 +1383,9 @@ function applyGeysers(dt) {
     ballBody.velocity.z += a.az * dt;
 }
 
-// World 4, once per substep. A bumper the ball touches kicks it off
-// (halved by the Obsidian Core prize, spent the first time a bumper kicks on
-// this level); a spring firing under the ball launches it, once per shot.
+// World 4, once per substep. A bumper the ball touches kicks it off; a
+// spring firing under the ball launches it, once per shot. Shrug (crew.js)
+// leaves a quarter of either.
 function applyToys() {
     if (!level || !ballBody) return;
     const p = ballBody.position, v = ballBody.velocity, R = level.ballRadius;
@@ -1311,7 +1394,7 @@ function applyToys() {
     const roll = () => ballBody.angularVelocity.set(v.z / R, 0, -v.x / R);
     (level.bumpers || []).forEach((b, i) => {
         if (!bumperKick(b, p.x, p.z, v.x, v.z, R)) return;
-        const k = bumperKick(b, p.x, p.z, v.x, v.z, R, usePrizeFor('bumpers') ? 0.5 : 1);
+        const k = bumperKick(b, p.x, p.z, v.x, v.z, R, covered('bump') ? 0.25 : 1);
         if (!k) return;
         v.x = k.vx; v.z = k.vz;
         roll();
@@ -1326,7 +1409,8 @@ function applyToys() {
             if (springShots[n] !== shot) {
                 springShots[n] = shot;
                 const out = springLaunch(pad, v.x, v.z);
-                v.x = out.vx; v.z = out.vz;
+                const f = covered('bump') ? 0.25 : 1;
+                v.x += (out.vx - v.x) * f; v.z += (out.vz - v.z) * f;
                 roll();   // the pad's own release is heard from its clock (mazeAudio.js)
             }
         }
@@ -1334,8 +1418,8 @@ function applyToys() {
 }
 
 // World 5, once per substep. A magnet pulls the ball toward its wall
-// (unless world 4's Plastic Ball is spent on this level, spent the first
-// time a field takes hold); a press coming down on the ball crushes it --
+// (unless Demagnetize covers it, crew.js); a press coming down on the ball
+// crushes it (unless Iron Shell does) --
 // checked here, before the step, so the press never shoves the ball out
 // from under itself first.
 function applyFoundry(dt) {
@@ -1343,14 +1427,14 @@ function applyFoundry(dt) {
     const p = ballBody.position;
     if (level.magnets) {
         const a = magnetAccel(level.magnets, p.x, p.z);
-        if ((a.ax || a.az) && usePrizeFor('magnets')) {
-            if (props) props.magnetsOff(true);            // the fields go grey
+        if ((a.ax || a.az) && covered('magnet')) {
+            // Demagnetize: this field cannot take hold
         } else if (a.ax || a.az) {
             ballBody.velocity.x += a.ax * dt;
             ballBody.velocity.z += a.az * dt;
         }
     }
-    if (level.crushers && crusherHits(level.crushers, runClockMs, p.x, p.z, level.ballRadius)) knockOut('CRUSHED');
+    if (level.crushers && crusherHits(level.crushers, runClockMs, p.x, p.z, level.ballRadius) && !covered('crush')) knockOut('CRUSHED');
 }
 
 // Spin the star, and pop it in on arrival. The pop overshoots past full size
@@ -1573,16 +1657,19 @@ function checkOutcomes() {
     if (level.icicles && icicleHits(level.icicles, runClockMs, p.x, p.z)) { knockOut('HIT BY AN ICICLE'); return; }
     // World 3. A flare burns unless world 2's Heat Shield is spent on this
     // level; a molten gate burns while it closes.
-    if (level.flares && flareHits(level.flares, runClockMs, p.x, p.z, level.ballRadius) && !usePrizeFor('flares')) { knockOut('BURNED'); return; }
-    if (level.gates && moltenGateHits(level.gates, runClockMs, p.x, p.z, level.ballRadius)) { knockOut('BURNED BY A MOLTEN GATE'); return; }
+    if (level.flares && flareHits(level.flares, runClockMs, p.x, p.z, level.ballRadius) && !covered('burn')) { knockOut('BURNED'); return; }
+    if (level.gates && moltenGateHits(level.gates, runClockMs, p.x, p.z, level.ballRadius) && !covered('burn')) { knockOut('BURNED BY A MOLTEN GATE'); return; }
     // World 5: a live rail shocks a ball touching its wall.
     if (level.rails && railHits(level.rails, runClockMs, p.x, p.z, level.ballRadius)) { knockOut('SHOCKED'); return; }
-    if (level.crushers && crusherHits(level.crushers, runClockMs, p.x, p.z, level.ballRadius)) { knockOut('CRUSHED'); return; }
+    if (level.crushers && crusherHits(level.crushers, runClockMs, p.x, p.z, level.ballRadius) && !covered('crush')) { knockOut('CRUSHED'); return; }
 
     // Coins and pickups, after the hole check so a ball going down a hole
     // does not also bank the coin on its lip.
     if (pickupState) {
         const events = stepPickups(pickupState, level, { x: p.x, z: p.z, r: level.ballRadius }, lastFrameMs);
+        // (A frame counts at most 100 ms: one stall must not eat the sight.)
+        if (crewRun && crewRun.sightMs > 0) crewRun.sightMs = Math.max(0, crewRun.sightMs - Math.min(100, lastFrameMs));
+        if (sightFx) sightFx.set(!!(crewRun && crewRun.sightMs > 0), performance.now() / 1000);
         for (const e of events) {
             if (e.type === 'coin') { props.takeCoin(e.index); if (audio) audio.event('coin'); }
             else { props.takePickup(e.index); setStatus(e.kind.toUpperCase()); if (audio) audio.event('pickup'); }
@@ -1636,6 +1723,20 @@ function checkOutcomes() {
 const FALL_CAUSE = { 'DOWN THE HOLE': 'hole', 'HIT BY AN ICICLE': 'icicle', 'BURNED': 'flare', 'BURNED BY A MOLTEN GATE': 'molten', 'SHOCKED': 'shock', 'CRUSHED': 'crush' };
 function knockOut(message, holeIndex) {
     if (captureNoKnockOut) return;   // marketing captures only (scripts/marketing/)
+    // Hole Hop (Bumper's signature, crew.js): out of his first hole a run,
+    // back on the last safe spot -- before any shield is spent.
+    if (message === 'DOWN THE HOLE' && crewRun && crewRun.sig && crewRun.sig.covers && crewRun.sig.covers.includes('fall') && crewRun.free > 0 && pickupState) {
+        crewRun.free--;
+        crewRun.fired.push('fall');
+        ballBody.position.set(pickupState.safe.x, FLOOR_Y + level.ballRadius + 0.02, pickupState.safe.z);
+        ballBody.velocity.setZero();
+        ballBody.angularVelocity.setZero();
+        setStatus(crewRun.sig.name.toUpperCase() + '!');
+        if (audio) audio.event('shield');
+        emitRun('signature', { kind: 'fall' });
+        renderPowerups();
+        return;
+    }
     const back = absorbFall(pickupState);
     if (back) {
         // A bought shield is spent from the purchase, so a restart does not
@@ -1824,6 +1925,11 @@ function win() {
         const r = store.recordRescue(rescue.world);
         if (r.ok) result.rescued = rescue.world;
     }
+    // Bond (crew.js): a clear AS this character, never a trial one's.
+    if (store && store.recordBond && result && result.accepted && !trialMarble && !walkMode) {
+        const b = store.recordBond(ballMarbleId, result);
+        if (b.ok) result.bond = { id: ballMarbleId, gained: b.gained, level: b.level, levelUp: b.levelUp };
+    }
     showClearResult(result, ms);
     showNearMiss(result);
     lastClear = result && result.accepted && result.earned > 0 ? result : null;
@@ -1834,7 +1940,7 @@ function win() {
     // A trial that cleared: say where the marble can be had for keeps.
     if (trialMarble) {
         const m = MARBLES[trialMarble.id];
-        status2Later('KEEP ' + m.name.toUpperCase() + '?  GEAR  ' + formatBearings(m.price), 2200);
+        status2Later('KEEP ' + m.name.toUpperCase() + '?  CREW  ' + formatBearings(m.price), 2200);
     }
     // A planet's floor 10: Rolle's ship comes for the marble (levelShow.js),
     // in place of the star.
@@ -1936,6 +2042,7 @@ function restart() {
     // every attempt at it starts shielded, free: a bought shield is left
     // unspent, and the levels themselves (seeded, verified) are untouched.
     if (beginnerShieldOn()) { pickupState.shield = true; pickupState.boughtShield = false; }
+    startCrewRun();
     if (props) props.reset();
     // Every attempt at a rescue finds the friend caged again, the exit shut.
     if (rescue) {
@@ -1953,8 +2060,8 @@ function restart() {
     if (survey) survey.mark(ballBody.position.x, ballBody.position.z);
     renderSurveyChip();
     renderCoins();
-    renderPowerups();
     phase = 'running';
+    renderPowerups();   // after the phase: the tap buttons show only while running
     attemptOpen = true;
     ranThisVisit = true;
     emitRun('start');
@@ -2005,6 +2112,9 @@ function renderPowerups() {
     const e = el('mazePowerups');
     if (!e || !pickupState) return;
     const live = [];
+    if (crewRun && crewRun.sig && crewRun.sig.kind === 'auto' && crewRun.free > 0 && !walkMode) live.push(crewRun.sig.name.toUpperCase() + (crewRun.free > 1 ? ' x' + crewRun.free : ''));
+    for (const [kind, cid] of Object.entries(crewRun ? crewRun.armed : {})) if (!(crewRun.sig && crewRun.sig.covers && crewRun.sig.covers.includes(kind) && crewRun.free > 0)) live.push(CHARGES[cid].name.toUpperCase());
+    if (crewRun && crewRun.sightMs > 0) live.push(`SIGHT ${Math.ceil(crewRun.sightMs / 1000)}`);
     if (pickupState.shield) live.push('SHIELD');
     if (pickupState.slowmoMs > 0) live.push(`SLOW ${Math.ceil(pickupState.slowmoMs / 1000)}`);
     if (pickupState.magnetMs > 0) live.push(`MAGNET ${Math.ceil(pickupState.magnetMs / 1000)}`);
@@ -2018,6 +2128,7 @@ function renderPowerups() {
         const c = b.querySelector('.count');
         if (c) c.textContent = String(n);
     }
+    renderSignature();
 }
 
 // Fire a bought power-up mid-run (a HUD tap). Spent from the store's
@@ -2118,7 +2229,7 @@ function buildShowcase(kind) {
         const lv = home && home.level;
         if (!lv) return;
         const prog = progressNow();
-        ballSpec = ballSetup(prog.marble, prog.upgrades);
+        ballSpec = ballSetup(prog.marble, crewStep(prog, prog.marble));
         const theme = resolveMazeTheme(planetThemeOverride || lv.theme);
         // Space, tinted by the world: its backdrop colour, much darker.
         scene.background = new THREE.Color(theme.backdropColor).multiplyScalar(0.45);
@@ -2147,7 +2258,9 @@ function enterMenus(tab) {
         homePick = {};       // back from a level: PLAY offers what is next again
     }
     keepAwake(false);   // the menus let the phone sleep as usual (wakeLock.js)
-    const want = tab === 'worlds' ? 'system' : 'planet';
+    // Every menu shows home's planet behind it (the Worlds tab and its solar
+    // system made way for the Crew, 2026-10-10).
+    const want = 'planet';
     if (phase !== 'menu' || backdrop !== want) {
         buildShowcase(want);
         phase = 'menu';
@@ -2385,7 +2498,7 @@ export function playDaily() {
     return !!level && level.id === d.lv.id;
 }
 
-function showLevelSelect() { enterMenus('worlds'); }
+function showLevelSelect() { enterMenus('home'); }   // home's planet is the level select
 
 // Build and enter one level. Everything from the previous level is disposed
 // first -- levels are rebuilt per run, unlike the game board which is built
@@ -2402,11 +2515,10 @@ function startLevel(levelId, opts = {}) {
     if (trialMarble && trialMarble.levelId === null) trialMarble.levelId = lv.id;
     if (trialMarble && trialMarble.levelId !== lv.id) trialMarble = null;
     ballMarbleId = trialMarble ? trialMarble.id : prog.marble;
-    ballSpec = ballSetup(ballMarbleId, prog.upgrades);
+    ballSpec = ballSetup(ballMarbleId, trialMarble ? 0 : crewStep(prog, ballMarbleId));
     walkFeel = walkHandling(ballSpec);
     if (walkInput) walkInput.setResponse(walkFeel.response);
     ballOnIce = false;
-    prizeOn = {};
     ballCamOn = !!prog.ballCam;
     camZoom = 0;
     camFollowSet = false;
@@ -2595,6 +2707,10 @@ window.__mazeDebug = {
     surveyAll: () => { if (!survey || !level) return null; const g = levelGridFor(level); for (let k = 0; k < g.pass.length; k++) if (g.pass[k] && Number.isFinite(g.fromStart[k])) { const p = g.at(k); survey.mark(p.x, p.z); } renderSurveyChip(); return survey.pct; },
     // This level's secret pocket: its false wall, its page, found, taken.
     pocket: () => (pocket ? { wall: pocket.wall, x: pocket.page.x, z: pocket.page.z, found: pocket.found, taken: pocket.taken } : null),
+    // The crew in this run (crew.js): whose signature, free uses left, trap
+    // charges armed, what has fired; and firing a tap signature.
+    crew: () => (crewRun ? { id: crewRun.id, sig: crewRun.sig ? crewRun.sig.name : null, step: crewRun.step, free: crewRun.free, armed: { ...crewRun.armed }, fired: [...crewRun.fired], sightMs: crewRun.sightMs, sightShown: !!(sightFx && sightFx.group.visible), aura: !!auraFx, ballGrip: ballSpec.grip } : null),
+    useSignature: () => useSignature(),
     // This level's fuel cell: where, found before, taken this run, drawn.
     fuel: () => (fuelCell ? { x: fuelCell.spot.x, z: fuelCell.spot.z, found: fuelCell.found, taken: fuelCell.taken, shown: !!(fuelCell.mesh && fuelCell.mesh.group.visible) } : null),
     // The show between levels: which, how far in, and where the DRAWN ball is
@@ -2779,7 +2895,7 @@ window.__mazeDebug = {
         crushers: (level.crushers || []).map(c => crusherState(c, runClockMs).state),
         crusherBodyY: crusherBodies.map(({ body }) => body.position.y),
         rails: (level.rails || []).map(r => railState(r, runClockMs).state),
-        prizeOn: Object.keys(prizeOn).filter(k => prizeOn[k])
+        crew: crewRun ? { id: crewRun.id, free: crewRun.free, armed: { ...crewRun.armed }, fired: [...crewRun.fired] } : null
     } : null),
     world4: () => (level ? {
         bumpers: (level.bumpers || []).length,
@@ -2789,7 +2905,7 @@ window.__mazeDebug = {
             const q = body.quaternion, ang = -2 * Math.atan2(q.y, q.w);
             return { want: armAngle(a, runClockMs), body: ang };
         }),
-        prizeOn: Object.keys(prizeOn).filter(k => prizeOn[k])
+        crew: crewRun ? { id: crewRun.id, free: crewRun.free, armed: { ...crewRun.armed }, fired: [...crewRun.fired] } : null
     } : null),
     world2: () => (level ? {
         fans: (level.fans || []).length,
@@ -2955,7 +3071,8 @@ function showClearResult(res, ms) {
         // The friend's own word: where the Baron went next.
         if (friendLine(res.rescued)) { status2Later(friendLine(res.rescued), beat); beat += 2400; }
     }
-    if (res.prize) { status2Later('PRIZE  ' + prizeName(res.prize), beat); beat += 1600; }
+    if (res.bond && res.bond.levelUp) { status2Later(`${marbleName(res.bond.id)}'S BOND IS LEVEL ${res.bond.levelUp}  ·  UPGRADE IN CREW`, beat); beat += 2000; }
+    if (res.prize) { status2Later(prizeName(res.prize), beat); beat += 1600; }
     if (res.levelUps && res.levelUps.length) {
         const L = res.levelUps[res.levelUps.length - 1].level;
         status2Later('LEVEL UP!  YOU ARE LEVEL ' + L, beat);
@@ -2981,10 +3098,13 @@ function showClearResult(res, ms) {
     }
 }
 
-// Display names for world prizes (docs/PLAN.md's world table). Falls back to
-// the id: a banner with no name in it is worse than an ugly one.
-const PRIZE_NAMES = { rubberCoat: 'RUBBER COAT  —  grip on ice' };
-function prizeName(id) { return PRIZE_NAMES[id] || id; }
+// A finished planet's gift: the next planet's trap charges (shopCatalog.js
+// TRAP_GRANT). Falls back to the id: a banner with no name is worse than an
+// ugly one.
+function prizeName(id) {
+    const c = CHARGES[id];
+    return c ? `+${TRAP_GRANT} ${c.name.toUpperCase()} FOR ${worldName(c.world).toUpperCase()}` : String(id);
+}
 
 // For the store and profile pages (shopUi.js): the levels, and a way to
 // redraw the level list after something was bought.
@@ -3027,6 +3147,7 @@ export function initMazeControls() {
     bindTap('mazeReplayBtn', () => { afterBreak(() => restart()); });
     bindTap('mazeUse_slowmo', () => { useRunCharge('slowmo'); });
     bindTap('mazeUse_magnet', () => { useRunCharge('magnet'); });
+    bindTap('mazeUse_sig', () => { useSignature(); });
     bindTap('mazeCamBtn', () => { setBallCam(!ballCamOn); });
     syncSoundBtn();
     bindTap('mazeSoundBtn', () => { setSoundOn(!isSoundOn()); unlockSound(); syncSoundBtn(); });
