@@ -2,7 +2,7 @@ import { tierForMs, isUnlocked, walkTierForMs, walkGoldMs } from './progressStor
 import { CHARGES, CHARGE_IDS, AD_REWARDS, TRAP_GRANT, planetCharge } from './shopCatalog.js';
 import { renderStore, renderProfile, clearShopMessages } from './shopUi.js';
 import { renderCrew, crewReady } from './crewUi.js';
-import { onFrame, getRenderer } from './sceneHost.js';
+import { onFrame, getRenderer, setCovered } from './sceneHost.js';
 import { showBanner, adsAvailable, showRewardedAd, adFailureMessage } from './platform.js';
 import { sfx } from './sfx.js';
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
@@ -42,8 +42,14 @@ let sheetMode = 'roll';
 const $ = id => document.getElementById(id);
 const fmt = n => Number(n).toLocaleString('en-US');
 
+// Pages that hide the planet (Gear, Crew, Store: near-opaque panels over
+// it) freeze the scene behind them (sceneHost.setCovered): its shader was the
+// costliest thing on screen, and no one was watching it.
+const COVERING = new Set(['gear', 'crew', 'store']);
+
 function show(tab) {
     current = tab;
+    setCovered(COVERING.has(tab), 'menuPage');
     for (const [t, id] of Object.entries(TABS)) {
         const e = $(id);
         if (e) e.style.display = t === tab ? '' : 'none';
@@ -549,11 +555,13 @@ export function initMenus({ store, game }) {
     }
 }
 
-// After the marble changed: rebuild the backdrop so it shows the new one.
+// After the marble changed, or anything was bought: rebuild the backdrop so
+// it shows the marble, and redraw the wallets and tab badges.
 export function marbleChanged() {
     if (!ctx) return;
     ctx.game.refreshShowcase();
     renderWallets();
+    renderBadges();   // a purchase or a free ad can change STORE's and CREW's !
 }
 
 // After progress arrived from another device (cloudSync.js): redraw whatever

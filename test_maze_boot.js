@@ -163,58 +163,41 @@ const failures = [];
         await page.tap('#homeGoldChip');
         await page.waitForSelector('#storeView', { state: 'visible' });
         check(true, 'the gold chip opens the store');
-        // --- the worlds tab lists the ladder ------------------------------
-        await page.tap('#tab_worlds');
-        await page.waitForSelector('#mazeSelect', { state: 'visible' });
+        // --- the crew tab: every marble a character (crewUi.js) -----------
+        await page.tap('#tab_crew');
+        await page.waitForSelector('#crewView', { state: 'visible' });
         check(await page.isHidden('#homeView'), 'one tab at a time');
-        check(await page.evaluate(() => window.__mazeDebug.backdrop()) === 'system', 'the worlds tab shows the solar system');
-        check((await page.textContent('#worldSheetName')).trim() === 'Sawturn', 'the sheet opens on the world of the next level');
-        await page.locator('#worldLabel_2').click({ force: true });   // labels drift with their planets
-        check((await page.textContent('#worldSheetName')).trim() === 'Slipstonia' && await page.locator('.level-node').count() === levels.filter(l => l.world === 2).length
-            && /Finish Sawturn/.test(await page.textContent('#worldSheetNote')), 'a built but locked world shows its levels, locked, and says what opens it');
-        // The first world not built yet: one past the last world in the data.
-        const comingN = Math.max(...levels.map(l => l.world)) + 1;
-        const W = await import('./worlds.js');
-        if (comingN <= W.LAUNCH_WORLDS) {
-            await page.locator('#worldLabel_' + comingN).click({ force: true });
-            check((await page.textContent('#worldSheetName')).trim() === W.worldName(comingN) && await page.locator('.level-node').count() === 0
-                && /Coming/.test(await page.textContent('#worldSheetNote')), 'tapping a world not built yet says it is coming, with no levels');
-        } else {
-            // Every launch world is built: the system shows exactly those, none "coming".
-            check(await page.locator('.world-label').count() === W.LAUNCH_WORLDS && await page.locator('.world-label.is-coming').count() === 0,
-                'with every launch world built, the system shows them all and none as coming');
-        }
-        // A tap on the planet itself (just above its label) picks it too --
-        // once the camera has finished easing into the system view (frames,
-        // not a clock: the planets still drift as the system turns, but by
-        // under a pixel a frame once it has settled).
-        await page.waitForFunction(() => new Promise(res => {
-            const a = window.__mazeDebug.worldAnchors();
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                const b = window.__mazeDebug.worldAnchors();
-                res(a.every((p, i) => Math.hypot(p.x - b[i].x, p.y - b[i].y) < 2));
-            }));
-        }), null, { timeout: 15000 });
-        const anchor = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
-        await page.mouse.click(anchor.x, anchor.y - 30);
-        check((await page.textContent('#worldSheetName')).trim() === 'Bouncelot', 'tapping a planet on the canvas selects its world');
-        // A drag sideways spins the system; it is not a tap.
-        const spin0 = await dbg('solarSpin');
-        await page.mouse.move(80, 250);
-        await page.mouse.down();
-        for (let k = 1; k <= 10; k++) await page.mouse.move(80 + k * 20, 250);
-        await page.mouse.up();
-        const spin1 = await dbg('solarSpin');
-        check(spin1 < spin0 - 1, `dragging right spins the solar system (spin ${spin0.toFixed(2)} -> ${spin1.toFixed(2)})`);
-        check((await page.textContent('#worldSheetName')).trim() === 'Bouncelot', 'a drag does not pick a world');
-        const moved = (await page.evaluate(() => window.__mazeDebug.worldAnchors())).find(x => x.n === 4);
-        check(Math.hypot(moved.x - anchor.x, moved.y - anchor.y) > 30, 'and the planets (and their labels) go round with it');
-        await page.locator('#worldLabel_1').click({ force: true });
+        check(await page.evaluate(() => window.__mazeDebug.backdrop()) === 'planet', 'every menu shows the home planet behind it');
+        const rolleCard = page.locator('.crew-card[data-crew="classic"]');
+        check(/is-selected/.test(await rolleCard.getAttribute('class')) && /COIN SENSE/.test(await rolleCard.locator('.crew-signame').textContent())
+            && /BOND 1/.test(await rolleCard.locator('.crew-bondlvl').textContent()) && /ONCE A RUN/.test(await rolleCard.locator('.crew-siguses').textContent()),
+            'Rolle leads the crew: selected, bond 1, his signature once a run');
+        check(/BOND 2 TO UNLOCK/.test(await rolleCard.locator('.crew-upgrade').textContent()) && await rolleCard.locator('.crew-upgrade').isDisabled(),
+            'his first step waits for bond 2');
+        check(await page.locator('.crew-step', { has: page.locator('.crew-steppip') }).count() >= 4, 'his track shows its four steps');
+        check(/RESCUE ON FLOOR 10/.test(await page.locator('.crew-card[data-crew="pip"] .marble-action').textContent()), 'a caged friend says where to free them');
+        // --- the planet page: home's planet's levels and log --------------
+        await page.tap('#tab_home');
+        await page.waitForSelector('#homeView', { state: 'visible' });
+        await page.tap('#homeWorldInfo');
+        await page.waitForSelector('#mazeSelect', { state: 'visible' });
+        check(await page.isHidden('#homeView') && /is-active/.test(await page.getAttribute('#tab_home', 'class')), 'the planet page opens from home, with HOME lit');
+        check((await page.textContent('#worldSheetName')).trim() === 'Sawturn', 'the planet page opens on home\'s planet');
         const rows = await page.$$eval('.level-node', els => els.map(e => ({ next: e.classList.contains('is-next'), locked: e.disabled })));
         const world1 = levels.filter(l => l.world === 1);
-        check(rows.length === world1.length, `the worlds sheet should list world 1's ${world1.length} levels, got ${rows.length}`);
+        check(rows.length === world1.length, `the planet page should list Sawturn's ${world1.length} levels, got ${rows.length}`);
         check(rows[0] && rows[0].next && !rows[0].locked, 'on a fresh save, level 1 is the highlighted next level');
         check(rows.slice(1).every(r => r.locked), 'on a fresh save, every other level is locked');
+        await page.tap('#planetBackBtn');
+        await page.waitForSelector('#homeView', { state: 'visible' });
+        await page.tap('#homeNextWorld');
+        await page.tap('#homeWorldInfo');
+        await page.waitForSelector('#mazeSelect', { state: 'visible' });
+        check((await page.textContent('#worldSheetName')).trim() === 'Slipstonia' && await page.locator('.level-node').count() === levels.filter(l => l.world === 2).length
+            && /Finish Sawturn/.test(await page.textContent('#worldSheetNote')), 'a locked planet shows its levels, locked, and says what opens it');
+        await page.tap('#planetBackBtn');
+        await page.waitForSelector('#homeView', { state: 'visible' });
+        await page.tap('#homePrevWorld');
 
         // --- a run: back home, tap PLAY, tap START -------------------------
         await page.tap('#tab_home');
@@ -329,9 +312,8 @@ const failures = [];
             `the clear counts toward the day's missions: ${JSON.stringify(mis)}`);
         await page.waitForSelector('#mazeNextBtn', { state: 'visible' });
         await page.tap('#mazeLevelsBtn');
-        await page.waitForSelector('#mazeSelect', { state: 'visible' });
-        check(await page.isVisible('#tabBar') && await page.isHidden('#mazeHud'), 'LEVELS after a clear opens the worlds tab with the tab bar');
-        await page.tap('#tab_home');
+        await page.waitForSelector('#homeView', { state: 'visible' });
+        check(await page.isVisible('#tabBar') && await page.isHidden('#mazeHud'), 'LEVELS after a clear goes home (home\'s planet is the level select), with the tab bar');
         // Home celebrates the level the clear reached, once.
         await page.waitForSelector('#levelPanel', { state: 'visible' });
         check((await page.textContent('#levelTitle')).trim() === 'LEVEL UP!' && (await page.textContent('#levelBig')).trim() === '2'
@@ -375,7 +357,7 @@ const failures = [];
         await page.waitForSelector('#mazeExitBtn', { state: 'visible' });
         // A tilt game gets no taps: a level keeps the screen on (wakeLock.js),
         // by the lock or the video, and the menus let it sleep again.
-        check(await page.evaluate(() => window.__wakeDebug.wanted()) && await page.waitForFunction(() => window.__wakeDebug.mode() !== 'none', null, { timeout: 5000 }).then(() => true, () => false),
+        check(await page.evaluate(() => window.__wakeDebug.wanted()) && await page.waitForFunction(() => window.__wakeDebug.mode() !== 'none', null, { polling: 100, timeout: 20000 }).then(() => true, () => false),
             `a level keeps the screen on (mode ${await page.evaluate(() => window.__wakeDebug.mode())})`);
         await page.tap('#mazeExitBtn');
         await page.waitForSelector('#homeView', { state: 'visible' });
@@ -617,11 +599,16 @@ const failures = [];
         // --- progress survives a reload ----------------------------------
         await page.reload();
         await homeUp(page);
-        await page.tap('#tab_worlds');
+        await page.tap('#homeWorldInfo');
+        await page.waitForSelector('#mazeSelect', { state: 'visible' });
         const after = await page.$$eval('.level-node', els => els.map(e => ({ cleared: e.classList.contains('is-cleared'), next: e.classList.contains('is-next'), locked: e.disabled })));
         check(after[0].cleared, 'after a reload, level 1 shows as cleared');
         check(after[1].next && !after[1].locked, 'after a reload, level 2 is unlocked and next');
         check((await page.textContent('#mazeWallet')).trim() === '206', `after a reload, the wallet still holds 206 (181 played + First Roll's 25), shows ${await page.textContent('#mazeWallet')}`);
+        // This page is done: park it on Gear, where the scene behind is frozen
+        // (sceneHost.setCovered), so it costs the pages after it nothing.
+        await page.tap('#tab_gear');
+        await page.waitForSelector('#profileView', { state: 'visible' });
 
         // --- the store and profile ----------------------------------------
         // A fresh page with a seeded save: enough coins to shop.
@@ -629,7 +616,7 @@ const failures = [];
         await shopCtx.addInitScript(() => {
             if (sessionStorage.getItem('seeded')) return;
             sessionStorage.setItem('seeded', '1');
-            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 2000, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: ['rubberCoat', 'heatShield'], prizeUses: { rubberCoat: 3, heatShield: 2 }, charges: { slowmo: 1 } }));
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 2000, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: [], charges: { slowmo: 1, iceSkates: 2, fireShield: 1 } }));
         });
         const shop = await shopCtx.newPage();
         shop.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
@@ -639,18 +626,25 @@ const failures = [];
         await shop.tap('#tab_store');
         await shop.waitForSelector('#storeView', { state: 'visible' });
         const rowBuy = (title) => shop.locator('.shop-row', { has: shop.locator('.shop-rowtitle', { hasText: new RegExp('^' + title + '$') }) }).locator('.shop-buy');
-        await rowBuy('Air Brake').tap();
+        check(await shop.locator('.shop-row', { has: shop.locator('.shop-rowtitle', { hasText: /^(Grip|Air Brake)$/ }) }).count() === 0, 'the store sells no ship upgrades (until space battles)');
         await rowBuy('Shield').tap();
+        await rowBuy('Sure Foot').tap();
         let sp = await sdbg('progress');
-        check(sp.upgrades.brakes === 1 && sp.charges.shield === 1 && sp.wallet === 2000 - 200 - 80,
-            `buying Air Brake and a Shield is saved and charged: ${JSON.stringify({ u: sp.upgrades, c: sp.charges, w: sp.wallet })}`);
-        check((await shop.textContent('#storeWallet')).trim() === '1,720', 'the store wallet updates after buying');
-        await shop.tap('#tab_gear');
-        await shop.waitForSelector('#profileView', { state: 'visible' });
-        await shop.locator('.marble-card', { has: shop.locator('.marble-name', { hasText: 'Bumper' }) }).locator('.marble-action').tap();
+        check(sp.charges.shield === 1 && sp.charges.sureFoot === 1 && sp.wallet === 2000 - 80 - 50,
+            `buying a Shield and Sawturn's Sure Foot is saved and charged: ${JSON.stringify({ c: sp.charges, w: sp.wallet })}`);
+        check((await shop.textContent('#storeWallet')).trim() === '1,870', 'the store wallet updates after buying');
+        check(/Reach Slipstonia/.test(await shop.textContent('[data-charge="iceSkates"]')) && await shop.locator('[data-charge="iceSkates"] .shop-buy').count() === 0,
+            "Slipstonia's Ice Skates are not on sale before Slipstonia opens");
+        await shop.tap('#tab_crew');
+        await shop.waitForSelector('#crewView', { state: 'visible' });
+        await shop.locator('.crew-card[data-crew="rubber"] .marble-action').tap({ timeout: 90000 });
         sp = await sdbg('progress');
-        check(sp.marble === 'rubber' && sp.marbles.includes('rubber') && sp.wallet === 1720 - 900, `buying Rubber selects it: ${sp.marble}, wallet ${sp.wallet}`);
-        check((await shop.textContent('#profileMarbleName')).trim() === 'Bumper', 'the profile shows Bumper (rubber) as the next marble');
+        check(sp.marble === 'rubber' && sp.marbles.includes('rubber') && sp.wallet === 1870 - 900, `recruiting Bumper selects him: ${sp.marble}, wallet ${sp.wallet}`);
+        // (A new marble rebuilds the home planet behind the menus, and a
+        // starved page takes a while to answer the next tap.)
+        await shop.tap('#tab_gear', { timeout: 90000 });
+        await shop.waitForSelector('#profileView', { state: 'visible' });
+        check((await shop.textContent('#profileMarbleName')).trim() === 'Bumper', 'Gear shows Bumper as the next marble');
         check(await shop.isHidden('#cloudSection'), 'with no server configured, Gear has no cloud save card');
         await shop.tap('#tab_home');
 
@@ -660,29 +654,38 @@ const failures = [];
         await shop.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         await sdbg('advanceFrames', 1);
         check(await sdbg('ballColor') === '#e0563f', `the ball wears the Rubber marble, got ${await sdbg('ballColor')}`);
-        check(/SHIELD/.test(await shop.textContent('#mazePowerups')), 'a bought shield is armed at the start of the run');
+        check(/SHIELD/.test(await shop.textContent('#mazePowerups')) && /HOLE HOP/.test(await shop.textContent('#mazePowerups')) && /SURE FOOT/.test(await shop.textContent('#mazePowerups')),
+            `a bought shield, Bumper's Hole Hop and a bought Sure Foot are armed at the start of the run: ${await shop.textContent('#mazePowerups')}`);
         check(await shop.isVisible('#mazeUse_slowmo'), 'a held slow-mo shows its tap button');
         await shop.tap('#mazeUse_slowmo');
         await sdbg('advanceFrames', 1);
         check(/SLOW/.test(await shop.textContent('#mazePowerups')) && !(await sdbg('progress')).charges.slowmo,
             'tapping slow-mo fires it and spends it from the inventory');
-        // Level 1 is a beginner level: its free shield is the one used, and the
-        // bought one is left in the inventory.
+        // Bumper's Hole Hop (crew.js) catches his first fall of a run, before
+        // any shield; on a beginner level the free shield takes the next, and
+        // the bought one is left in the inventory.
         const lvA = levels[0];
         await sdbg('placeBall', lvA.holes[0].x, lvA.holes[0].z);
         await sdbg('advanceFrames', 2);
-        check(await sdbg('phase') === 'running' && (await sdbg('progress')).charges.shield === 1, 'on a beginner level the free shield saves the ball, and the bought one is kept');
-        // Level 4 is not: the bought shield is armed, saves the ball, and is spent.
+        let cr = await sdbg('crew');
+        check(await sdbg('phase') === 'running' && cr.fired.includes('fall') && cr.free === 0 && (await sdbg('progress')).charges.shield === 1, `Hole Hop saves Bumper's first fall, and nothing is spent: ${JSON.stringify(cr)}`);
+        await sdbg('placeBall', lvA.holes[0].x, lvA.holes[0].z);
+        await sdbg('advanceFrames', 2);
+        check(await sdbg('phase') === 'running' && (await sdbg('progress')).charges.shield === 1, 'on a beginner level the free shield saves the next, and the bought one is kept');
+        // Level 4 is not a beginner level: after Hole Hop, the bought shield
+        // saves the ball and is spent.
         const lvPast = levels[3];
         check(await sdbg('startLevelForTest', lvPast.id), `can build ${lvPast.id}`);
         await shop.tap('#mazeStartBtn');
         await shop.waitForFunction(() => window.__mazeDebug.phase() === 'running');
-        check(/SHIELD/.test(await shop.textContent('#mazePowerups')), 'past the beginner levels the bought shield is armed');
+        check(/SHIELD/.test(await shop.textContent('#mazePowerups')) && (await sdbg('crew')).free === 1, 'past the beginner levels the bought shield is armed, and a new run brings Hole Hop back');
         await sdbg('placeBall', lvPast.holes[0].x, lvPast.holes[0].z);
         await sdbg('advanceFrames', 2);
-        check(await sdbg('phase') === 'running', 'the bought shield saves the ball from the hole');
+        await sdbg('placeBall', lvPast.holes[0].x, lvPast.holes[0].z);
+        await sdbg('advanceFrames', 2);
+        check(await sdbg('phase') === 'running', 'Hole Hop, then the bought shield, save the ball from two holes');
         check(!(await sdbg('progress')).charges.shield, 'the shield is spent from the inventory once it saves you');
-        // World 1's prize on world 2's ice: grips like floor, one use per level.
+        // Slipstonia's planet charge on its ice: Ice Skates, one spent for a patch.
         const iceLv = levels.find(l => (l.ice || []).length);
         if (iceLv) {
             check(await sdbg('startLevelForTest', iceLv.id), `can build ${iceLv.id}`);
@@ -691,11 +694,11 @@ const failures = [];
             const r = iceLv.ice[0];
             await sdbg('placeBall', r.x, r.z);
             const hz = await sdbg('hazards');
-            check(hz.onIce && !hz.floorIsIce, 'with the Rubber Coat, ice grips like floor');
+            check(hz.onIce && !hz.floorIsIce, 'with Ice Skates armed, the patch grips like floor');
             await sdbg('placeBall', r.x, r.z);
-            check((await sdbg('progress')).prizeUses.rubberCoat === 2, 'the Rubber Coat spends one use for the level, not one per touch');
+            check((await sdbg('progress')).charges.iceSkates === 1, 'one pair is spent for the patch, not one per touch');
         }
-        // World 2's prize on world 3's seams: a flare does not burn.
+        // Magmars' planet charge: a flare does not burn, and one is spent.
         const flLv = levels.find(l => (l.flares || []).length);
         if (flLv) {
             check(await sdbg('startLevelForTest', flLv.id), `can build ${flLv.id}`);
@@ -705,7 +708,7 @@ const failures = [];
             await sdbg('setRunClock', H.firstFlareMs(f) + 20);
             await sdbg('placeBall', f.x, f.z);
             await sdbg('advanceFrames', 2);
-            check(await sdbg('phase') === 'running' && (await sdbg('progress')).prizeUses.heatShield === 1, 'with the Heat Shield a flare does not burn, and one use is spent');
+            check(await sdbg('phase') === 'running' && !(await sdbg('progress')).charges.fireShield, 'with a Fire Shield armed a flare does not burn, and it is spent');
         }
         await shop.reload();
         await homeUp(shop);
@@ -731,6 +734,68 @@ const failures = [];
         check(await sdbg('startLevelForTest', levels[0].id), 'can build level 1 with a skin and trail on');
         check(await sdbg('ballColor') === '#ffffff' && (await sdbg('trail')) !== null, `the ball wears the skin (its colour comes from the skin's picture) and the trail is laid: ${await sdbg('ballColor')}`);
         await shopCtx.close();
+
+        // --- the crew (crew.js): a friend's signature, bond, a step, a tap one ---
+        // Cinder (Magmars) on a flare level: his free Fire Shield, once a run;
+        // the clear earns him bond; bond 2 opens his first step in CREW; then
+        // Glint's Clear Sight is a HUD tap.
+        const flCrew = levels.find(l => (l.flares || []).length && l.index !== (l.world - 1) * 10 + 1);
+        if (flCrew) {
+            const crewCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+            await crewCtx.addInitScript((hi) => {
+                if (sessionStorage.getItem('seeded')) return;
+                sessionStorage.setItem('seeded', '1');
+                localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 1, wallet: 1000, xp: 0, highestIndex: hi, cleared: {}, goldClaimed: [], prizes: [], charges: {},
+                    marbles: ['classic', 'glass', 'cinder'], marble: 'cinder', bond: { cinder: 100 }, daily: { streak: 1, last: '2099-01-01', doubled: '' } }));
+            }, flCrew.index - 1);
+            const cp = await crewCtx.newPage();
+            cp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
+            const cdbg = (fn, ...args) => cp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
+            await cp.goto(base);
+            await homeUp(cp);
+            await cp.tap('#homePlayBtn');
+            await cp.waitForSelector('#mazeStartBtn', { state: 'visible' });
+            check(await cdbg('startLevelForTest', flCrew.id), `can build ${flCrew.id}`);
+            await cp.tap('#mazeStartBtn');
+            await cp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            let c0 = await cdbg('crew');
+            check(c0 && c0.id === 'cinder' && c0.sig === 'Fire Shield' && c0.free === 1 && /FIRE SHIELD/.test(await cp.textContent('#mazePowerups')), `Cinder starts the run with his Fire Shield: ${JSON.stringify(c0)}`);
+            const f = flCrew.flares[0];
+            await cdbg('setRunClock', H.firstFlareMs(f) + 20);
+            await cdbg('placeBall', f.x, f.z);
+            await cdbg('advanceFrames', 2);
+            c0 = await cdbg('crew');
+            check(await cdbg('phase') === 'running' && c0.fired.includes('burn') && c0.free === 0 && !((await cdbg('progress')).charges.fireShield), `the flare cannot burn Cinder, free, once: ${JSON.stringify(c0)}`);
+            await cdbg('ageRun', 60000);
+            check(await cdbg('warpToGoal'), `${flCrew.id} clears`);
+            check(((await cdbg('progress')).bond || {}).cinder === 140, `the clear earns Cinder bond: ${JSON.stringify((await cdbg('progress')).bond)}`);
+            await cp.tap('#mazeExitBtn');
+            await homeUp(cp);
+            check(!(await cp.isHidden('#crewBadge')), 'CREW shows a badge: an upgrade is ready');
+            await cp.tap('#tab_crew');
+            await cp.waitForSelector('#crewView', { state: 'visible' });
+            const w0 = (await cdbg('progress')).wallet;
+            const up = cp.locator('.crew-card[data-crew="cinder"] .crew-upgrade');
+            check(!(await up.isDisabled()) && /UPGRADE/.test(await up.textContent()), 'bond 2 opens his first step');
+            await up.tap();
+            let pc = await cdbg('progress');
+            check(pc.crew.cinder === 1 && pc.wallet === w0 - 300 && await cp.locator('.crew-card[data-crew="cinder"] .crew-step.is-on').count() === 1, `the step is bought and shown: ${JSON.stringify({ crew: pc.crew, w: pc.wallet })}`);
+            // Glint: a tap signature.
+            await cp.locator('.crew-card[data-crew="glass"] .marble-action').tap({ timeout: 90000 });
+            check((await cdbg('progress')).marble === 'glass', 'SELECT in CREW picks the marble');
+            await cp.tap('#tab_home', { timeout: 90000 });
+            await cp.tap('#homePlayBtn');
+            await cp.waitForSelector('#mazeStartBtn', { state: 'visible' });
+            check(await cdbg('startLevelForTest', 'w1_07'), 'can build w1_07');
+            await cp.tap('#mazeStartBtn');
+            await cp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            check(await cp.isVisible('#mazeUse_sig') && /CLEAR SIGHT/.test(await cp.textContent('#mazeUse_sig')), "Glint's Clear Sight shows as a HUD button");
+            await cp.tap('#mazeUse_sig');
+            await cdbg('advanceFrames', 2);
+            const cg = await cdbg('crew');
+            check(cg.free === 0 && cg.sightMs > 0 && cg.sightShown && await cp.isHidden('#mazeUse_sig'), `tapping it lights the hidden things, once a run: ${JSON.stringify(cg)}`);
+            await crewCtx.close();
+        }
 
         // --- the daily maze ---------------------------------------------------
         // Locked on a fresh save (checked on the first page); here a player
@@ -777,8 +842,6 @@ const failures = [];
         const firstBest = dprog.dailyMaze.best;
         check(await dp.isHidden('#mazeNextBtn') && await dp.isVisible('#mazeReplayBtn'), 'after a daily, no NEXT -- REPLAY to chase the time');
         await dp.tap('#mazeLevelsBtn');
-        await dp.waitForSelector('#mazeSelect', { state: 'visible' });
-        await dp.tap('#tab_home');
         await homeUp(dp);
         check(await dp.isHidden('#homeMazeBadge') && /^✓ \d+\.\ds$/.test((await dp.textContent('#homeMazeLabel')).trim()), `home shows it done, with the time: ${await dp.textContent('#homeMazeLabel')}`);
         const w1d = (await ddbg('progress')).wallet;
@@ -860,16 +923,16 @@ const failures = [];
         await rp.waitForFunction(() => document.querySelectorAll('#homeSites .home-site').length === 10 && document.querySelector('#homeSite_w2_01'), null, { polling: 100, timeout: 15000 }).catch(() => {});
         check(await rp.isDisabled('#homeSite_w2_01') && (await rdbg('homeLevel')).locked, 'a locked planet\'s sites are shut');
         await rp.tap('#homePrevWorld');
-        await rp.tap('#tab_worlds');
+        await rp.tap('#homeWorldInfo');
         await rp.waitForSelector('#mazeSelect', { state: 'visible' });
         check(/Pip/.test(await rp.textContent('#worldSheetCaptive')) && await rp.locator('.level-node.is-rescue').count() === 1 && await rp.locator('.level-node.is-freed').count() === 0,
-            `the Worlds sheet names the caged friend and marks floor 10: ${await rp.textContent('#worldSheetCaptive')}`);
-        await rp.tap('#tab_gear', { timeout: 90000 });   // the solar system is slow to let go of a starved page
-        await rp.waitForSelector('#profileView', { state: 'visible' });
+            `the planet page names the caged friend and marks floor 10: ${await rp.textContent('#worldSheetCaptive')}`);
+        await rp.tap('#tab_crew');
+        await rp.waitForSelector('#crewView', { state: 'visible' });
         const pipCard = rp.locator('.marble-card', { has: rp.locator('.marble-name', { hasText: /^Pip$/ }) });
         check(await pipCard.count() === 1 && /is-captive/.test(await pipCard.getAttribute('class')) && await pipCard.locator('.marble-action').isDisabled()
             && /RESCUE ON FLOOR 10/.test(await pipCard.locator('.marble-action').textContent()) && await pipCard.locator('.maze-btn-ad').count() === 0,
-            'Gear shows Pip caged: no price, no TRY, rescued on floor 10');
+            'CREW shows Pip caged: no price, no TRY, rescued on floor 10');
         check(/RESCUE ON FLOOR 10/.test(await rp.locator('.marble-card', { has: rp.locator('.marble-name', { hasText: /^Rivet$/ }) }).locator('.marble-action').textContent()),
             'every friend is on their own planet\'s floor 10');
         // BETWEEN LEVELS (levelShow.js): a level opens on the marble dropping
@@ -997,10 +1060,15 @@ const failures = [];
         check(/FRIENDS RESCUED 1 \/ 5/.test(await rp.textContent('#homeRescueText')) && await rp.locator('#homeRescueFriends .rescue-friend.is-freed').count() === 1, `home's tracker counts Pip freed: ${await rp.textContent('#homeRescueText')}`);
         await rp.tap('#tab_gear');
         await rp.waitForSelector('#profileView', { state: 'visible' });
-        check(!/is-captive/.test(await pipCard.getAttribute('class')) && /SELECT/.test(await pipCard.locator('.marble-action').textContent()), 'Gear offers Pip to roll as');
         check((await rp.locator('#profileDiary .diary-page').count()) === 10 && (await rp.locator('#profileDiary .diary-page.is-found').count()) === 1 && /PAGE 1/.test(await rp.textContent('#profileDiary .diary-page.is-found')),
             'Gear shows the Baron\'s diary, page 1 found');
-        await pipCard.locator('.marble-action').tap();
+        await rp.tap('#tab_crew');
+        await rp.waitForSelector('#crewView', { state: 'visible' });
+        check(!/is-captive/.test(await pipCard.getAttribute('class')) && /SELECT/.test(await pipCard.locator('.marble-action').textContent())
+            && /SURE FOOT/.test(await pipCard.locator('.crew-signame').textContent()), 'CREW offers Pip to roll as, with his Sure Foot');
+        await pipCard.locator('.marble-action').tap({ timeout: 90000 });
+        await rp.tap('#tab_gear', { timeout: 90000 });
+        await rp.waitForSelector('#profileView', { state: 'visible' });
         check((await rdbg('progress')).marble === 'pip' && (await rp.textContent('#profileMarbleName')).trim() === 'Pip', 'and Pip can be selected');
         await rCtx.close();
 
@@ -1023,8 +1091,10 @@ const failures = [];
         await wp.waitForSelector('#storeView', { state: 'visible' });
         await wp.locator('.shop-row[data-explorer="compass"] .shop-buy').tap();
         check((await wdbg('progress')).explorer.includes('compass') && (await wdbg('progress')).wallet === 600, 'the Compass is bought in the store');
-        // The worlds sheet in WALK mode: rolled levels only.
-        await wp.tap('#tab_worlds');
+        // The planet page in EXPLORE mode: rolled levels only.
+        await wp.tap('#tab_home');
+        await wp.waitForSelector('#homeView', { state: 'visible' });
+        await wp.tap('#homeWorldInfo');
         await wp.waitForSelector('#mazeSelect', { state: 'visible' });
         await wp.tap('#modeWalk');
         const wNodes = await wp.$$eval('.level-node', els => els.map(e => e.disabled));
@@ -1081,7 +1151,7 @@ const failures = [];
             `the first walk pays half the first-clear pay, kept apart from rolling: ${JSON.stringify({ w: wprog.walks, wallet: wprog.wallet })}`);
         check(await wp.isHidden('#mazeNextBtn') && await wp.isVisible('#mazeNearMiss') && /FOR GOLD|FROM GOLD/.test(await wp.textContent('#mazeNearText')), 'a walk has no NEXT, and names the walk gold still to win');
         await wp.tap('#mazeLevelsBtn');
-        await wp.waitForSelector('#mazeSelect', { state: 'visible' });
+        await wp.waitForSelector('#homeView', { state: 'visible' });
         check((await wdbg('walk')).on === false && (await wdbg('walk')).fov !== 90, 'leaving the walk puts the camera back');
         await wCtx.close();
 
@@ -1236,7 +1306,9 @@ const failures = [];
                 check((await d1.dbg('progress')).cleared.w1_01, 'the device\'s earlier progress is the account\'s');
             }
             // Clear level 1: ranked on the CLEARED panel, and on the board.
-            await d1.pg.tap('#tab_worlds');
+            await d1.pg.tap('#tab_home');
+            await d1.pg.waitForSelector('#homeView', { state: 'visible' });
+            await d1.pg.tap('#homeWorldInfo');
             await d1.pg.waitForSelector('#mazeSelect', { state: 'visible' });
             await d1.pg.locator('.level-node').first().tap();
             await d1.pg.waitForSelector('#mazeStartBtn', { state: 'visible' });
@@ -1264,6 +1336,9 @@ const failures = [];
             await d1.pg.tap('#mazeLevelsBtn');
             await d1.pg.waitForFunction(() => window.__cloudSync.status() === 'synced');
             const d1prog = await d1.dbg('progress');
+            // Device 1 is done: parked on Gear, the scene behind it frozen, so
+            // it costs device 2 nothing.
+            await d1.pg.tap('#tab_gear', { timeout: 90000 });
             // Device 2 signs in at the gate (a wrong password first) and gets the
             // account's progress; signing out returns to the gate; signing in by
             // username brings the progress back.
@@ -1394,15 +1469,13 @@ const failures = [];
         check(/IN \d+ MIN/.test(await freeBtn.textContent()) && await freeBtn.isDisabled(), 'then the free coins wait out their cooldown');
         check(await ad.isHidden('#storeBadge'), 'the store badge goes once the free coins are taken');
         check(await ad.isHidden('#adShield'), 'the ad shield is down once the ad is over');
-        // A FREE upgrade step: one per cooldown, then the buttons go and a
-        // line says when the next one comes.
-        const freeUp = ad.locator('.shop-row', { has: ad.locator('.shop-rowtitle', { hasText: /^Grip$/ }) }).locator('.shop-free');
-        check(await ad.locator('.shop-free').count() === 4, `every upgrade offers a free step (got ${await ad.locator('.shop-free').count()})`);
-        await freeUp.tap();
-        await ad.waitForFunction(() => (window.__mazeDebug.progress().upgrades.grip || 0) === 1, null, { timeout: 5000 }).catch(() => {});
-        const upP = await adbg('progress');
-        check(upP.upgrades.grip === 1 && upP.wallet === w1, `a free step adds a Grip tier and costs nothing (${JSON.stringify(upP.upgrades)}, wallet ${upP.wallet})`);
-        check(await ad.locator('.shop-free').count() === 0 && /Next free upgrade step in \d+ min/.test(await ad.textContent('#storeList')), 'then free steps wait out their cooldown, and say so');
+        // A FREE crew step (crewUi.js) is offered only once bond opens the
+        // step: a new player's Rolle has none to give (progressStore's
+        // adUpgrade rules are tested in Node).
+        check(await ad.locator('.shop-free').count() === 0, 'the store offers no free upgrade steps (there are no ship upgrades)');
+        await ad.tap('#tab_crew');
+        await ad.waitForSelector('#crewView', { state: 'visible' });
+        check(await ad.locator('.crew-card[data-crew="classic"] .shop-free').count() === 0, 'no free crew step before bond allows one');
         await ad.tap('#tab_gear');
         check((await adLog()).includes('banner:profileBanner'), 'the gear page asks for a banner');
         await ad.tap('#tab_store');
@@ -1481,10 +1554,10 @@ const failures = [];
         await homeUp(ad);
         check((await adLog()).filter(x => x === 'ad:midgame').length === mid0 + 1, 'leaving a level shows a break ad');
 
-        // TRY A MARBLE: Gear offers TRY on each marble not owned; the ad starts
+        // TRY A MARBLE: CREW offers TRY on each marble not owned; the ad starts
         // the next level with it, for that level only, and grants nothing.
-        await ad.tap('#tab_gear');
-        await ad.waitForSelector('#profileView', { state: 'visible' });
+        await ad.tap('#tab_crew');
+        await ad.waitForSelector('#crewView', { state: 'visible' });
         const tryBtns = ad.locator('.marble-card .maze-btn-ad');
         check(await tryBtns.count() === 3, `every marble for sale not owned offers TRY, never a caged friend (got ${await tryBtns.count()})`);
         const steelTry = ad.locator('.marble-card', { has: ad.locator('.marble-name', { hasText: /^Sterling$/ }) }).locator('.maze-btn-ad');

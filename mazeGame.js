@@ -1667,7 +1667,9 @@ function checkOutcomes() {
     // does not also bank the coin on its lip.
     if (pickupState) {
         const events = stepPickups(pickupState, level, { x: p.x, z: p.z, r: level.ballRadius }, lastFrameMs);
-        if (crewRun && crewRun.sightMs > 0) crewRun.sightMs = Math.max(0, crewRun.sightMs - lastFrameMs);
+        // (A frame counts at most 100 ms: one stall must not eat the sight.)
+        if (crewRun && crewRun.sightMs > 0) crewRun.sightMs = Math.max(0, crewRun.sightMs - Math.min(100, lastFrameMs));
+        if (sightFx) sightFx.set(!!(crewRun && crewRun.sightMs > 0), performance.now() / 1000);
         for (const e of events) {
             if (e.type === 'coin') { props.takeCoin(e.index); if (audio) audio.event('coin'); }
             else { props.takePickup(e.index); setStatus(e.kind.toUpperCase()); if (audio) audio.event('pickup'); }
@@ -2058,8 +2060,8 @@ function restart() {
     if (survey) survey.mark(ballBody.position.x, ballBody.position.z);
     renderSurveyChip();
     renderCoins();
-    renderPowerups();
     phase = 'running';
+    renderPowerups();   // after the phase: the tap buttons show only while running
     attemptOpen = true;
     ranThisVisit = true;
     emitRun('start');

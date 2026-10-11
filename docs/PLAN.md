@@ -57,16 +57,18 @@ This file records the decisions so they travel with the code.
   is never required** (decided 2026-10-05). Every level is verified solvable
   without it. Prizes change how the ball reacts to one trap kind, never its
   radius or top speed (the plastic ball keeps its size; it just ignores magnets).
-- **World prizes are uses, and the store sells refills** (decided 2026-10-05).
-  Clearing a world grants 3 uses of its prize; one use covers one level (spent
-  the first time its trap is met there, good for every retry). The store sells
-  refills only once the prize is earned. Still never required.
-- **Store and profile** (built 2026-10-05). The store sells the four upgrade
-  tracks (Grip, Air Brake, Power Time, Coin Reach; three tiers each), single
-  power-ups, and prize refills. The profile picks the marble for the next game
-  (Classic, Steel, Rubber, Glass; the last three bought there) and shows
-  progress and what you carry. All prices and effects are in shopCatalog.js;
-  test_shop.js holds the never-faster, never-smaller rule.
+- **World prizes became planet charges** (2026-10-10, with the Crew). Each
+  planet sells one trap charge answering its own trap (Sure Foot, Ice Skates,
+  Fire Shield, Shrug, Demagnetize) once that planet is opened; finishing a
+  planet gives 3 of the next one's. One is armed per run and spent only when
+  it fires. Still never required.
+- **Store and profile** (built 2026-10-05; reshaped 2026-10-10). The store
+  sells single power-ups and planet charges. The ship upgrades (Grip, Air
+  Brake, Power Time, Coin Reach) were removed on the user's call until space
+  battles. Picking, recruiting and upgrading marbles is the CREW tab; Gear
+  keeps looks, the diary and what you carry. All prices and effects are in
+  shopCatalog.js and crew.js; test_shop.js holds the never-faster,
+  never-smaller rule.
 - **Coins and power-ups in every maze; power-ups also bought before a level**
   (decided 2026-10-05). Coins and pickups are placed by the seeded generator,
   and the verifier checks every one is reachable and clear of holes. Power-ups
@@ -92,14 +94,14 @@ This file records the decisions so they travel with the code.
     read for a while; never in a level), refreshed at most once a minute;
   - an input shield while any ad is requested or playing, and UI sounds
     silent while one plays.
-  - rewarded TRY on every unowned marble in Gear (added 2026-10-06): the ad
-    starts the next level with that marble, for that level and its retries
-    only; leaving or moving on ends it; never ownership, never saved. A clear
-    on a trial points to its price in Gear.
-  - rewarded FREE upgrade step in the Store (added 2026-10-06): the next
-    tier of any upgrade, free, once per 30 minutes (surviving a reload), and
-    only for tiers priced 600 or less -- the top tier of each stays a thing
-    to save for.
+  - rewarded TRY on every unowned marble in CREW (added 2026-10-06; Gear
+    until 2026-10-10): the ad starts the next level with that marble, for
+    that level and its retries only; leaving or moving on ends it; never
+    ownership, never saved, no bond. A clear on a trial points to its price.
+  - rewarded FREE crew step in CREW (2026-10-10; a free ship-upgrade tier
+    in the Store before): a character's next track step, free, once per 30
+    minutes (surviving a reload), only once their bond opens it and only for
+    steps priced 700 or less -- the top steps stay things to save for.
   Not built yet from the list above: reveal the route. Watch which rewarded buttons get tapped before
   adding more.
 
@@ -335,6 +337,30 @@ The user's call: exploring should be required and rewarding.
   of the Baron's diary; ten pages in all, banked by a clear, read in Gear.
   The page text awaits the user's OK (`diary.js`).
 - Not doing: the Baron's locks (gates and keys on every run).
+
+## The Crew (decided 2026-10-10)
+
+The user's call: home picks the planet and level now, so the WORLDS tab
+became CREW, where each character advances. The Worlds sheet lives on as the
+planet page, opened from home's planet name (Roll / Explore and the
+planet's log). The game is in alpha: saves are wiped rather than migrated.
+- *Signatures, never permanent*: each character carries one trick, free once
+  a run (twice after their second step). A friend's is their own planet's
+  trap answer (Pip Sure Foot, Flurry Ice Skates, Cinder Fire Shield, Bobble
+  Shrug, Rivet Demagnetize); Rolle's Coin Sense and Glint's Clear Sight are
+  taps; Sterling's Iron Shell takes a press or a gust; Bumper's Hole Hop his
+  first hole. Once a planet is opened, its answer is sold as a planet charge
+  any character can carry.
+- *Bond* (option B, the user's pick): clearing a level as a character earns
+  them bond (40 first clear, 15 replay, +20 first gold); bond levels at 100,
+  300, 600 and 1000 open the steps of their track, and coins buy each step.
+  Bond is never sold or given by ad; a rewarded ad may give a cheap step.
+- *The track*, the same four steps for all: more of their own handling
+  (grip, stopping or response), signature twice a run, more handling again,
+  an aura of their colour. Never top speed, never a smaller ball.
+- *Gold times*: as with the world prizes before, a signature or charge can
+  let a run pass a trap it would otherwise wait for. Accepted for now; marking
+  leaderboard runs that used one is an option if it matters.
 
 ## Open questions
 
