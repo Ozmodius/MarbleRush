@@ -85,6 +85,14 @@ const failures = [];
         check(await dbg('phase') === 'ready' && (await page.textContent('#mazeLevelName')).trim() === levels[0].name
             && await page.isHidden('#rewardsPanel') && await page.isHidden('#tabBar'),
             'a new player opens on level 1\'s START, with no calendar or menus in the way');
+        // A phone's top bar: the level's name shows whole (its own line, under
+        // the buttons and the coin/fuel/map chips), clear of the status line.
+        const nameFit = await page.evaluate(() => {
+            const n = document.getElementById('mazeLevelName'), r = n.getBoundingClientRect();
+            const b = document.getElementById('mazeExitBtn').getBoundingClientRect(), s = document.getElementById('mazeStatus').getBoundingClientRect();
+            return { scroll: n.scrollWidth, client: n.clientWidth, top: r.top, bottom: r.bottom, btn: b.bottom, status: s.top, statusText: document.getElementById('mazeStatus').textContent };
+        });
+        check(nameFit.client > 0 && nameFit.scroll <= nameFit.client && nameFit.top >= nameFit.btn - 1 && (!nameFit.statusText.trim() || nameFit.status >= nameFit.bottom - 1), `the level name shows whole on a phone: ${JSON.stringify(nameFit)}`);
         check((await page.textContent('#mazeStatus')).trim() === 'TAP START, THEN TILT', `a touch device is told to tap START, then tilt: ${await page.textContent('#mazeStatus')}`);
         check(await page.isHidden('#privacyNote'), 'with no server, no privacy line under START (nothing leaves the device)');
         await page.tap('#mazeExitBtn');
