@@ -225,6 +225,13 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   it runs once at start, in one transaction, is recorded in `wipes` so no
   restart repeats it, and copies what it deletes into backup tables named
   after it. Never delete accounts or the play stats without the user's say.
+- **A run's end is shown, never a vanishing** (`fallFx.js`, the user's
+  call, 2026-10-11): rolling, the body is held where it went and the DRAWN
+  ball tips over a hole's rim and sinks shrinking into the dark, chars under
+  smoke, flattens under a press, crackles on a rail or freezes in ice
+  (fallFx3d.js), all within FALL_MS, the restart's wait. Walking keeps the
+  body's drop (the eye is the body). A new trap that ends a run needs a
+  cause in `causeOf` and a look in `fallPose`; `test_fall_fx.js` holds them.
 - **Safe areas come from `--safe-top` / `--safe-bottom` only** (style.css),
   and `safeArea.js` decides whether to trust the browser's insets: an
   Android tab, not fullscreen or installed, gets zero and no

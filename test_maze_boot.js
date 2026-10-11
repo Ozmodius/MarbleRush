@@ -274,8 +274,15 @@ const failures = [];
         check(await dbg('phase') === 'falling', `a ball over a hole falls (phase ${await dbg('phase')})`);
         check((await page.evaluate(() => window.__soundDebug.counts())).coin === 1, 'the coin is heard');
         check((await page.evaluate(() => window.__soundDebug.counts())).holeDrop === 1, `the fall is heard going down the hole: ${JSON.stringify(await page.evaluate(() => window.__soundDebug.counts()))}`);
+        // The end is shown, not dropped (fallFx.js): the body held where it
+        // went, the drawn ball tipping in toward the hole's middle and sinking.
+        await dbg('holdFall', 500);
+        const ff = await dbg('fallFx');
+        check(ff && ff.cause === 'hole' && ff.drawn.y < ff.body.y - 0.05 && ff.drawn.s < 0.9 && Math.abs(ff.body.y - (lv1.ballRadius + 0.02)) < 0.05,
+            `down the hole the drawn ball sinks and shrinks while the body holds still: ${JSON.stringify(ff)}`);
+        await dbg('holdFall', null);
         await dbg('advanceFrames', 3);
-        await page.evaluate(() => new Promise(r => setTimeout(r, 900)));   // FALL_RESTART_MS is wall clock
+        await page.evaluate(() => new Promise(r => setTimeout(r, 1300)));   // FALL_RESTART_MS is wall clock
         await dbg('advanceFrames', 1);
         check(await dbg('phase') === 'running' && await dbg('coinsTaken') === 0,
             'after a fall the run restarts with every coin back in place');
@@ -961,6 +968,7 @@ const failures = [];
         check(sh.kind === 'shipDrop' && sh.shipShown, `a planet's first level opens on the ship: ${JSON.stringify({ k: sh.kind, s: sh.shipShown })}`);
         await rp.tap('#mazeStartBtn');
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100 });
+        await rdbg('advanceFrames', 1);   // the drawn ball follows the body on the next frame
         sh = await rdbg('show');
         check(sh.kind === null && !sh.shipShown && Math.abs(sh.drawn.x - sh.body.x) < 0.05 && Math.abs(sh.drawn.y - sh.body.y) < 0.05, `START ends the show where the ball really is: ${JSON.stringify(sh)}`);
         // SECRET POCKETS (pockets.js): w1_07's false wall is drawn but has
@@ -1140,7 +1148,7 @@ const failures = [];
         await wdbg('placeBall', wlv.holes[0].x, wlv.holes[0].z);
         await wdbg('advanceFrames', 2);
         check(await wdbg('phase') === 'falling', 'walking over a hole falls in');
-        await wp.evaluate(() => new Promise(r => setTimeout(r, 900)));
+        await wp.evaluate(() => new Promise(r => setTimeout(r, 1300)));
         await wdbg('advanceFrames', 1);
         check(await wdbg('phase') === 'running' && Math.abs((await wdbg('walk')).yaw - yaw0) < 1e-6, 'then the walk restarts, facing the way it began');
         // The exit: a walk is recorded and paid, off the roll records.

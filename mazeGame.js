@@ -37,6 +37,8 @@ import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSIT
 import { ballSetup, CHARGES, TRAP_CHARGE_IDS, TRAP_GRANT, AD_REWARDS, MARBLES, WALK } from './shopCatalog.js';
 import { SIGNATURES, COVER, SIGHT_MS, signatureUses, crewStep, hasAura } from './crew.js';
 import { buildSight, buildAura } from './crew3d.js';
+import { fallPose, causeOf, FALL_MS } from './fallFx.js';
+import { buildFallFx } from './fallFx3d.js';
 const marbleName = id => (MARBLES[id] ? MARBLES[id].name.toUpperCase() : String(id));
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { buildPlanet } from './planet3d.js';
@@ -297,7 +299,7 @@ function updateWalkVignette(elapsedMs) {
     e.style.opacity = vignetteNow.toFixed(3);
 }
 
-const FALL_RESTART_MS = 750;     // let the player watch the ball drop before the reset
+const FALL_RESTART_MS = FALL_MS; // let the player watch the run end (fallFx.js) before the reset
 // REWARDED ADS in a level (CrazyGames only; platform.js, shopCatalog.js
 // AD_REWARDS). Never during a run: each is offered at a stop -- the ready
 // screen, a fall, a clear -- and only on the player's tap.
@@ -418,6 +420,12 @@ const prevBallPos = new THREE.Vector3();
 const prevBallQuat = new THREE.Quaternion();
 let prevBallValid = false;
 let fallStartedAt = 0;
+// How the run ended, being shown (fallFx.js): the cause, when, where the ball
+// was, and the ball's own colours to put back. Drawing only: the body is held
+// where it went until the restart.
+let fallFx = null;
+let fallFxMesh = null;     // the smoke, ice, dust and sparks (fallFx3d.js)
+let fallHeldMs = null;     // test seam: hold the end at this many ms (no restart)
 let runStartedAt = 0;
 
 // Tilt state
@@ -844,6 +852,14 @@ function buildLevelMeshes(lv, theme) {
             group.add(auraFx.group);
         }
     }
+    // How a run ends, shown (fallFx3d.js).
+    fallFx = null;
+    {
+        const tracked = [];
+        fallFxMesh = buildFallFx(lv.ballRadius, tracked);
+        tracked.forEach(track);
+        group.add(fallFxMesh.group);
+    }
     if (rescue) {
         const tracked = [];
         rescue.cage = buildCage(rescue.spot, rescue.captive.look, lv.ballRadius, tracked);
@@ -1019,6 +1035,7 @@ function buildWorld(lv, wallSpecs) {
 }
 
 function placeBallAtStart() {
+    clearFallFx();
     ballBody.position.set(level.start.x, FLOOR_Y + level.ballRadius + 0.02, level.start.z);
     ballBody.velocity.setZero();
     ballBody.angularVelocity.setZero();
@@ -1196,6 +1213,7 @@ function advance(elapsedMs) {
         ballMesh.quaternion.slerp(prevBallQuat, 1 - a);
     }
     drawShow(elapsedMs);
+    if (fallFx && (phase === 'falling' || phase === 'offer')) drawFallFx();
     if (survey && phase === 'running') { survey.mark(ballBody.position.x, ballBody.position.z); if (survey.pct !== surveyShownPct) renderSurveyChip(); }
     if (trail) trail.update(ballBody.position, elapsedMs);
     if (rescue && rescue.cage) rescue.cage.track(ballMesh.position.x, ballMesh.position.z, phase === 'running' || phase === 'won');
@@ -1224,7 +1242,7 @@ function advance(elapsedMs) {
     }
 
     if (phase === 'running') checkOutcomes();
-    else if (phase === 'falling' && performance.now() - fallStartedAt > FALL_RESTART_MS) {
+    else if (phase === 'falling' && fallHeldMs === null && performance.now() - fallStartedAt > FALL_RESTART_MS) {
         if (reviveOffered()) openFallOffer(); else restart();
     } else if (phase === 'offer') tickFallOffer();
 }
@@ -1763,8 +1781,55 @@ function fall(message, why) {
     // gravity still applies) while it stops colliding with anything.
     if (audio) audio.event('fall', { cause: (why && why.cause) || 'other', speed: Math.hypot(ballBody.velocity.x, ballBody.velocity.z) });
     ballBody.collisionResponse = false;
+    // Rolling, the end is SHOWN (fallFx.js) rather than dropped through the
+    // floor: the body is held where it went, and the drawn ball tips into the
+    // hole, chars, flattens, crackles or freezes. Walking keeps the drop --
+    // the eye is the body, so falling in is seen from inside.
+    if (!walkMode && ballMesh) {
+        const p = ballBody.position, hi = why && Number.isInteger(why.hole) ? level.holes[why.hole] : null;
+        const m = ballMesh.material;
+        fallFx = {
+            cause: causeOf(why && why.cause), t0: performance.now(), x: p.x, y: p.y, z: p.z,
+            ctx: { r: level.ballRadius, vx: ballBody.velocity.x, vz: ballBody.velocity.z, seed: (runClockMs % 97) + 1,
+                hole: hi ? { x: hi.x - p.x, z: hi.z - p.z, r: hi.r } : null },
+            color: m && m.color ? m.color.clone() : null,
+            emissive: m && m.emissive ? m.emissive.clone() : null,
+            ei: m ? m.emissiveIntensity : 0
+        };
+        ballBody.velocity.setZero();
+        ballBody.angularVelocity.setZero();
+    }
     renderPowerups();   // the run is over: hide the tap-to-fire buttons
     setStatus(message || 'DOWN THE HOLE');
+}
+
+// The end of a run, drawn (fallFx.js): the body held where it went, the drawn
+// ball posed, tinted and dressed for the cause.
+function drawFallFx() {
+    const ms = fallHeldMs !== null ? fallHeldMs : performance.now() - fallFx.t0;
+    const p = fallPose(fallFx.cause, ms, fallFx.ctx);
+    ballBody.position.set(fallFx.x, fallFx.y, fallFx.z);
+    ballBody.velocity.setZero();
+    const x = fallFx.x + p.dx, y = fallFx.y + p.dy, z = fallFx.z + p.dz;
+    ballMesh.position.set(x, y, z);
+    ballMesh.scale.set(p.sx, p.sy, p.sz);
+    const m = ballMesh.material;
+    if (m && m.color && fallFx.color) m.color.copy(fallFx.color).multiplyScalar(1 - p.dark);
+    if (m && m.emissive && fallFx.emissive) {
+        if (p.glow) { m.emissive.setRGB(p.glow[0], p.glow[1], p.glow[2]); m.emissiveIntensity = p.glow[3] * 1.2; }
+        else { m.emissive.copy(fallFx.emissive); m.emissiveIntensity = fallFx.ei; }
+    }
+    if (fallFxMesh) fallFxMesh.show(p, x, y, z, ms);
+}
+// Back to the ball as it was (a restart, a revive, a new level).
+function clearFallFx() {
+    if (!fallFx) return;
+    const m = ballMesh && ballMesh.material;
+    if (m && m.color && fallFx.color) m.color.copy(fallFx.color);
+    if (m && m.emissive && fallFx.emissive) { m.emissive.copy(fallFx.emissive); m.emissiveIntensity = fallFx.ei; }
+    if (ballMesh) ballMesh.scale.set(1, 1, 1);
+    if (fallFxMesh) fallFxMesh.hide();
+    fallFx = null;
 }
 
 // CONTINUE after a fall: offered when an ad can pay, once per attempt, and
@@ -1802,6 +1867,7 @@ async function reviveFromAd() {
     revivedThisAttempt = true;
     attemptOpen = true;          // the same attempt, carried on
     emitRun('revive');
+    clearFallFx();
     ballBody.collisionResponse = true;
     ballBody.position.set(back.x, FLOOR_Y + level.ballRadius + 0.02, back.z);
     ballBody.velocity.setZero();
@@ -2711,6 +2777,17 @@ window.__mazeDebug = {
     // charges armed, what has fired; and firing a tap signature.
     crew: () => (crewRun ? { id: crewRun.id, sig: crewRun.sig ? crewRun.sig.name : null, step: crewRun.step, free: crewRun.free, armed: { ...crewRun.armed }, fired: [...crewRun.fired], sightMs: crewRun.sightMs, sightShown: !!(sightFx && sightFx.group.visible), aura: !!auraFx, ballGrip: ballSpec.grip } : null),
     useSignature: () => useSignature(),
+    // How a run ends (fallFx.js): end it by a cause ('hole' takes the hole
+    // index), hold its effect at `ms` (null lets it run and restart), and
+    // read what is shown.
+    fallForTest: (cause, holeIndex) => {
+        if (phase !== 'running' || !ballBody) return false;
+        const msg = { hole: 'DOWN THE HOLE', flare: 'BURNED', molten: 'BURNED BY A MOLTEN GATE', crush: 'CRUSHED', shock: 'SHOCKED', icicle: 'HIT BY AN ICICLE' }[cause] || 'DOWN THE HOLE';
+        fall(msg, { cause, ...(Number.isInteger(holeIndex) ? { hole: holeIndex } : {}) });
+        return true;
+    },
+    holdFall: (ms) => { fallHeldMs = Number.isFinite(ms) ? ms : null; if (fallFx && ballMesh) drawFallFx(); requestRender(); return !!fallFx; },
+    fallFx: () => (fallFx ? { cause: fallFx.cause, drawn: ballMesh ? { x: ballMesh.position.x, y: ballMesh.position.y, z: ballMesh.position.z, s: ballMesh.scale.x, sy: ballMesh.scale.y } : null, body: { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z }, fx: !!(fallFxMesh && fallFxMesh.group.visible) } : null),
     // This level's fuel cell: where, found before, taken this run, drawn.
     fuel: () => (fuelCell ? { x: fuelCell.spot.x, z: fuelCell.spot.z, found: fuelCell.found, taken: fuelCell.taken, shown: !!(fuelCell.mesh && fuelCell.mesh.group.visible) } : null),
     // The show between levels: which, how far in, and where the DRAWN ball is

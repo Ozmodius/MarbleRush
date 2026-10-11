@@ -150,17 +150,43 @@ function today() {
 }
 
 // A player well into the game: every level rolled, looks owned, the calendar
-// and level-ups already seen (so no card covers the view), Heat Shield uses for
-// the lava runs (flares cannot burn), and the given skin/trail on.
-function saveFor({ skin = 'galaxy', trail = 'rainbow', ballCam = false } = {}) {
-    const cleared = {};
-    for (const l of LEVELS) cleared[l.id] = { bestMs: l.goldMs * 2, coins: 0 };
+// and level-ups already seen (so no card covers the view), the first friends
+// freed (`rescued`: worlds; the rest still caged, so floor 10 shows a cage),
+// fuel, survey and diary partway, and the given marble, skin and trail on.
+// (Knock-outs are switched off by captureNoKnockOut, so no charge is needed.)
+function saveFor({ skin = 'galaxy', trail = 'rainbow', ballCam = false, marble = 'classic', rescued = [1, 2] } = {}) {
+    const cleared = {}, survey = {};
+    for (const l of LEVELS) { cleared[l.id] = { bestMs: l.goldMs * 2, coins: 0 }; survey[l.id] = 74; }
+    const friends = { 1: 'pip', 2: 'flurry', 3: 'cinder', 4: 'bobble', 5: 'rivet' };
     return {
-        v: 1, wallet: 2500, xp: 3000, highestIndex: LEVELS.length, cleared, goldClaimed: [], prizes: ['rubberCoat', 'heatShield'],
-        prizeUses: { heatShield: 99, rubberCoat: 99 }, charges: {}, daily: { streak: 3, last: today() },
+        v: 2, wallet: 2500, xp: 3000, levelPaid: 99, highestIndex: LEVELS.length, cleared, goldClaimed: [], prizes: [], charges: { fireShield: 2, iceSkates: 1 },
+        daily: { streak: 3, last: today(), doubled: '' },
+        marbles: ['classic', 'steel', 'rubber', 'glass', ...rescued.map(w => friends[w])], marble,
+        bond: { classic: 420, glass: 160 }, crew: { classic: 2, glass: 1 },
         skins: ['plain', 'stripe', 'swirl', 'checker', 'eight', 'earth', 'galaxy', 'ember', 'prism'], skin,
-        trails: ['none', 'comet', 'mint', 'flame', 'rainbow', 'gold', 'aurora'], trail, ballCam, explorer: ['compass']
+        trails: ['none', 'comet', 'mint', 'flame', 'rainbow', 'gold', 'aurora'], trail, ballCam, explorer: ['compass'],
+        rescued, fuel: LEVELS.filter(l => /^w[12]_/.test(l.id)).map(l => l.id), survey, diary: ['w1_07', 'w2_04']
     };
+}
+
+// Is (x, z) clear floor for a ball of radius r (with room to spare)?
+function clearAt(lv, x, z, m = 1.3) {
+    const r = lv.ballRadius;
+    if (Math.abs(x) > lv.size.w / 2 - r * m || Math.abs(z) > lv.size.d / 2 - r * m) return false;
+    for (const w of lv.walls) if (Math.abs(x - w.x) < w.w / 2 + r * m && Math.abs(z - w.z) < w.d / 2 + r * m) return false;
+    for (const h of lv.holes) if (Math.hypot(x - h.x, z - h.z) < h.r + r * m) return false;
+    for (const b of lv.bumpers || []) if (Math.hypot(x - b.x, z - b.z) < (b.r || 0.18) + r * m) return false;
+    return true;
+}
+// A clear spot `d` from (x, z) whose line to it is clear too, or null.
+function besideOf(lv, x, z, dists = [0.75, 0.6, 0.9, 0.5, 1.1]) {
+    for (const d of dists) for (let k = 0; k < 16; k++) {
+        const a = k * Math.PI / 8, px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
+        let ok = clearAt(lv, px, pz);
+        for (let t = 0.2; ok && t < 0.6; t += 0.1) ok = clearAt(lv, px + (x - px) * t, pz + (z - pz) * t, 1.0);
+        if (ok) return { x: px, z: pz };
+    }
+    return null;
 }
 
 async function frameTo(dbg, file, type = 'image/jpeg') {
@@ -338,12 +364,13 @@ async function covers(browser, base) {
 }
 
 // --- the landing site (landing/, index.html's LANDING) ----------------------------------
-// The promotional site's pictures: each world at its level 10, a hero, an
-// Explore shot from inside a maze, and phone shots of the menus. JPEGs sized
+// The promotional site's pictures: each world at its level 10, a hero, a
+// friend's cage, Clear Sight on a secret pocket, an Explore shot from inside
+// a maze, and phone shots of home, the Crew and the rewards. JPEGs sized
 // for the web (the site is the first thing a new player downloads).
 const LANDING = path.join(ROOT, 'landing');
-async function landingScene(browser, base, { name, width, height, level, skin, trail, at, cam }) {
-    const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor({ skin, trail }) });
+async function landingScene(browser, base, { name, width, height, level, skin, trail, marble, at, cam }) {
+    const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor({ skin, trail, marble }) });
     let state = null;
     await runLevel(page, dbg, level, at, async (i, s) => { state = s; }, {});
     await dbg('cameraOverride', cam(state.pos, state.vel));
@@ -361,6 +388,63 @@ async function landingExplore(browser, base, { name, width, height, level }) {
     await dbg('advanceFrames', 45, DT);
     await dbg('walkMove', null);
     await dbg('advanceFrames', 20, DT);
+    const url = await dbg('snapshot', 'image/jpeg', 0.82);
+    fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
+    await page.close();
+    console.log('wrote', `landing/${name}.jpg`);
+}
+// Start a level and hold it still on its first running frame.
+async function startStill(page, dbg, id) {
+    await dbg('startLevelForTest', id);
+    await page.evaluate(() => document.getElementById('mazeStartBtn').click());
+    for (let k = 0; k < 40 && (await dbg('phase')) !== 'running'; k++) await page.clock.runFor(50);
+    await dbg('advanceFrames', 2, DT);
+}
+// A camera behind `from`, looking past it at `at`.
+function lookPast(from, at, { back = 1.5, up = 2.3, side = 0.5 } = {}) {
+    const dx = at.x - from.x, dz = at.z - from.z, L = Math.hypot(dx, dz) || 1;
+    const ux = dx / L, uz = dz / L;
+    return { px: from.x - ux * back + uz * side, py: up, pz: from.z - uz * back - ux * side, lx: (from.x + at.x) / 2 + ux * 0.2, ly: 0, lz: (from.z + at.z) / 2 + uz * 0.2 };
+}
+// The rescue: Rolle rolling up to a friend's cage on a floor 10.
+async function landingRescue(browser, base, { name, width, height, level }) {
+    const lv = LEVELS.find(l => l.id === level);
+    const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor({ skin: 'plain', trail: 'comet', rescued: [1, 2] }) });
+    await startStill(page, dbg, level);
+    const cage = await dbg('rescue');
+    if (!cage) throw new Error(`${level}: no cage`);
+    const at = besideOf(lv, cage.x, cage.z, [0.95, 0.8, 1.1, 0.65]);
+    if (!at) throw new Error(`${level}: no clear spot by the cage`);
+    await dbg('placeBall', at.x, at.z);
+    await dbg('advanceFrames', 3, DT);
+    await dbg('cameraOverride', lookPast(at, cage, { back: 2.0, up: 3.2, side: 1.1 }));
+    const url = await dbg('snapshot', 'image/jpeg', 0.82);
+    fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
+    await page.close();
+    console.log('wrote', `landing/${name}.jpg`);
+}
+// The secrets: Glint's Clear Sight showing a false wall, the diary page
+// glowing in the pocket behind it.
+async function landingSecrets(browser, base, { name, width, height, level }) {
+    const lv = LEVELS.find(l => l.id === level);
+    const { page, dbg } = await openGame(browser, base, { width, height, save: { ...saveFor({ skin: 'prism', trail: 'aurora', marble: 'glass' }), diary: [] } });
+    await startStill(page, dbg, level);
+    const pk = await dbg('pocket');
+    if (!pk) throw new Error(`${level}: no pocket`);
+    const w = pk.wall;
+    // Stand on the open side of the false wall, away from the page.
+    const away = { x: w.x + (w.x - pk.x), z: w.z + (w.z - pk.z) };
+    const L = Math.hypot(away.x - w.x, away.z - w.z) || 1;
+    let at = null;
+    for (const d of [0.7, 0.55, 0.9, 0.45]) {
+        const p = { x: w.x + (away.x - w.x) / L * d, z: w.z + (away.z - w.z) / L * d };
+        if (clearAt(lv, p.x, p.z, 1.05)) { at = p; break; }
+    }
+    if (!at) at = besideOf(lv, w.x, w.z) || { x: lv.start.x, z: lv.start.z };
+    await dbg('placeBall', at.x, at.z);
+    await dbg('useSignature');
+    await dbg('advanceFrames', 8, DT);
+    await dbg('cameraOverride', lookPast(at, { x: pk.x, z: pk.z }, { back: 2.0, up: 3.1, side: 0.9 }));
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -389,20 +473,22 @@ async function landing(browser, base) {
     };
     const only = process.argv[3];
     const scenes = [
-        { name: 'hero', width: 1600, height: 900, level: 'w3_10', skin: 'ember', trail: 'flame', at: 3.0, cam: raking(2.4, 4.0, 1.4) },
-        { name: 'world-1', width: 960, height: 640, level: 'w1_10', skin: 'stripe', trail: 'comet', at: 3.4, cam: raking(2.2, 4.0, 1.0) },
-        { name: 'world-2', width: 960, height: 640, level: 'w2_10', skin: 'earth', trail: 'mint', at: 3.4, cam: raking(2.2, 4.0, 1.0) },
-        { name: 'world-3', width: 960, height: 640, level: 'w3_10', skin: 'ember', trail: 'flame', at: 4.2, cam: raking(2.2, 4.0, -1.0) },
-        { name: 'world-4', width: 960, height: 640, level: 'w4_10', skin: 'galaxy', trail: 'rainbow', at: 3.4, cam: raking(2.2, 4.0, 1.0) },
-        { name: 'world-5', width: 960, height: 640, level: 'w5_10', skin: 'checker', trail: 'gold', at: 3.4, cam: raking(2.2, 4.0, 1.0) }
+        { name: 'hero', width: 1600, height: 900, level: 'w3_10', skin: 'plain', trail: 'flame', at: 3.0, cam: raking(2.4, 4.0, 1.4) },
+        { name: 'world-1', width: 960, height: 640, level: 'w1_10', skin: 'plain', trail: 'comet', at: 3.4, cam: raking(2.2, 4.0, 1.0) },
+        { name: 'world-2', width: 960, height: 640, level: 'w2_10', skin: 'plain', trail: 'mint', marble: 'pip', at: 3.4, cam: raking(2.2, 4.0, 1.0) },
+        { name: 'world-3', width: 960, height: 640, level: 'w3_10', skin: 'plain', trail: 'flame', marble: 'flurry', at: 4.2, cam: raking(2.2, 4.0, -1.0) },
+        { name: 'world-4', width: 960, height: 640, level: 'w4_10', skin: 'plain', trail: 'rainbow', marble: 'steel', at: 3.4, cam: raking(2.2, 4.0, 1.0) },
+        { name: 'world-5', width: 960, height: 640, level: 'w5_10', skin: 'plain', trail: 'gold', marble: 'glass', at: 3.4, cam: raking(2.2, 4.0, 1.0) }
     ];
     for (const j of scenes) if (!only || j.name === only) await landingScene(browser, base, j);
+    if (!only || only === 'rescue') await landingRescue(browser, base, { name: 'rescue', width: 960, height: 640, level: 'w3_10' });
+    if (!only || only === 'secrets') await landingSecrets(browser, base, { name: 'secrets', width: 960, height: 640, level: 'w1_07' });
     if (!only || only === 'explore') await landingExplore(browser, base, { name: 'explore', width: 960, height: 640, level: 'w2_04' });
     const phones = [
-        { name: 'phone-home', setup: async () => {} },
-        { name: 'phone-gear', setup: async (p) => { await p.tap('#tab_gear'); await p.waitForSelector('#profileView', { state: 'visible' }); } },
-        { name: 'phone-rewards', setup: async (p) => { await p.tap('#homeRewardsBtn'); await p.tap('#rewardsTab_achievements'); } },
-        { name: 'phone-worlds', setup: async (p) => { await p.tap('#tab_worlds'); await p.waitForSelector('#mazeSelect', { state: 'visible' }); } }
+        // Home on Sawturn, the first planet (a green world reads best).
+        { name: 'phone-home', setup: async (p) => { for (let k = 0; k < 4; k++) { await p.tap('#homePrevWorld'); await p.waitForTimeout(700); } } },
+        { name: 'phone-crew', setup: async (p) => { await p.tap('#tab_crew'); await p.waitForSelector('#crewView', { state: 'visible' }); } },
+        { name: 'phone-rewards', setup: async (p) => { await p.tap('#homeRewardsBtn'); await p.tap('#rewardsTab_achievements'); } }
     ];
     for (const j of phones) if (!only || j.name === only) await landingPhone(browser, base, j);
 }
@@ -454,10 +540,9 @@ async function video(browser, base, { name, width, height, cinematic }) {
             continue;
         }
         if (piece === 'end') {
-            // The wordmark on the solar system (no tagline: CrazyGames wants
+            // The wordmark on the home planet (no tagline: CrazyGames wants
             // no promotional text in the video).
             const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor() });
-            await page.evaluate(() => document.getElementById('tab_worlds').click());
             await page.clock.runFor(300);
             const bg = path.join(TMP, `${name}-end.png`);
             await frameTo(dbg, bg, 'image/png');
