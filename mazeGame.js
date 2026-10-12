@@ -44,7 +44,7 @@ const marbleName = id => (MARBLES[id] ? MARBLES[id].name.toUpperCase() : String(
 import { worldName, LAUNCH_WORLDS } from './worlds.js';
 import { buildPlanet } from './planet3d.js';
 import { buildSolarSystem } from './solarSystem3d.js';
-import { isUnlocked, nearMiss, walkGoldMs } from './progressStore.js';
+import { isUnlocked, nearMiss, walkGoldMs, tierLimits } from './progressStore.js';
 import { createWalkHud } from './walkHud.js';
 import { openComfort, closeComfort } from './comfortUi.js';
 import { createWalkInput, wantedVelocity, walkImpulse, walkHandling, handlingAccel, clampPitch, lookPoint, openingYaw, thirdPersonPose, EYE_ABOVE_CENTRE } from './walkMode.js';
@@ -310,6 +310,11 @@ let offerAt = 0;                 // when the CONTINUE offer went up
 let offerAdPending = false;      // the offer's countdown waits while its ad runs
 let offerHeld = false;           // tests only: hold the countdown (it runs on the wall clock)
 let freeShieldTaken = false;     // one free shield per level visit
+// FUEL BEACON (a rewarded ad, the user's call 2026-10-11: "ad opportunities
+// where sensible"): exploring a maze whose cell is still hidden, the ready
+// screen offers a beam of light over it for the rest of the visit. A hint,
+// never the cell itself: the player still walks there and out.
+let fuelBeaconFx = null, fuelBeaconOn = false;
 let lastClear = null;            // the clear the x2 COINS button would double
 let rewardedThisBreak = false;   // a rewarded ad on this panel stands in for the break ad
 // TRY A MARBLE (rewarded, from the Gear page): an unowned marble for one level
@@ -834,7 +839,14 @@ function buildLevelMeshes(lv, theme) {
     }
     // The crew: Glint's Clear Sight (only for Glint), and the aura of a
     // character at the end of their track.
-    sightFx = null; auraFx = null;
+    sightFx = null; auraFx = null; fuelBeaconFx = null;
+    // The fuel beacon's light, ready for a rewarded ad to switch on.
+    if (walkMode && fuelCell && !fuelCell.found) {
+        const tracked = [];
+        fuelBeaconFx = buildSight({ walls: [], beacons: [{ x: fuelCell.spot.x, z: fuelCell.spot.z, gone: () => !fuelCell || fuelCell.taken }] }, WALL_HEIGHT, tracked);
+        tracked.forEach(track);
+        group.add(fuelBeaconFx.group);
+    }
     {
         const id = ballMarbleId, sig = SIGNATURES[id];
         // Clear Sight is an Explore power: the hidden things are there only.
@@ -1117,19 +1129,28 @@ function step() {
     const now = performance.now();
     const elapsedMs = lastStepTime ? (now - lastStepTime) : (1000 / 60);
     lastStepTime = now;
-    // Lava pulses on the page clock, not the run clock: it is scenery, and it
-    // should keep breathing on the ready screen and after a fall.
-    tickSurfaces(now / 1000);
-    if (props) props.tick(now / 1000);
-    if (rescue && rescue.cage) rescue.cage.tick(now / 1000);
-    if (fuelCell && fuelCell.mesh) fuelCell.mesh.tick(now / 1000);
-    if (pocket && pocket.mesh) pocket.mesh.tick(now / 1000);
-    if (sightFx) sightFx.set(!!(crewRun && crewRun.sightMs > 0 && phase === 'running'), now / 1000);
-    if (auraFx && ballMesh) auraFx.place(ballMesh.position.x, ballMesh.position.z, now / 1000);
-    if (ship) ship.tick(now / 1000);
-    if (levelSky) levelSky.tick(now / 1000);
-    tickGoal(now);
+    tickScenery(now);
     advance(elapsedMs);
+}
+// What moves on the page clock, not the run clock -- it is scenery, and it
+// keeps breathing on the ready screen and after a fall: lava pulses, coins
+// spin (a taken one is hidden here), the cage, the cell, the page, the ship,
+// the sky. The marketing captures step the game frame by frame on a frozen
+// clock and call this themselves (__mazeDebug.tickScenery), or coins taken
+// on camera would never vanish.
+function tickScenery(nowMs) {
+    const t = nowMs / 1000;
+    tickSurfaces(t);
+    if (props) props.tick(t);
+    if (rescue && rescue.cage) rescue.cage.tick(t);
+    if (fuelCell && fuelCell.mesh) fuelCell.mesh.tick(t);
+    if (pocket && pocket.mesh) pocket.mesh.tick(t);
+    if (sightFx) sightFx.set(!!(crewRun && crewRun.sightMs > 0 && phase === 'running'), t);
+    if (fuelBeaconFx) fuelBeaconFx.set(!!(fuelBeaconOn && fuelCell && !fuelCell.taken && !fuelCell.found), t);
+    if (auraFx && ballMesh) auraFx.place(ballMesh.position.x, ballMesh.position.z, t);
+    if (ship) ship.tick(t);
+    if (levelSky) levelSky.tick(t);
+    tickGoal(nowMs);
 }
 
 // One frame of maze, given how long it represents.
@@ -1217,6 +1238,7 @@ function advance(elapsedMs) {
     drawShow(elapsedMs);
     if (fallFx && (phase === 'falling' || phase === 'offer')) drawFallFx();
     if (survey && phase === 'running') { survey.mark(ballBody.position.x, ballBody.position.z); if (survey.pct !== surveyShownPct) renderSurveyChip(); }
+    if (phase === 'running') renderMedalChip();
     if (trail) trail.update(ballBody.position, elapsedMs);
     if (rescue && rescue.cage) rescue.cage.track(ballMesh.position.x, ballMesh.position.z, phase === 'running' || phase === 'won');
     if (walkMode) {
@@ -1587,6 +1609,44 @@ function takeFuel() {
     if (audio) audio.event('pickup', { x: fuelCell.spot.x, z: fuelCell.spot.z });
     renderFuelChip();
 }
+// THE MEDAL CLOCK (the user's call, 2026-10-11: "the times for medals
+// should be shown on the HUD"): the run's time, ringed in the medal still in
+// reach, with that medal's time beside it -- gold until its time passes, then
+// silver, then bronze, then grey. The par is the level's own (an explored
+// maze's walk par). The ready screen's MISSION card lists all three.
+let medalShown = '';
+function medalPar() { return level ? (walkMode ? walkGoldMs(level) : level.goldMs) : 0; }
+function renderMedalChip() {
+    const e = el('mazeMedal');
+    if (!e) return;
+    // A phone shows the clock in the level name's row once the run is on
+    // (style.css): the name is on the ready screen, the clock in the run.
+    const hud = el('mazeHud');
+    if (hud) hud.classList.toggle('is-running', phase === 'running');
+    e.hidden = !level || !Number.isFinite(level.goldMs);
+    if (e.hidden) return;
+    const ms = phase === 'running' ? Math.max(0, performance.now() - runStartedAt) : phase === 'ready' ? 0 : null;
+    if (ms === null) return;                      // the clock stops on the time the run took
+    const lim = tierLimits({ goldMs: medalPar() });
+    const tier = ms <= lim.gold ? 'gold' : ms <= lim.silver ? 'silver' : ms <= lim.bronze ? 'bronze' : 'none';
+    const key = tier + Math.floor(ms / 100);
+    if (key === medalShown) return;
+    medalShown = key;
+    e.className = 'maze-medal is-' + tier;
+    const t = el('mazeMedalTime'), par = el('mazeMedalPar');
+    if (t) t.textContent = (ms / 1000).toFixed(1);
+    if (par) par.textContent = tier === 'none' ? '' : '/' + (lim[tier] / 1000).toFixed(1);
+    e.title = tier === 'none' ? 'Past the bronze time' : `${tier[0].toUpperCase() + tier.slice(1)} under ${(lim[tier] / 1000).toFixed(1)}s`;
+}
+// The three medal times and the best, for the MISSION card.
+function medalLine() {
+    if (!level || !Number.isFinite(level.goldMs)) return null;
+    const lim = tierLimits({ goldMs: medalPar() });
+    const prog = progressNow();
+    const rec = walkMode ? (prog.walks || {})[level.id] : (prog.cleared || {})[level.id];
+    return { ...lim, best: rec && Number.isFinite(rec.bestMs) ? rec.bestMs : null };
+}
+
 // THE MISSION (mission.js): the level's objectives on its ready screen, in
 // the order they are done; gone once the run starts.
 function renderMission(on) {
@@ -1607,6 +1667,22 @@ function renderMission(on) {
         tx.textContent = r.text;
         if (r.note) { const n = document.createElement('small'); n.textContent = r.note; tx.appendChild(n); }
         li.append(ic, tx);
+        list.appendChild(li);
+    }
+    // The medal times, under the jobs.
+    const md = medalLine();
+    if (md) {
+        const li = document.createElement('li');
+        li.className = 'mission-medals';
+        const s = x => (x / 1000).toFixed(1) + 's';
+        for (const t of ['gold', 'silver', 'bronze']) {
+            const m = document.createElement('span');
+            m.className = 'mission-medal is-' + t;
+            m.textContent = s(md[t]);
+            m.title = t[0].toUpperCase() + t.slice(1) + ' under ' + s(md[t]);
+            li.appendChild(m);
+        }
+        if (md.best !== null) { const b = document.createElement('small'); b.textContent = 'BEST ' + s(md.best); li.appendChild(b); }
         list.appendChild(li);
     }
 }
@@ -1717,6 +1793,7 @@ function checkOutcomes() {
         // (A frame counts at most 100 ms: one stall must not eat the sight.)
         if (crewRun && crewRun.sightMs > 0) crewRun.sightMs = Math.max(0, crewRun.sightMs - Math.min(100, lastFrameMs));
         if (sightFx) sightFx.set(!!(crewRun && crewRun.sightMs > 0), performance.now() / 1000);
+        if (fuelBeaconFx) fuelBeaconFx.set(!!(fuelBeaconOn && fuelCell && !fuelCell.taken && !fuelCell.found), performance.now() / 1000);
         for (const e of events) {
             if (e.type === 'coin') { props.takeCoin(e.index); if (audio) audio.event('coin'); }
             else { props.takePickup(e.index); setStatus(e.kind.toUpperCase()); if (audio) audio.event('pickup'); }
@@ -1934,6 +2011,20 @@ function offerFreeShield() {
     const owned = store ? (store.get().charges.shield || 0) : 0;
     showEl('mazeAdShieldBtn', phase === 'ready' && adsAvailable() && !freeShieldTaken && !owned && !beginnerShieldOn());
 }
+function offerFuelBeacon() {
+    showEl('mazeAdBeaconBtn', phase === 'ready' && walkMode && adsAvailable() && !!fuelCell && !fuelCell.found && !fuelBeaconOn);
+}
+async function fuelBeaconFromAd() {
+    if (phase !== 'ready' || fuelBeaconOn || !fuelCell || fuelCell.found) return;
+    const ok = await showRewardedAd();
+    if (!ok) { setStatus(adFailureMessage()); return; }
+    fuelBeaconOn = true;
+    rewardedThisBreak = true;
+    if (store && store.noteAd) store.noteAd('fuel-beacon');
+    offerFuelBeacon();
+    setStatus('FUEL BEACON ON  —  FOLLOW THE LIGHT');
+    requestRender();
+}
 async function freeShieldFromAd() {
     if (phase !== 'ready' || freeShieldTaken) return;
     const ok = await showRewardedAd();
@@ -2112,7 +2203,7 @@ function restart() {
     revivedThisAttempt = false;
     closeFallOffer();
     showEl('mazeDoubleBtn', false);
-    showEl('mazeAdShieldBtn', false);
+    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false);
     placeBallAtStart();
     if (walkMode) { walkYaw = walkStartYaw; walkPitch = -0.08; if (walkHud) walkHud.show(true); }
     smoothed = null;
@@ -2700,12 +2791,16 @@ function startLevel(levelId, opts = {}) {
     setStatus(trialMarble ? 'TRYING ' + marbleName(trialMarble.id) + '  —  THIS LEVEL' : rescue ? readyLine(rescue.world) : storyReadyLine(lv, prog) || readyHint());
     renderFuelChip();
     renderMission(true);
+    medalShown = '';
+    renderMedalChip();
     survey = null;
     renderSurveyChip();
     freeShieldTaken = false;
+    fuelBeaconOn = false;
     rewardedThisBreak = false;   // that break is over; this level's are its own
     closeFallOffer();
     offerFreeShield();
+    offerFuelBeacon();
     if (rescue && !opts.noStory) openStory(rescue.world);
     requestRender();
 }
@@ -2793,6 +2888,7 @@ window.__mazeDebug = {
     homeWorld: () => homeWorld(),
     homeLevel: () => { const h = homeLevel(); return h && { world: h.world, id: h.level.id, locked: h.locked, done: h.done, picked: !!h.picked }; },
     homeShip: () => !!(planet && planet.ship && planet.ship.group.visible),
+    levelId: () => (level ? level.id : null),
     levelSky: () => (levelSky && scene && levelSky.group.parent === scene ? { baked: levelSky.baked } : null),
     planetX: () => (planet && planet.world ? planet.world.position.x : null),
     planetSlideFrom: () => planetSlideFrom,
@@ -2824,7 +2920,10 @@ window.__mazeDebug = {
     holdFall: (ms) => { fallHeldMs = Number.isFinite(ms) ? ms : null; if (fallFx && ballMesh) drawFallFx(); requestRender(); return !!fallFx; },
     fallFx: () => (fallFx ? { cause: fallFx.cause, drawn: ballMesh ? { x: ballMesh.position.x, y: ballMesh.position.y, z: ballMesh.position.z, s: ballMesh.scale.x, sy: ballMesh.scale.y } : null, body: { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z }, fx: !!(fallFxMesh && fallFxMesh.group.visible) } : null),
     // This level's fuel cell: where, found before, taken this run, drawn.
-    mission: () => { const b = el('mazeMission'); return b && !b.hidden ? [...b.querySelectorAll('li')].map(li => ({ kind: li.className.replace(/^mission-| is-done$/g, ''), text: li.querySelector('.mission-text').firstChild.textContent, done: li.classList.contains('is-done') })) : null; },
+    fuelBeacon: () => ({ offered: !!(el('mazeAdBeaconBtn') && el('mazeAdBeaconBtn').style.display !== 'none'), on: fuelBeaconOn, shown: !!(fuelBeaconFx && fuelBeaconFx.group.visible) }),
+    tickScenery: (ms) => { if (active && world) tickScenery(ms); return true; },
+    medalClock: () => { const e = el('mazeMedal'); return e && !e.hidden ? { tier: e.className.replace(/.*is-/, ''), time: el('mazeMedalTime').textContent, par: el('mazeMedalPar').textContent } : null; },
+    mission: () => { const b = el('mazeMission'); return b && !b.hidden ? [...b.querySelectorAll('li:not(.mission-medals)')].map(li => ({ kind: li.className.replace(/^mission-| is-done$/g, ''), text: li.querySelector('.mission-text').firstChild.textContent, done: li.classList.contains('is-done') })) : null; },
     fuel: () => (fuelCell ? { x: fuelCell.spot.x, z: fuelCell.spot.z, found: fuelCell.found, taken: fuelCell.taken, shown: !!(fuelCell.mesh && fuelCell.mesh.group.visible) } : null),
     // The show between levels: which, how far in, and where the DRAWN ball is
     // (the body never moves for it).
@@ -3099,7 +3198,7 @@ async function startRun() {
         // Walking needs no motion sensor: joystick and look, or keys.
         clearManual();
         showEl('mazeStartBtn', false);
-        showEl('mazeAdShieldBtn', false);
+        showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false);
         restart();
         walkHintShown = true;
         setStatus(WALK_HINT);
@@ -3118,7 +3217,7 @@ async function startRun() {
     }
     clearManual();
     showEl('mazeStartBtn', false);
-    showEl('mazeAdShieldBtn', false);
+    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false);
     recenterPending = true;      // first reading becomes neutral
     neutral = captureNeutral(latestReading.beta, latestReading.gamma);
     restart();
@@ -3251,6 +3350,7 @@ export function initMazeControls() {
     bindTap('mazeDoubleBtn', () => { doubleClearFromAd(); });
     bindTap('mazeGiftBtn', () => { claimGift(); });
     bindTap('mazeAdShieldBtn', () => { freeShieldFromAd(); });
+    bindTap('mazeAdBeaconBtn', () => { fuelBeaconFromAd(); });
     bindTap('mazeExitBtn', () => { leave(); });
     bindTap('mazeWinExitBtn', () => { leave(); });
     bindTap('mazeLevelsBtn', () => { afterBreak(() => showLevelSelect()); });

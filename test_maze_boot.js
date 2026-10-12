@@ -100,6 +100,8 @@ const failures = [];
         // only), clear of the name, the ready line and START.
         const mission = await dbg('mission');
         check(mission && mission.map(r => r.kind).join(',') === 'exit,fuel' && mission[0].text === 'Reach the exit' && /explore it/i.test(mission[1].text), `level 1's ready screen lists the exit, then exploring it for the fuel cell: ${JSON.stringify(mission)}`);
+        const medalRow = await page.$$eval('#mazeMission .mission-medal', els => els.map(e => e.textContent));
+        check(medalRow.join() === [1, 1.5, 2.25].map(k => (levels[0].goldMs * k / 1000).toFixed(1) + 's').join(), `the card lists the gold, silver and bronze times: ${medalRow}`);
         const mBox = await page.evaluate(() => { const r = id => document.getElementById(id).getBoundingClientRect(); return { m: r('mazeMission'), name: r('mazeLevelName'), status: r('mazeStatus'), start: r('mazeStartBtn') }; });
         check(mBox.m.top >= mBox.name.bottom - 1 && mBox.m.bottom <= mBox.status.top + 1 && mBox.m.bottom <= mBox.start.top, `the mission card sits under the name, above the ready line and START: ${JSON.stringify(mBox)}`);
         await page.tap('#mazeExitBtn');
@@ -214,6 +216,13 @@ const failures = [];
         await page.tap('#mazeStartBtn');
         await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         check(await dbg('mission') === null && await page.isHidden('#mazeMission'), 'the mission card goes once the run starts');
+        // The medal clock (HUD): the run's time against the medal in reach.
+        await dbg('advanceFrames', 2);
+        const mc = await dbg('medalClock');
+        const runId = await dbg('levelId');
+        const lvRun = levels.find(l => l.id === runId);
+        check(mc && mc.tier === 'gold' && Number(mc.time) < 5 && (!lvRun || mc.par === '/' + (lvRun.goldMs / 1000).toFixed(1)) && await page.isVisible('#mazeMedal'), `the HUD clock runs against the gold time: ${JSON.stringify(mc)}`);
+        check(!(await page.textContent('#homeGoal')).trim(), 'nothing over PLAY: the medal times live in the level');
 
         // Steering: keys tilt the board the way they say (screen down is +z,
         // screen right is +x).
@@ -1520,6 +1529,7 @@ const failures = [];
         await ad.tap('#tab_crew');
         await ad.waitForSelector('#crewView', { state: 'visible' });
         check(await ad.locator('.crew-card[data-crew="classic"] .shop-free').count() === 0, 'no free crew step before bond allows one');
+        check((await adLog()).includes('banner:crewBanner'), 'the crew page asks for a banner');
         await ad.tap('#tab_gear');
         check((await adLog()).includes('banner:profileBanner'), 'the gear page asks for a banner');
         await ad.tap('#tab_store');
@@ -1597,6 +1607,20 @@ const failures = [];
         await ad.tap('#mazeExitBtn');
         await homeUp(ad);
         check((await adLog()).filter(x => x === 'ad:midgame').length === mid0 + 1, 'leaving a level shows a break ad');
+        // FUEL BEACON: exploring a maze whose fuel cell is still hidden, the
+        // ready screen offers a beam of light over it for an ad.
+        check(await adbg('walkLevel', levels[0].id), 'a cleared level can be explored');
+        await ad.waitForFunction(() => window.__mazeDebug.phase() === 'ready');
+        check((await adbg('fuelBeacon')).offered && await ad.isVisible('#mazeAdBeaconBtn'), 'exploring, the ready screen offers a fuel beacon for an ad');
+        const rw0 = (await adLog()).filter(x => x === 'ad:rewarded').length;
+        await ad.tap('#mazeAdBeaconBtn');
+        await ad.waitForFunction(() => window.__mazeDebug.fuelBeacon().on, null, { timeout: 5000 }).catch(() => {});
+        await adbg('advanceFrames', 1);
+        const fb = await adbg('fuelBeacon');
+        check(fb.on && fb.shown && !fb.offered && (await adLog()).filter(x => x === 'ad:rewarded').length === rw0 + 1, `the ad lights a beacon over the cell, offered once: ${JSON.stringify(fb)}`);
+        await ad.tap('#mazeExitBtn');
+        await homeUp(ad);
+        check((await adLog()).filter(x => x === 'ad:midgame').length === mid0 + 1, 'backing out of an explore with no run shows no break ad');
 
         // TRY A MARBLE: CREW offers TRY on each marble not owned; the ad starts
         // the next level with it, for that level only, and grants nothing.

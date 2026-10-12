@@ -136,6 +136,14 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   ads only on a tap the player chose. Leaving a level is a break only if a
   run was played on that visit (`ranThisVisit`). `platform.js`'s `showMidgameAd` /
   `showRewardedAd` already resolve false on the web and on any SDK failure.
+  The ad map (reviewed 2026-10-11 for CrazyGames): BREAK ads on moving on
+  from CLEARED and on leaving a level after a run; REWARDED for CONTINUE
+  after a fall, FREE SHIELD and -- exploring a maze whose cell is still
+  hidden -- FUEL BEACON (a beam over the cell for that visit, a hint only)
+  on a ready screen, x2 COINS on CLEARED, the daily double, free coins
+  (home, store), a free crew step and TRY a marble; BANNERS on Store, Crew
+  and Gear. Never sell or rent progress: no ad ever grants a fuel cell, a
+  diary page or a friend.
 - **The CrazyGames bundle is flat** (no folders): CrazyGames' drag-and-drop
   upload can drop subfolders. Ball Smack's `scripts/buildCrazyGames.js` is the
   model when the build script is written.
@@ -249,6 +257,13 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   on a wide screen, clear of the ready line and START, gone once the run
   starts. The daily maze is a race and gets none. A new main objective
   belongs in `missionFor` (`test_mission.js`).
+- **Medal times are in the level, not over PLAY** (the user's call,
+  2026-10-11): home's line over PLAY is gone (it still says what opens a
+  locked planet). The MISSION card ends on the gold, silver and bronze times
+  (and the best), and the HUD's medal clock runs the time against the medal
+  still in reach (gold, then silver, then bronze, then grey), an explored
+  maze against its walk par. On a phone the clock takes the level name's row
+  once the run starts (the top bar has no room).
 - **A run's end is shown, never a vanishing** (`fallFx.js`, the user's
   call, 2026-10-11): rolling, the body is held where it went and the DRAWN
   ball tips over a hole's rim and sinks shrinking into the dark, chars under

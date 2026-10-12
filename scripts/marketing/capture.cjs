@@ -56,14 +56,90 @@ function serve() {
 // A grid over the board; a cell is free if a ball (with margin) fits there,
 // clear of walls, holes and posts. Breadth-first from start to goal, then
 // pulled tight to straight runs between corners.
-function planRoute(lv) {
-    // Generous margins first; tighter levels get tighter ones.
+function planRoute(lv) { return planLeg(lv, lv.start, lv.goal); }
+// One leg, from a point to a point: generous margins first; tighter places
+// get tighter ones.
+function planLeg(lv, from, to) {
     for (const [wm, hm, pm, grid] of [[1.2, 0.9, 1.15, 0.06], [1.08, 0.6, 1.02, 0.06], [1.02, 0.35, 1.0, 0.04], [1.0, 0.2, 1.0, 0.025]]) {
-        try { return planRouteWith(lv, wm, hm, pm, grid); } catch (_) { /* try tighter */ }
+        try { return planRouteWith(lv, wm, hm, pm, grid, from, to); } catch (_) { /* try tighter */ }
     }
     throw new Error(`no route found for ${lv.id}`);
 }
-function planRouteWith(lv, wallM, holeM, postM, G) {
+const legLength = pts => pts.reduce((a, p, i) => i ? a + Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) : 0, 0);
+// The way a player plays it: from the start to the nearest coin by the
+// path (not as the crow flies), then the nearest from there, `coins` of
+// them, then on to the exit -- so the marble picks coins up on camera.
+function planPlayRoute(lv, coins = 6) {
+    let at = { x: lv.start.x, z: lv.start.z };
+    const left = (lv.coins || []).map(c => ({ x: c.x, z: c.z }));
+    const route = [at];
+    for (let n = 0; n < coins && left.length; n++) {
+        let best = null;
+        for (let i = 0; i < left.length; i++) {
+            let leg = null;
+            try { leg = planLeg(lv, at, left[i]); } catch (_) { continue; }
+            const len = legLength(leg);
+            if (!best || len < best.len) best = { i, leg, len };
+        }
+        if (!best) break;
+        route.push(...best.leg.slice(1));
+        at = left[best.i];
+        left.splice(best.i, 1);
+    }
+    route.push(...planLeg(lv, at, lv.goal).slice(1));
+    return route;
+}
+// A clip's worth of play: the stretch of the level where a few seconds of
+// rolling picks up the most coins. Each coin is tried as the first; from it
+// the nearest-by-path coins follow; the run joins `lead` units before that
+// first coin (on its way from the start) so the marble is already rolling.
+// -> { from, route } with `route` from `from` through the coins to the exit.
+function planClip(lv, { window: win = [1.2, 9], lead = 2.0 } = {}) {
+    const coins = (lv.coins || []).map(c => ({ x: c.x, z: c.z }));
+    let best = null;
+    for (let k = 0; k < coins.length; k++) {
+        let toFirst;
+        try { toFirst = planLeg(lv, lv.start, coins[k]); } catch (_) { continue; }
+        // `lead` back along the way in.
+        const pts = toFirst.slice().reverse();
+        // (Walked back along the path's own corners, so the way in never
+        // cuts through a wall.)
+        let back = lead, from = pts[0], cut = 0;
+        for (let i = 1; i < pts.length; i++) {
+            const d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
+            cut = i;
+            if (d >= back) { const t = back / d; from = { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * t, z: pts[i - 1].z + (pts[i].z - pts[i - 1].z) * t }; back = 0; break; }
+            back -= d; from = pts[i];
+        }
+        const route = [from, ...pts.slice(0, cut).reverse()];
+        const stops = [{ ...coins[k], at: route.length - 1 }];
+        // `got`: the coins whose distance along the way falls in the clip's
+        // window (the skip, then four seconds at about 2 u/s).
+        let at = coins[k], len = lead, got = lead >= win[0] && lead <= win[1] ? 1 : 0;
+        const left = coins.filter((_, i) => i !== k);
+        while (left.length) {
+            let nb = null;
+            for (let i = 0; i < left.length; i++) {
+                let leg = null;
+                try { leg = planLeg(lv, at, left[i]); } catch (_) { continue; }
+                const l2 = legLength(leg);
+                if (!nb || l2 < nb.len) nb = { i, leg, len: l2 };
+            }
+            if (!nb) break;
+            route.push(...nb.leg.slice(1));
+            len += nb.len;
+            at = left[nb.i];
+            stops.push({ ...at, at: route.length - 1 });
+            left.splice(nb.i, 1);
+            if (len >= win[0] && len <= win[1]) got++;
+            if (len > win[1] * 1.5) break;
+        }
+        try { route.push(...planLeg(lv, at, lv.goal).slice(1)); } catch (_) { /* the clip ends long before */ }
+        if (!best || got > best.got) best = { got, from, route, stops };
+    }
+    return best;
+}
+function planRouteWith(lv, wallM, holeM, postM, G, from = lv.start, to = lv.goal) {
     const r = lv.ballRadius;
     const W = lv.size.w, D = lv.size.d;
     const nx = Math.ceil(W / G), nz = Math.ceil(D / G);
@@ -80,7 +156,7 @@ function planRouteWith(lv, wallM, holeM, postM, G) {
     const cj = z => Math.max(0, Math.min(nz - 1, Math.floor((z + D / 2) / G)));
     const ok = new Uint8Array(nx * nz);
     for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) ok[i + j * nx] = free(cx(i), cz(j)) ? 1 : 0;
-    const s = ci(lv.start.x) + cj(lv.start.z) * nx, g = ci(lv.goal.x) + cj(lv.goal.z) * nx;
+    const s = ci(from.x) + cj(from.z) * nx, g = ci(to.x) + cj(to.z) * nx;
     ok[s] = 1; ok[g] = 1;
     const prev = new Int32Array(nx * nz).fill(-1);
     prev[s] = s;
@@ -101,7 +177,7 @@ function planRouteWith(lv, wallM, holeM, postM, G) {
     for (let c = g; c !== s; c = prev[c]) cells.push(c);
     cells.push(s); cells.reverse();
     const pts = cells.map(c => ({ x: cx(c % nx), z: cz((c / nx) | 0) }));
-    pts[0] = { x: lv.start.x, z: lv.start.z }; pts[pts.length - 1] = { x: lv.goal.x, z: lv.goal.z };
+    pts[0] = { x: from.x, z: from.z }; pts[pts.length - 1] = { x: to.x, z: to.z };
     // Pull tight: keep a point only when the straight line past it would leave free floor.
     const clear = (a, b) => {
         const n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / (G / 2));
@@ -189,7 +265,13 @@ function besideOf(lv, x, z, dists = [0.75, 0.6, 0.9, 0.5, 1.1]) {
     return null;
 }
 
+// The capture's own clock (ms): the frozen page never runs its frame loop,
+// so each frame steps the scenery (coins spin, a taken coin vanishes, lava
+// pulses) by this before it is drawn.
+let sceneryMs = 0;
 async function frameTo(dbg, file, type = 'image/jpeg') {
+    sceneryMs += DT;
+    await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', type, 0.93);
     fs.writeFileSync(file, Buffer.from(url.split(',')[1], 'base64'));
 }
@@ -198,7 +280,7 @@ async function frameTo(dbg, file, type = 'image/jpeg') {
 // Each frame: aim for the next waypoint at `speed`, tilt toward the velocity
 // error (the real tilt path, so the board leans), and blend the ball's velocity
 // a little toward the aim so the line holds through ice, fans and kicks.
-function makePilot(route, speed = 1.7) {
+function makePilot(route, speed = 1.7, stops = []) {
     // Pure pursuit: aim at a point LOOKAHEAD along the route past the ball's
     // place on it, so corners are taken as smooth curves, not snapped to.
     // Short enough that the aim point is never round a corner behind a wall
@@ -208,7 +290,10 @@ function makePilot(route, speed = 1.7) {
     let seg = 0, slow = 0, recover = 0;
     const along = (p) => {
         let best = { d: Infinity, i: seg, t: 0 };
-        for (let i = seg; i < Math.min(route.length - 1, seg + 4); i++) {
+        // Never past the next coin still to take: a way that doubles back
+        // out of a dead end must not be skipped ahead along.
+        const cap = stops.length && Number.isInteger(stops[0].at) ? stops[0].at : route.length - 1;
+        for (let i = seg; i < Math.min(route.length - 1, seg + 4, Math.max(seg + 1, cap)); i++) {
             const a = route[i], b = route[i + 1];
             const ax = b.x - a.x, az = b.z - a.z, L2 = ax * ax + az * az || 1;
             const t = Math.max(0, Math.min(1, ((p.x - a.x) * ax + (p.z - a.z) * az) / L2));
@@ -235,7 +320,11 @@ function makePilot(route, speed = 1.7) {
         slow = sp0 < 0.3 ? slow + 1 : 0;
         if (slow > 8) { recover = 20; slow = 0; }
         if (recover > 0) recover--;
-        const t = ahead(pr.i, pr.t, recover > 0 ? 0.12 : LOOKAHEAD);
+        let t = ahead(pr.i, pr.t, recover > 0 ? 0.12 : LOOKAHEAD);
+        // A coin on the way is gone over, not cut past: within reach of the
+        // next one, aim straight at it until the marble is on it.
+        while (stops.length && Math.hypot(stops[0].x - pos.x, stops[0].z - pos.z) < 0.12) stops.shift();
+        if (stops.length && Math.hypot(stops[0].x - pos.x, stops[0].z - pos.z) < 0.9) t = stops[0];
         const goal = route[route.length - 1];
         const toGoal = Math.hypot(goal.x - pos.x, goal.z - pos.z);
         const dx = t.x - pos.x, dz = t.z - pos.z, d = Math.hypot(dx, dz) || 1;
@@ -250,14 +339,18 @@ function makePilot(route, speed = 1.7) {
 
 // Run a level for `seconds` (or until it is won), calling shoot(i, state) per
 // frame. Returns how many frames were written.
-async function runLevel(page, dbg, id, seconds, shoot, { blend = 0.25 } = {}) {
+async function runLevel(page, dbg, id, seconds, shoot, { blend = 0.25, coins = 6, clip = false } = {}) {
     const lv = LEVELS.find(l => l.id === id);
-    const route = planRoute(lv);
+    // Coins on the way, as a player takes them (coins: 0 goes straight out);
+    // a clip joins the run where a few seconds pick up the most coins.
+    const plan = clip ? planClip(lv) : null;
+    const route = plan ? plan.route : coins ? planPlayRoute(lv, coins) : planRoute(lv);
     await dbg('startLevelForTest', id);
     await page.evaluate(() => document.getElementById('mazeStartBtn').click());
     for (let k = 0; k < 40 && (await dbg('phase')) !== 'running'; k++) await page.clock.runFor(50);
+    if (plan) await dbg('placeBall', plan.from.x, plan.from.z);
     await dbg('simulate', 0, 0, 2, DT);           // the first reading is the neutral
-    const pilot = makePilot(route);
+    const pilot = makePilot(route, clip ? 2.3 : 1.7, plan ? plan.stops.slice() : []);   // a clip rolls like a player in a hurry
     let pos = await dbg('advanceFrames', 1, DT), last = pos, vel = { x: 0, z: 0 };
     const frames = Math.round(seconds * FPS);
     let i = 0, wonAt = -1, stalled = 0;
@@ -309,6 +402,10 @@ const raking = (dist, height, side) => (pos, vel) => {
     const dx = vel.x / sp, dz = vel.z / sp;
     return { px: pos.x - dx * dist + dz * side, py: pos.y + height, pz: pos.z - dz * dist - dx * side, lx: pos.x + dx * 0.9, ly: 0, lz: pos.z + dz * 0.9 };
 };
+// A camera in front of and above a spot (the start), looking up at the
+// ship over it: `side` across, `back` toward the viewer, `up` high, aimed
+// at height `look` over the spot.
+const shipCam = (side, back, up, look) => (p) => ({ px: p.x + side, py: up, pz: p.z + back, lx: p.x, ly: look, lz: p.z });
 // For a wide frame of a long, narrow board: a camera that stays near the
 // board's middle (x pulled toward 0 by `k`), `back` behind the ball and
 // `height` up, looking down the maze -- the board fills the frame.
@@ -318,14 +415,22 @@ const over = (height, back, k, ahead = 1.2) => (pos) => ({
 
 // A rendered scene, then the PlaneTilt wordmark over it (the same CSS logo as
 // the home screen), screenshotted at the exact size.
-async function cover(browser, base, { name, width, height, level, skin, trail, at, cam, logo, out }) {
+async function cover(browser, base, { name, width, height, level, skin, trail, at, cam, logo, out, ship }) {
     const { page, dbg } = await openGame(browser, base, { width, height, save: saveFor({ skin, trail }) });
-    // Roll partway along the route so the trail is laid, then frame the shot.
-    let state = null;
-    const stopAt = Math.round(at * FPS);
-    await runLevel(page, dbg, level, at, async (i, s) => { state = s; }, {});
-    void stopAt;
-    await dbg('cameraOverride', cam(state.pos, state.vel));
+    if (ship) {
+        // Rolle's ship beaming the marble down onto a planet's first maze,
+        // the show held at `ship.ms` (levelShow.js shipDrop).
+        await dbg('startLevelForTest', level);
+        await dbg('holdShow', ship.ms);
+        await dbg('advanceFrames', 1, DT);
+        const st = LEVELS.find(l => l.id === level).start;
+        await dbg('cameraOverride', cam({ x: st.x, y: 0, z: st.z }));
+    } else {
+        // Roll partway along the route so the trail is laid, then frame the shot.
+        let state = null;
+        await runLevel(page, dbg, level, at, async (i, s) => { state = s; }, {});
+        await dbg('cameraOverride', cam(state.pos, state.vel));
+    }
     const shot = path.join(TMP, `${name}-scene.png`);
     await frameTo(dbg, shot, 'image/png');
     await page.close();
@@ -339,7 +444,7 @@ async function cover(browser, base, { name, width, height, level, skin, trail, a
 
 // The cover scene, per shape: wide frames look down the maze from over the
 // board's middle; tall and square ones rake across it toward the ball.
-const COVER_SCENE = { level: 'w3_10', skin: 'ember', trail: 'flame', at: 3.0 };
+const COVER_SCENE = { level: 'w4_10', skin: 'galaxy', trail: 'rainbow', at: 3.0 };
 const COVER_SHOT = {
     landscape: { ...COVER_SCENE, at: 4.2, cam: over(3.2, 2.6, 0.3), logo: 'left' },   // 4.2 s: the marble out in the open
     tall: { ...COVER_SCENE, cam: raking(1.6, 5.0, 0.5), logo: 'top' }
@@ -359,7 +464,7 @@ async function covers(browser, base) {
     ];
     // COVER_JOBS='[{"name":..,"width":..,"height":..,"level":..,"skin":..,"trail":..,"at":..,"rk":[dist,height,side],"logo":..}]'
     // renders candidate framings instead (for choosing a shot).
-    if (process.env.COVER_JOBS) jobs = JSON.parse(process.env.COVER_JOBS).map(j => ({ ...j, cam: j.over ? over(...j.over) : raking(...j.rk) }));
+    if (process.env.COVER_JOBS) jobs = JSON.parse(process.env.COVER_JOBS).map(j => ({ ...j, cam: j.shipCam ? shipCam(...j.shipCam) : j.over ? over(...j.over) : raking(...j.rk) }));
     for (const j of jobs) if (!only || j.name.includes(only)) await cover(browser, base, j);
 }
 
@@ -374,6 +479,7 @@ async function landingScene(browser, base, { name, width, height, level, skin, t
     let state = null;
     await runLevel(page, dbg, level, at, async (i, s) => { state = s; }, {});
     await dbg('cameraOverride', cam(state.pos, state.vel));
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -388,6 +494,7 @@ async function landingExplore(browser, base, { name, width, height, level }) {
     await dbg('advanceFrames', 45, DT);
     await dbg('walkMove', null);
     await dbg('advanceFrames', 20, DT);
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -418,6 +525,7 @@ async function landingRescue(browser, base, { name, width, height, level }) {
     await dbg('placeBall', at.x, at.z);
     await dbg('advanceFrames', 3, DT);
     await dbg('cameraOverride', lookPast(at, cage, { back: 2.0, up: 3.2, side: 1.1 }));
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -437,6 +545,7 @@ async function landingNear(browser, base, { name, width, height, level, target, 
     await dbg('placeBall', at.x, at.z);
     await dbg('advanceFrames', 3, DT);
     await dbg('cameraOverride', lookPast(at, t, { back: 2.0, up: 3.2, side: 1.1, ...cam }));
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -474,6 +583,7 @@ async function landingExploreFuel(browser, base, { name, width, height, level, m
     await dbg('advanceFrames', 2, DT);
     await faceToward(dbg, at, cell);
     await dbg('advanceFrames', 20, DT);
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -490,6 +600,7 @@ async function landingShip(browser, base, { name, width, height, level, at = 130
     const s = lv.start;
     const c = { back: 4.2, up: 4.6, side: 1.8, ...cam };
     await dbg('cameraOverride', { px: s.x + c.side, py: c.up, pz: s.z + c.back, lx: s.x, ly: 1.2, lz: s.z });
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -523,6 +634,7 @@ async function landingSecrets(browser, base, { name, width, height, level }) {
     await faceToward(dbg, at, { x: pk.x, z: pk.z });
     await dbg('useSignature');
     await dbg('advanceFrames', 20, DT);
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -592,10 +704,10 @@ async function video(browser, base, { name, width, height, cinematic }) {
     // speed is checked and a clip where the marble stops for 0.75 s or more
     // is reported as STALLED -- redo it before using the video.
     let segs = [
-        { level: 'w2_10', skip: 1.2, seconds: 4.0, skin: 'prism', trail: 'aurora' },
-        { level: 'w3_10', skip: 1.2, seconds: 4.0, skin: 'ember', trail: 'flame' },
-        { level: 'w4_10', skip: 1.2, seconds: 4.0, skin: 'galaxy', trail: 'rainbow' },
-        { level: 'w5_10', skip: 1.2, seconds: 4.0, skin: 'eight', trail: 'gold' }
+        { level: 'w2_10', skip: 0.5, seconds: 4.0, skin: 'prism', trail: 'aurora' },
+        { level: 'w3_10', skip: 0.5, seconds: 4.0, skin: 'ember', trail: 'flame' },
+        { level: 'w4_10', skip: 0.5, seconds: 4.0, skin: 'galaxy', trail: 'rainbow' },
+        { level: 'w5_10', skip: 0.5, seconds: 4.0, skin: 'eight', trail: 'gold' }
     ];
     // VIDEO_SEGS='[{"level":..,"skip":..,"seconds":..,"skin":..,"trail":..}]' tries other clips.
     if (process.env.VIDEO_SEGS) segs = JSON.parse(process.env.VIDEO_SEGS);
@@ -646,20 +758,24 @@ async function video(browser, base, { name, width, height, cinematic }) {
         const skipFrames = Math.round(s.skip * FPS);
         const speeds = [];
         let n = 0;
+        let coinsAtSkip = null;
         const res = await runLevel(page, dbg, s.level, s.skip + s.seconds * SCALE, async (i, st) => {
             if (i < skipFrames) return;
+            if (coinsAtSkip === null) coinsAtSkip = await dbg('coinsTaken');
+            if (process.env.CAPTURE_DEBUG && i % 6 === 0) { const nc = Math.min(...(lv.coins || []).map(c => Math.hypot(c.x - st.pos.x, c.z - st.pos.z))); console.log(`    f${i} (${st.pos.x.toFixed(2)}, ${st.pos.z.toFixed(2)}) coins ${await dbg('coinsTaken')} nearest ${nc.toFixed(2)} phase ${st.phase}`); }
             speeds.push(Math.hypot(st.vel.x, st.vel.z));
             if (cinematic) await dbg('cameraOverride', chase(st.pos));
             if (!dry) await frameTo(dbg, frameName(d, n));
             n++;
-        });
+        }, { clip: true });
+        const coinsInClip = (await dbg('coinsTaken')) - (coinsAtSkip || 0);
         await page.close();
         // The longest run of near-still frames in the clip itself.
         let run = 0, worst = 0;
         for (const v of speeds) { run = v < 0.4 ? run + 1 : 0; worst = Math.max(worst, run); }
         const bad = worst >= FPS * 0.75;
         if (bad) stalled.push(k);
-        console.log(`  piece ${k} ${s.level}: ${n} frames${res.won ? ', won' : ''}, longest stop ${(worst / FPS).toFixed(2)} s${bad ? '  STALLED -- redo with CAPTURE_ONLY=' + k : ''}`);
+        console.log(`  piece ${k} ${s.level}: ${n} frames${res.won ? ', won' : ''}, longest stop ${(worst / FPS).toFixed(2)} s, ${coinsInClip} coins picked up on camera${bad ? '  STALLED -- redo with CAPTURE_ONLY=' + k : ''}`);
         if (process.env.CAPTURE_SPEEDLOG) console.log('    speed per 0.25s:', speeds.filter((_, i) => i % Math.round(FPS / 4) === 0).map(v => v.toFixed(1)).join(' '));
     }
 
@@ -683,6 +799,10 @@ async function video(browser, base, { name, width, height, cinematic }) {
 
 (async () => {
     const what = process.argv[2] || 'covers';
+    if (what === 'clip') {
+        for (const id of process.argv.slice(3)) { const lv = LEVELS.find(l => l.id === id); const c = planClip(lv); console.log(id, c ? `${c.got} coins in reach from (${c.from.x.toFixed(2)}, ${c.from.z.toFixed(2)})` : 'no clip'); }
+        return;
+    }
     if (what === 'route') {
         for (const id of process.argv.slice(3)) {
             try { const rt = planRoute(LEVELS.find(l => l.id === id)); console.log(id, rt.length, 'points'); } catch (e) { console.log(id, e.message); }

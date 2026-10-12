@@ -767,6 +767,9 @@ export function createProgressStore(adapter, levels = [], payouts = {}) {
         adCoinsWaitMs: () => adCoinsWaitMs(progress),
         adDoubleClear: earned => { const out = adDoubleClear(progress, earned); did(apply(out), 'ad:double-clear'); return { ok: out.ok, amount: out.amount || 0 }; },
         adCharge: id => did(apply(adCharge(progress, id)), 'ad:charge:' + id),
+        // A rewarded ad whose reward is in the run, not the save (the fuel
+        // beacon): only counted.
+        noteAd: what => act('ad:' + String(what || 'other')),
         adUpgrade: id => did(apply(adUpgrade(progress, id)), 'ad:upgrade:' + id),
         adUpgradeEligible: id => adUpgradeEligible(progress, id),
         adUpgradeWaitMs: () => adUpgradeWaitMs(progress),

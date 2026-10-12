@@ -65,11 +65,11 @@ function show(tab) {
     // Arriving home: a level-up first (its OK goes on to the calendar), else
     // the calendar if today's reward waits.
     if (tab === 'home') { renderHome(); if (!showLevelUps()) maybeAutoOpenDaily(); }
-    // Banners only on these two: pages players read for a while, never play.
+    // Banners only on these three: pages players read for a while, never play.
     else if (tab === 'gear') { clearShopMessages(); renderProfile(); showBanner('profileBanner'); }
     else if (tab === 'store') { clearShopMessages(); renderStore(); showBanner('storeBanner'); }
     else if (tab === 'planet') renderWorlds();
-    else if (tab === 'crew') { clearShopMessages(); renderCrew(); }
+    else if (tab === 'crew') { clearShopMessages(); renderCrew(); showBanner('crewBanner'); }
     renderWallets();
     renderBadges();
 }
@@ -185,7 +185,6 @@ function renderHome() {
     for (const t of Object.keys(medals)) $('homeMedal_' + t).textContent = String(medals[t]);
     for (const id of CHARGE_IDS.filter(k => !CHARGES[k].cover)) $('homeCharge_' + id).textContent = String(p.charges?.[id] || 0);
 
-    const best = p.cleared[lv.id];
     const play = $('homePlayBtn');
     play.disabled = home.locked;
     play.classList.toggle('is-locked', home.locked);
@@ -200,9 +199,9 @@ function renderHome() {
         $('homePlayLabel').textContent = 'LOCKED';
         $('homePlayLevel').textContent = '';
     } else {
-        $('homeGoal').textContent = best
-            ? `Best ${(best.bestMs / 1000).toFixed(1)}s  ·  gold under ${(lv.goldMs / 1000).toFixed(1)}s`
-            : `Gold under ${(lv.goldMs / 1000).toFixed(1)}s  ·  ${(lv.coins || []).length} coins to find`;
+        // Nothing over PLAY (the user's call, 2026-10-11): the medal times
+        // are on the level's ready screen and its HUD clock instead.
+        $('homeGoal').textContent = '';
         $('homePlayLabel').textContent = home.done ? 'PLAY AGAIN' : 'PLAY';
         $('homePlayLevel').textContent = 'LEVEL ' + lv.index;
     }

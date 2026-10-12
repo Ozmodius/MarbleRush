@@ -108,7 +108,7 @@
         <p class="lp-kicker">How it plays</p>
         <h2>Tilt your phone. Feel the marble roll.</h2>
         <p class="lp-lead">Lean your phone and the marble rolls, slides and bounces like it's really in your hands. On a computer, use the arrow keys or drag with the mouse.</p>
-        <ul class="lp-points"><li><b>Pick a landing site</b> on the planet and drop in. Most mazes take under a minute. Just one more go...</li><li><b>Close calls.</b> Skim a hole, slip past a gate, make it by a hair.</li><li><b>Coins on risky paths.</b> Grab them for the store, if you dare the detour.</li></ul>
+        <ul class="lp-points"><li><b>Pick a landing site</b> on the planet and drop in. Most mazes take under a minute. Just one more go...</li><li><b>Close calls.</b> Skim a hole, slip past a gate, make it by a hair.</li><li><b>Race the medal clock.</b> It runs on screen against the gold time, then silver, then bronze.</li><li><b>Coins on risky paths.</b> Grab them for the store, if you dare the detour.</li></ul>
         <button class="lp-btn lp-gold" type="button" data-lp="register">Create free account</button>
       </div>
     </section>
@@ -272,6 +272,7 @@
   </header>
   <p id="crewMsg" class="shop-msg" role="status"></p>
   <div id="crewList" class="maze-selectlist crew-list"></div>
+  <div id="crewBanner" class="ad-banner" aria-hidden="true"></div>
 </section>
 
 <!-- STORE -->
@@ -368,6 +369,7 @@
     <span id="mazeLevelName" class="maze-levelname"></span>
     <span class="maze-coins"><span class="coin-dot"></span><span id="mazeCoins"></span></span>
     <span id="mazeFuel" class="maze-fuel" hidden><span class="fuel-icon" aria-hidden="true"></span><span class="fuel-word">FUEL</span></span>
+    <span id="mazeMedal" class="maze-medal" hidden><span class="medal-dot" aria-hidden="true"></span><span id="mazeMedalTime">0.0</span><small id="mazeMedalPar"></small></span>
     <span id="mazeMap" class="maze-map" hidden><span class="map-icon" aria-hidden="true"></span><span id="mazeMapPct">0%</span></span>
     <button id="mazeCamBtn" class="maze-btn maze-btn-small maze-cambtn" type="button" aria-label="Ball cam" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.4-2h7.8l1.4 2h2.2A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.6"/></svg></button>
     <button id="mazeSoundBtn" class="maze-btn maze-btn-small maze-cambtn maze-soundbtn" type="button" aria-label="Sound" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="sound-on" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/><path class="sound-off" d="m15.5 9.5 5 5m0-5-5 5"/></svg></button>
@@ -401,6 +403,7 @@
   <div class="maze-bottombar">
     <button id="mazeStartBtn" class="maze-btn maze-btn-big" type="button">START</button>
     <button id="mazeAdShieldBtn" class="maze-btn maze-btn-ad" type="button" style="display:none"><span class="ad-play">▶</span>FREE SHIELD</button>
+    <button id="mazeAdBeaconBtn" class="maze-btn maze-btn-ad" type="button" style="display:none"><span class="ad-play">▶</span>FUEL BEACON</button>
   </div>
   <!-- After a fall, when a rewarded ad can pay: continue from the last safe
        spot, or let the countdown run out and retry. -->

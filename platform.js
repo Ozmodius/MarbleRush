@@ -284,7 +284,7 @@ export function showRewardedAd() {
 // ---------------------------------------------------------------------------
 // Banners (CrazyGames in-game banners)
 // ---------------------------------------------------------------------------
-// Only on menu screens players read for a while (the store and the gear
+// Only on menu screens players read for a while (the store, the crew and the gear
 // page), never during play: CrazyGames' rule. A banner fills the container
 // element `id` (it must already have a size) with whatever responsive size
 // fits. Refreshed at most once per BANNER_MIN_REFRESH_MS and BANNER_MAX
