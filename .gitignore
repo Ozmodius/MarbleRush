@@ -4,3 +4,4 @@ dist/
 .env
 .DS_Store
 sound-demo.wav
+marketing/*-tiny.mp4
