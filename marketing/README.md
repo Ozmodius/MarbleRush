@@ -13,12 +13,15 @@ change so the listing never drifts from what players get.
 | `video-landscape-1920x1080.mp4` | Landscape preview video, 18.4 s |
 | `video-portrait-1080x1620.mp4` | Portrait preview video (2:3), 18.4 s |
 
-All three covers are one scene -- Magmars floor 10, the Ember marble with
-the Flame trail -- framed for each shape, so the game is recognised in any
+All three covers are one scene -- Bouncelot floor 10, the Galaxy marble with
+the Rainbow trail -- framed for each shape, so the game is recognised in any
 format (CrazyGames asks for consistent covers). Text is the wordmark only.
 
-Each video opens on its cover (0.8 s), then four planets at floor 10 joined
-mid-run (the Baron's cages on three of them), each in a different marble and
+Each video opens on its cover (0.8 s), then four planets at floor 10, each
+clip joined where a few seconds of rolling pick up the most coins -- the
+marble takes them as a player would (the autopilot drives over each coin on
+its way rather than cutting past it) -- with the Baron's cages on three of
+them, each in a different marble and
 trail: Slipstonia (Prism, Aurora), Magmars (Ember, Flame), Bouncelot (Galaxy,
 Rainbow), Gearth (Eight Ball, Gold Dust); then the wordmark on the home
 planet (1.6 s). No audio, no cursor, no promotional text.
