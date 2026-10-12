@@ -1193,6 +1193,14 @@ const failures = [];
         await wdbg('walkTurn', Math.PI / 2);
         wk = await wdbg('walk');
         check(Math.abs((wk.eye.lx - wk.eye.x) - (-Math.sin(wk.yaw)) * Math.cos(wk.pitch)) < 1e-6, 'turning turns the view');
+        {   // A real swipe on the look side: a phone turns a corner in ~110px (walkMode.js lookRadPerPx).
+            const y0 = (await wdbg('walk')).yaw;
+            await wp.mouse.move(360, 520); await wp.mouse.down(); await wp.mouse.move(360 - 110, 520, { steps: 5 });
+            await wdbg('advanceFrames', 2, 16);
+            await wp.mouse.up();
+            const turned = (await wdbg('walk')).yaw - y0;
+            check(Math.abs(turned - Math.PI / 2) < 0.25, `a 110px swipe on a phone's look side turns a corner (${(turned * 180 / Math.PI).toFixed(0)} degrees)`);
+        }
         // A pit is a pit.
         await wdbg('placeBall', wlv.holes[0].x, wlv.holes[0].z);
         await wdbg('advanceFrames', 2);
