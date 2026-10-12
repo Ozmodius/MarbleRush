@@ -18,8 +18,21 @@ import { contentPoint } from './portraitLock.js';
 
 export const EYE_ABOVE_CENTRE = 0.12;   // eye height over the body's centre (walls are 0.55 tall)
 export const PITCH_MAX = 0.9;           // radians: look most of the way down or up
-const LOOK_RAD_PER_PX = 0.0055;         // at sensitivity 1
-const KEY_TURN_RAD_S = 2.2;             // arrow-key turning, at sensitivity 1
+// LOOK SPEED (the user's call, 2026-10-12: "turning a corner and keeping
+// the right camera angle is very frustrating"). A drag is scaled to the
+// screen: across the whole look side (the right 55% of the page) turns half
+// round at sensitivity 1, so a phone turns a corner in one short swipe (a
+// fixed 0.0055 rad/px needed ~285 px for 90 degrees, more than a phone's
+// look side). Never slower than that on a wide screen. Up and down are
+// gentler: a sideways swipe should not tip the view.
+export const LOOK_SIDE = 0.55;
+export const LOOK_MIN_RAD_PER_PX = 0.0055;
+export const LOOK_PITCH_SHARE = 0.5;
+export function lookRadPerPx(pageW) {
+    const w = Number(pageW) > 0 ? Number(pageW) : 0;
+    return w ? Math.max(LOOK_MIN_RAD_PER_PX, Math.PI / (LOOK_SIDE * w)) : LOOK_MIN_RAD_PER_PX;
+}
+const KEY_TURN_RAD_S = 3.0;             // arrow-key turning, at sensitivity 1 (90 degrees in about half a second)
 const STICK_FULL_PX = 55;               // joystick drag for full speed
 
 // Facing: yaw 0 looks toward -z (up the board in the overhead view); yaw grows
@@ -137,7 +150,7 @@ export function createWalkInput({ active, onFirstInput, stickEl, padEl }) {
     const keys = new Set();
     let stick = null;          // { id, x0, y0, x, y }
     let look = null;           // { id, x, y }
-    let lookDX = 0, lookDY = 0;
+    let lookDX = 0, lookDY = 0, lookW = 0;   // lookW: the page's width, for lookRadPerPx
     // Stick drag for full speed: shorter for a more responsive marble.
     let fullPx = STICK_FULL_PX;
     const KEYS = {
@@ -189,7 +202,7 @@ export function createWalkInput({ active, onFirstInput, stickEl, padEl }) {
             if (stick && e.pointerId === stick.id) { stick.x = p.x; stick.y = p.y; showStick(); }
             else if (look && e.pointerId === look.id) {
                 lookDX += p.x - look.x; lookDY += p.y - look.y;
-                look.x = p.x; look.y = p.y;
+                look.x = p.x; look.y = p.y; lookW = p.w;
             }
         });
         const end = (e) => {
@@ -211,8 +224,9 @@ export function createWalkInput({ active, onFirstInput, stickEl, padEl }) {
                 fwd -= Math.max(-1, Math.min(1, (stick.y - stick.y0) / fullPx));
             }
             const turnKeys = (keys.has('turnL') ? 1 : 0) - (keys.has('turnR') ? 1 : 0);
-            const dYaw = -lookDX * LOOK_RAD_PER_PX * sens + turnKeys * KEY_TURN_RAD_S * sens * (dtMs / 1000);
-            const dPitch = (invertY ? 1 : -1) * lookDY * LOOK_RAD_PER_PX * sens;
+            const k = lookRadPerPx(lookW || (typeof window !== 'undefined' ? window.innerWidth : 0));
+            const dYaw = -lookDX * k * sens + turnKeys * KEY_TURN_RAD_S * sens * (dtMs / 1000);
+            const dPitch = (invertY ? 1 : -1) * lookDY * k * LOOK_PITCH_SHARE * sens;
             lookDX = 0; lookDY = 0;
             return { move: { fwd, strafe }, dYaw, dPitch, turning: turnKeys !== 0 || !!look };
         },

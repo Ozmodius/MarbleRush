@@ -97,6 +97,13 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
     inp.setResponse(1.35);
     check(inp.stickMove(40, 0).strafe > half && inp.stickMove(500, 0).strafe === 1, 'response shortens the drag for full speed, never past full');
     check(W.clampPitch(5) === W.PITCH_MAX && W.clampPitch(-5) === -W.PITCH_MAX, 'pitch is clamped');
+    // Look speed (2026-10-12): on a phone a corner (90 degrees) is one short
+    // swipe, well inside the look side; a wide screen is never slower than before.
+    for (const w of [360, 390, 430]) {
+        const px90 = (Math.PI / 2) / W.lookRadPerPx(w);
+        check(px90 <= w * W.LOOK_SIDE * 0.6, `a ${w}px phone turns a corner in ${Math.round(px90)}px of its ${Math.round(w * W.LOOK_SIDE)}px look side`);
+    }
+    check(W.lookRadPerPx(1920) === W.LOOK_MIN_RAD_PER_PX && W.lookRadPerPx(0) === W.LOOK_MIN_RAD_PER_PX && W.lookRadPerPx(390) > W.LOOK_MIN_RAD_PER_PX * 2, 'a wide screen keeps the old look speed, a phone gets more than double');
     const lp = W.lookPoint({ x: 1, y: 0.4, z: 2 }, 0, 0);
     check(near(lp.x, 1) && near(lp.y, 0.4) && near(lp.z, 1), 'looking level at yaw 0 looks one unit up the board');
 
