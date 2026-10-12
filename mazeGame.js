@@ -2203,7 +2203,7 @@ function restart() {
     revivedThisAttempt = false;
     closeFallOffer();
     showEl('mazeDoubleBtn', false);
-    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false);
+    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false); showEl('mazeExploreBtn', false);
     placeBallAtStart();
     if (walkMode) { walkYaw = walkStartYaw; walkPitch = -0.08; if (walkHud) walkHud.show(true); }
     smoothed = null;
@@ -2801,6 +2801,10 @@ function startLevel(levelId, opts = {}) {
     closeFallOffer();
     offerFreeShield();
     offerFuelBeacon();
+    // EXPLORE beside START (the user's call, 2026-10-11): a level already
+    // rolled can be explored straight from its ready screen -- where the
+    // fuel cell and any diary page are -- not only from CLEARED.
+    showEl('mazeExploreBtn', !walkMode && !isDaily(lv) && !trialMarble && !!(prog.cleared || {})[lv.id]);
     if (rescue && !opts.noStory) openStory(rescue.world);
     requestRender();
 }
@@ -3198,7 +3202,7 @@ async function startRun() {
         // Walking needs no motion sensor: joystick and look, or keys.
         clearManual();
         showEl('mazeStartBtn', false);
-        showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false);
+        showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false); showEl('mazeExploreBtn', false);
         restart();
         walkHintShown = true;
         setStatus(WALK_HINT);
@@ -3217,7 +3221,7 @@ async function startRun() {
     }
     clearManual();
     showEl('mazeStartBtn', false);
-    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false);
+    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false); showEl('mazeExploreBtn', false);
     recenterPending = true;      // first reading becomes neutral
     neutral = captureNeutral(latestReading.beta, latestReading.gamma);
     restart();
@@ -3351,6 +3355,8 @@ export function initMazeControls() {
     bindTap('mazeGiftBtn', () => { claimGift(); });
     bindTap('mazeAdShieldBtn', () => { freeShieldFromAd(); });
     bindTap('mazeAdBeaconBtn', () => { fuelBeaconFromAd(); });
+    // From a ready screen nothing was played, so it is no break: straight in.
+    bindTap('mazeExploreBtn', () => { if (phase === 'ready' && level && !walkMode) walkLevel(level.id); });
     bindTap('mazeExitBtn', () => { leave(); });
     bindTap('mazeWinExitBtn', () => { leave(); });
     bindTap('mazeLevelsBtn', () => { afterBreak(() => showLevelSelect()); });

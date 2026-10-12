@@ -429,3 +429,27 @@ growth list -- conversion):
 - *Quick first retries*: a first connect that fails retries in 3 s, then
   10 s, then every 30 s (it waited 30 s) -- a busy phone compiling the scene
   at boot can miss the request timeout.
+
+## Meta Quest 3 (planned for a future release, the user's call 2026-10-11)
+
+Not started. The plan, cheapest first:
+- *Flat, today:* the Quest browser should run planetilt.com in a window,
+  steered by drag (the controller's pointer). To check on a headset.
+- *Mixed reality, the board on your table:* an ENTER VR button (WebXR; the
+  scene host already renders through setAnimationLoop). The headset owns
+  the camera, so the board is placed in the room (~60 cm) instead of the
+  camera being moved; ball cam and the shows get XR versions or are off.
+  Tilt comes from the controllers' or hands' angle (thumbstick as a
+  fallback) -- still rotating gravity, the board's lean following the
+  hands. The run's UI (START, MISSION, the medal clock, coins, CLEARED /
+  NEXT / RETRY / EXIT) rebuilt as panels in the world, since DOM overlays
+  do not show in an immersive session; Store, Crew and Gear stay flat.
+  Performance for stereo at 72-90 Hz: smaller shadows, a lower resolution,
+  foveation.
+- *Explore in VR:* later; comfort first (snap turn, the vignette,
+  teleport).
+- *Distribution:* WebXR on planetilt.com first; a packaged web app in
+  Meta's store to be checked against their rules then. CrazyGames stays
+  flat.
+- Testing: Meta's WebXR emulator here; feel only on the user's headset.
+

@@ -257,6 +257,9 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   on a wide screen, clear of the ready line and START, gone once the run
   starts. The daily maze is a race and gets none. A new main objective
   belongs in `missionFor` (`test_mission.js`).
+- **A rolled level can be explored from its ready screen** (the user's
+  call, 2026-10-11): EXPLORE beside START once the level is cleared (not
+  the daily maze, not a marble trial), as well as EXPLORE IT on CLEARED.
 - **Medal times are in the level, not over PLAY** (the user's call,
   2026-10-11): home's line over PLAY is gone (it still says what opens a
   locked planet). The MISSION card ends on the gold, silver and bronze times
