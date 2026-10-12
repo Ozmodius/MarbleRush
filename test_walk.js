@@ -119,14 +119,16 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
 
     // Third person: behind the walker and above the wall tops, looking at it.
     for (const yaw of [0, 1, 2.5, -2]) {
-        const tp = W.thirdPersonPose({ x: 1, y: 0.3, z: 2 }, yaw, 0);
+        const tp = W.thirdPersonPose({ x: 1, y: 0.3, z: 2 }, yaw);
         const F = W.forwardOf(yaw);
         const back = (1 - tp.eye.x) * F.x + (2 - tp.eye.z) * F.z;
         check(back > 1 && tp.eye.y > 0.55 + 0.3, `third person sits behind (${back.toFixed(2)}) and above the walls (${tp.eye.y.toFixed(2)}) at yaw ${yaw}`);
         check((tp.look.x - 1) * F.x + (tp.look.z - 2) * F.z > 0, 'and looks on past the walker');
     }
-    const low = W.thirdPersonPose({ x: 0, y: 0.3, z: 0 }, 0, 0.9), high = W.thirdPersonPose({ x: 0, y: 0.3, z: 0 }, 0, -0.9);
-    check(high.eye.y > low.eye.y && low.eye.y > 0.55, 'looking down raises the camera, looking up lowers it -- never below the walls');
+    // One height (2026-10-12): the old orbit's lowest, whatever the look --
+    // still clear of the wall tops.
+    const tp0 = W.thirdPersonPose({ x: 0, y: 0.3, z: 0 }, 0), tpUp = W.thirdPersonPose({ x: 0, y: 0.3, z: 0 }, 0, -0.9);
+    check(near(tp0.eye.y, 0.3 + Math.sin(0.35) * W.THIRD.dist) && near(tpUp.eye.y, tp0.eye.y) && tp0.eye.y > 0.55 + 0.3, `third person holds its lowest height, never higher (${tp0.eye.y.toFixed(2)})`);
 
     // 3. the walker is the ball
     check(!('radius' in C.WALK) && !('ball' in C.WALK), 'walking never changes the ball radius');

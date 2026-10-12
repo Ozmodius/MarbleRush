@@ -236,8 +236,11 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   (test_shop.js, test_crew.js). Each planet sells its trap answer as a
   PLANET CHARGE (shopCatalog.js CHARGES with `cover`) once opened; one is
   armed per run, spent only when it fires, after the signature's free uses.
-  Every hazard asks `covered(kind)` in mazeGame.js; a new trap that hurts or
-  holds the ball needs a cover kind there. No ship upgrades until space
+  Every hazard asks `covered(kind)` in mazeGame.js, rolling AND exploring
+  (the user's call, 2026-10-12: Explore's controls reflect the marble -- its
+  stats and tuned steps through `walkHandling`, its signature, charges and
+  shields through the same hazards); a new trap that hurts or holds the
+  ball needs a cover kind there. No ship upgrades until space
   battles (the user's call). Alpha: saves are wiped, not migrated -- done
   2026-10-11 by SAVE_VERSION 2 (any other version loads fresh, on a device
   and on the server, so nothing old can merge back up) plus the server's

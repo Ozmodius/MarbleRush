@@ -206,7 +206,7 @@ let walkWant = { x: 0, z: 0 };
 let walkSpeedNow = 0, walkTurning = false, walkBob = 0;
 let walkInput = null;
 let walkFeel = walkHandling(null);   // the marble's handling in Explore (walkMode.js)
-let ballOnIce = false;               // on ice this step, after any Rubber Coat
+let ballOnIce = false;               // on ice this step, after any Ice Skates
 let walkHud = null;               // compass and map (walkHud.js), when owned
 let walkHintShown = false;
 let savedFov = null;
@@ -245,7 +245,7 @@ function computeWalkPose() {
     const p = ballBody.position;
     if (walkThird()) {
         // Behind and above, eased so the camera glides rather than jitters.
-        const tp = thirdPersonPose(p, walkYaw, walkPitch);
+        const tp = thirdPersonPose(p, walkYaw);
         if (!thirdEyeSet) { _thirdEye.set(tp.eye.x, tp.eye.y, tp.eye.z); thirdEyeSet = true; }
         _thirdEye.x += (tp.eye.x - _thirdEye.x) * 0.3;
         _thirdEye.y += (tp.eye.y - _thirdEye.y) * 0.3;
@@ -268,8 +268,11 @@ function stepWalkControls(elapsedMs, lookOnly) {
     const inp = walkInput ? walkInput.read(elapsedMs, { sens: c.sens, invertY: c.invertY })
         : { move: { fwd: 0, strafe: 0 }, dYaw: 0, dPitch: 0, turning: false };
     walkYaw += inp.dYaw;
-    walkPitch = clampPitch(walkPitch + inp.dPitch);
-    walkTurning = inp.dYaw !== 0 || inp.dPitch !== 0;
+    // Third person holds one camera height (walkMode.js THIRD): up/down is
+    // a first-person look only.
+    const dPitch = walkThird() ? 0 : inp.dPitch;
+    walkPitch = clampPitch(walkPitch + dPitch);
+    walkTurning = inp.dYaw !== 0 || dPitch !== 0;
     walkWant = lookOnly ? { x: 0, z: 0 } : wantedVelocity(inp.move, walkYaw);
     if (world) world.gravity.set(0, -GRAVITY, 0);
     if (mazeGroup) mazeGroup.rotation.set(0, 0, 0);
@@ -278,8 +281,9 @@ function stepWalkControls(elapsedMs, lookOnly) {
 // One physics step of walking: lean toward the asked-for velocity (traps add
 // their own pushes on top), and spin the body as if rolling so floor friction
 // does not drag at it.
-// How hard is the marble's own (walkHandling): its grip and Grip upgrade
-// drive it, its damping and Air Brake stop it, ice takes both away.
+// How hard is the marble's own (walkHandling): its grip (and the crew's
+// tuned steps) drive it, its damping stops it, ice takes both away -- unless
+// Ice Skates cover the patch (updateFloorSurface).
 function applyWalk(dt) {
     const v = ballBody.velocity;
     const accel = handlingAccel(walkFeel, walkWant, ballOnIce);
@@ -942,7 +946,7 @@ function buildWorld(lv, wallSpecs) {
     // corrective tilts feel like they do something.
     // Grip and bounce are the marble's (shopCatalog.js); Classic's are the
     // 0.28 / 0.12 every level was tuned on. Ice stays ice whatever the marble:
-    // only the Rubber Coat prize changes that (updateFloorSurface).
+    // only Ice Skates change that (updateFloorSurface).
     w.addContactMaterial(new CANNON.ContactMaterial(solidMat, ballMat, { friction: ballSpec.grip, restitution: ballSpec.bounce }));
     w.addContactMaterial(new CANNON.ContactMaterial(iceMat, ballMat, { friction: ICE_FRICTION, restitution: ballSpec.bounce }));
 
@@ -1342,8 +1346,11 @@ function startCrewRun() {
 // fires, else an armed trap charge; then it covers for its window (a burn, a
 // crush, a kick) or for as long as the ball stays in that one (ice, a belt,
 // a magnet, a gust). False when nothing is left: the trap is the trap.
+// Exploring too (the user's call, 2026-10-12: "the moving controls should
+// reflect the characters stats, upgrades and shields ... and surface"):
+// traps are live when walking, so their answers are.
 function covered(kind) {
-    if (!crewRun || phase !== 'running' || walkMode) return false;
+    if (!crewRun || phase !== 'running') return false;
     const c = COVER[kind] || {};
     const now = runClockMs;
     if (crewRun.until[kind] !== undefined && now <= crewRun.until[kind]) {
@@ -1382,8 +1389,8 @@ export function useSignature() {
     return true;
 }
 // Where a tap signature works: Clear Sight in Explore (the only place there
-// is anything hidden to see), Coin Sense rolling.
-function tapWorksHere(sig) { return sig.power === 'sight' ? walkMode : !walkMode; }
+// is anything hidden to see), Coin Sense anywhere (coins are in both).
+function tapWorksHere(sig) { return sig.power === 'sight' ? walkMode : true; }
 // The signature's HUD button: a tap one shows while it has uses; an auto one
 // says how many are left on the power-ups line instead (renderPowerups).
 function renderSignature() {
@@ -2305,7 +2312,7 @@ function renderPowerups() {
     const e = el('mazePowerups');
     if (!e || !pickupState) return;
     const live = [];
-    if (crewRun && crewRun.sig && crewRun.sig.kind === 'auto' && crewRun.free > 0 && !walkMode) live.push(crewRun.sig.name.toUpperCase() + (crewRun.free > 1 ? ' x' + crewRun.free : ''));
+    if (crewRun && crewRun.sig && crewRun.sig.kind === 'auto' && crewRun.free > 0) live.push(crewRun.sig.name.toUpperCase() + (crewRun.free > 1 ? ' x' + crewRun.free : ''));
     for (const [kind, cid] of Object.entries(crewRun ? crewRun.armed : {})) if (!(crewRun.sig && crewRun.sig.covers && crewRun.sig.covers.includes(kind) && crewRun.free > 0)) live.push(CHARGES[cid].name.toUpperCase());
     if (crewRun && crewRun.sightMs > 0) live.push(`SIGHT ${Math.ceil(crewRun.sightMs / 1000)}`);
     if (pickupState.shield) live.push('SHIELD');

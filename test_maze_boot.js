@@ -794,6 +794,18 @@ const failures = [];
             await cdbg('ageRun', 60000);
             check(await cdbg('warpToGoal'), `${flCrew.id} clears`);
             check(((await cdbg('progress')).bond || {}).cinder === 140, `the clear earns Cinder bond: ${JSON.stringify((await cdbg('progress')).bond)}`);
+            // Exploring it, the traps are live and so is his answer to them
+            // (2026-10-12): the Fire Shield is on the HUD and the flare cannot burn him.
+            check(await cdbg('walkLevel', flCrew.id), `${flCrew.id} can be explored`);
+            await cp.waitForSelector('#mazeStartBtn', { state: 'visible' });
+            await cp.tap('#mazeStartBtn');
+            await cp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            check(/FIRE SHIELD/.test(await cp.textContent('#mazePowerups')), `exploring, Cinder's Fire Shield is on the HUD: ${await cp.textContent('#mazePowerups')}`);
+            await cdbg('setRunClock', H.firstFlareMs(f) + 20);
+            await cdbg('placeBall', f.x, f.z);
+            await cdbg('advanceFrames', 2);
+            c0 = await cdbg('crew');
+            check(await cdbg('phase') === 'running' && c0.fired.includes('burn') && c0.free === 0, `exploring, the flare cannot burn Cinder either: ${JSON.stringify(c0)}`);
             await cp.tap('#mazeExitBtn');
             await homeUp(cp);
             check(!(await cp.isHidden('#crewBadge')), 'CREW shows a badge: an upgrade is ready');

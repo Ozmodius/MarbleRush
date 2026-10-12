@@ -67,17 +67,18 @@ export function walkImpulse(v, want, dt, accel = WALK.accel) {
 // HANDLING: the marble and its upgrades, carried into Explore. Each stat does
 // here what its blurb promises when rolling (shopCatalog.js), and none of it
 // touches top speed (WALK.speed, the same for every marble) or the radius:
-//   drive     how hard it pushes toward the speed asked for (grip + Grip
-//             upgrade): quicker off the mark, tighter turns. Classic is the
+//   drive     how hard it pushes toward the speed asked for (grip, with the
+//             crew's tuned steps): quicker off the mark, tighter turns. Classic is the
 //             tuned WALK.accel; never below minDrive, which beats twice the
 //             strongest trap push (test_walk.js), on ice too.
-//   brake     how hard it stops with nothing held (damping + Air Brake).
-//             Classic coasts about half a second; Steel and the Air Brake
-//             stop much shorter, up to nearly dead (maxBrake). Braking is
+//   brake     how hard it stops with nothing held (damping, with tuned
+//             stopping). Classic coasts about half a second; Sterling, Cinder
+//             and Rivet stop much shorter, up to nearly dead (maxBrake). Braking is
 //             only ever with nothing held, so it never decides whether a trap
 //             can be walked out of -- drive does.
 //   response  stick sensitivity: full speed with a shorter drag (Glass).
-// On ice (no Rubber Coat) every marble drives at minDrive and barely brakes:
+// On ice (unless Ice Skates cover the patch: mazeGame.js) every marble drives
+// at minDrive and barely brakes:
 // let go and it slides on, the way ice reads when rolling.
 export const HANDLING = { minDrive: 10, maxDrive: 18, coast: 3.6, brakePerDamping: 240, maxBrake: 30, iceBrake: 1 };
 export function walkHandling(spec) {
@@ -120,11 +121,12 @@ export function openingYaw(lv) {
 }
 
 // THIRD PERSON: the camera behind the walker and above the wall tops, looking
-// down at it and on along its way. Looking up or down raises or lowers the
-// camera round the marble (an orbit), rather than tilting the view.
-export const THIRD = { dist: 2.5, elevation: 0.72, ahead: 1.0, minElev: 0.35, maxElev: 1.3 };
-export function thirdPersonPose(p, yaw, pitch) {
-    const elev = Math.max(THIRD.minElev, Math.min(THIRD.maxElev, THIRD.elevation - pitch * 0.9));
+// down at it and on along its way. Its height is FIXED at what was the lowest
+// of its old orbit (the user's call, 2026-10-12: "the look should not allow a
+// higher camera angle"): a drag only turns it, up/down changes nothing here.
+export const THIRD = { dist: 2.5, elev: 0.35, ahead: 1.0 };
+export function thirdPersonPose(p, yaw) {
+    const elev = THIRD.elev;
     const F = forwardOf(yaw);
     const back = Math.cos(elev) * THIRD.dist, up = Math.sin(elev) * THIRD.dist;
     return {
