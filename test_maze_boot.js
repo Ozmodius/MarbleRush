@@ -95,6 +95,7 @@ const failures = [];
         check(nameFit.client > 0 && nameFit.scroll <= nameFit.client && nameFit.top >= nameFit.btn - 1 && (!nameFit.statusText.trim() || nameFit.status >= nameFit.bottom - 1), `the level name shows whole on a phone: ${JSON.stringify(nameFit)}`);
         check((await page.textContent('#mazeStatus')).trim() === 'TAP START, THEN TILT', `a touch device is told to tap START, then tilt: ${await page.textContent('#mazeStatus')}`);
         check(await page.isHidden('#privacyNote'), 'with no server, no privacy line under START (nothing leaves the device)');
+        check(await page.isHidden('#mazeExploreBtn'), 'a level not yet cleared offers no EXPLORE');
         // The mission (mission.js): the ready screen lists the level's jobs,
         // the exit then exploring it for the fuel cell (found in Explore
         // only), clear of the name, the ready line and START.
@@ -1085,8 +1086,11 @@ const failures = [];
         check((await rdbg('rescue')) === null && !(await rdbg('goalLocked')) && await rp.isHidden('#storyPanel'), 'once rescued, floor 10 is a plain level');
         // EXPLORE IT: walking the maze shows its fuel cell; walking into it
         // takes it, and reaching the exit banks it.
-        check(await rdbg('walkLevel', 'w1_10'), 'floor 10 can be explored once rolled');
-        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
+        // EXPLORE beside START: a rolled level's ready screen opens it in Explore.
+        check(await rp.isVisible('#mazeExploreBtn') && await rp.isVisible('#mazeStartBtn'), 'a cleared level offers EXPLORE beside START');
+        await rp.tap('#mazeExploreBtn');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready' && window.__mazeDebug.walk().on, null, { polling: 100, timeout: 20000 });
+        check(await rp.isHidden('#mazeExploreBtn'), 'and it opens the level in Explore (no EXPLORE there)');
         const wm = await rdbg('mission');
         check(wm && wm.map(r => r.kind).join(',') === 'fuel,exit' && wm[0].text === 'Find the fuel cell', `exploring, the ready screen asks for the fuel cell, then the exit: ${JSON.stringify(wm)}`);
         const cell10 = await rdbg('fuel');
