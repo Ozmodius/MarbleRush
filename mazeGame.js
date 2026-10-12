@@ -1129,20 +1129,28 @@ function step() {
     const now = performance.now();
     const elapsedMs = lastStepTime ? (now - lastStepTime) : (1000 / 60);
     lastStepTime = now;
-    // Lava pulses on the page clock, not the run clock: it is scenery, and it
-    // should keep breathing on the ready screen and after a fall.
-    tickSurfaces(now / 1000);
-    if (props) props.tick(now / 1000);
-    if (rescue && rescue.cage) rescue.cage.tick(now / 1000);
-    if (fuelCell && fuelCell.mesh) fuelCell.mesh.tick(now / 1000);
-    if (pocket && pocket.mesh) pocket.mesh.tick(now / 1000);
-    if (sightFx) sightFx.set(!!(crewRun && crewRun.sightMs > 0 && phase === 'running'), now / 1000);
-    if (fuelBeaconFx) fuelBeaconFx.set(!!(fuelBeaconOn && fuelCell && !fuelCell.taken && !fuelCell.found), now / 1000);
-    if (auraFx && ballMesh) auraFx.place(ballMesh.position.x, ballMesh.position.z, now / 1000);
-    if (ship) ship.tick(now / 1000);
-    if (levelSky) levelSky.tick(now / 1000);
-    tickGoal(now);
+    tickScenery(now);
     advance(elapsedMs);
+}
+// What moves on the page clock, not the run clock -- it is scenery, and it
+// keeps breathing on the ready screen and after a fall: lava pulses, coins
+// spin (a taken one is hidden here), the cage, the cell, the page, the ship,
+// the sky. The marketing captures step the game frame by frame on a frozen
+// clock and call this themselves (__mazeDebug.tickScenery), or coins taken
+// on camera would never vanish.
+function tickScenery(nowMs) {
+    const t = nowMs / 1000;
+    tickSurfaces(t);
+    if (props) props.tick(t);
+    if (rescue && rescue.cage) rescue.cage.tick(t);
+    if (fuelCell && fuelCell.mesh) fuelCell.mesh.tick(t);
+    if (pocket && pocket.mesh) pocket.mesh.tick(t);
+    if (sightFx) sightFx.set(!!(crewRun && crewRun.sightMs > 0 && phase === 'running'), t);
+    if (fuelBeaconFx) fuelBeaconFx.set(!!(fuelBeaconOn && fuelCell && !fuelCell.taken && !fuelCell.found), t);
+    if (auraFx && ballMesh) auraFx.place(ballMesh.position.x, ballMesh.position.z, t);
+    if (ship) ship.tick(t);
+    if (levelSky) levelSky.tick(t);
+    tickGoal(nowMs);
 }
 
 // One frame of maze, given how long it represents.
@@ -2913,6 +2921,7 @@ window.__mazeDebug = {
     fallFx: () => (fallFx ? { cause: fallFx.cause, drawn: ballMesh ? { x: ballMesh.position.x, y: ballMesh.position.y, z: ballMesh.position.z, s: ballMesh.scale.x, sy: ballMesh.scale.y } : null, body: { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z }, fx: !!(fallFxMesh && fallFxMesh.group.visible) } : null),
     // This level's fuel cell: where, found before, taken this run, drawn.
     fuelBeacon: () => ({ offered: !!(el('mazeAdBeaconBtn') && el('mazeAdBeaconBtn').style.display !== 'none'), on: fuelBeaconOn, shown: !!(fuelBeaconFx && fuelBeaconFx.group.visible) }),
+    tickScenery: (ms) => { if (active && world) tickScenery(ms); return true; },
     medalClock: () => { const e = el('mazeMedal'); return e && !e.hidden ? { tier: e.className.replace(/.*is-/, ''), time: el('mazeMedalTime').textContent, par: el('mazeMedalPar').textContent } : null; },
     mission: () => { const b = el('mazeMission'); return b && !b.hidden ? [...b.querySelectorAll('li:not(.mission-medals)')].map(li => ({ kind: li.className.replace(/^mission-| is-done$/g, ''), text: li.querySelector('.mission-text').firstChild.textContent, done: li.classList.contains('is-done') })) : null; },
     fuel: () => (fuelCell ? { x: fuelCell.spot.x, z: fuelCell.spot.z, found: fuelCell.found, taken: fuelCell.taken, shown: !!(fuelCell.mesh && fuelCell.mesh.group.visible) } : null),

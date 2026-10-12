@@ -265,7 +265,13 @@ function besideOf(lv, x, z, dists = [0.75, 0.6, 0.9, 0.5, 1.1]) {
     return null;
 }
 
+// The capture's own clock (ms): the frozen page never runs its frame loop,
+// so each frame steps the scenery (coins spin, a taken coin vanishes, lava
+// pulses) by this before it is drawn.
+let sceneryMs = 0;
 async function frameTo(dbg, file, type = 'image/jpeg') {
+    sceneryMs += DT;
+    await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', type, 0.93);
     fs.writeFileSync(file, Buffer.from(url.split(',')[1], 'base64'));
 }
@@ -473,6 +479,7 @@ async function landingScene(browser, base, { name, width, height, level, skin, t
     let state = null;
     await runLevel(page, dbg, level, at, async (i, s) => { state = s; }, {});
     await dbg('cameraOverride', cam(state.pos, state.vel));
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -487,6 +494,7 @@ async function landingExplore(browser, base, { name, width, height, level }) {
     await dbg('advanceFrames', 45, DT);
     await dbg('walkMove', null);
     await dbg('advanceFrames', 20, DT);
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -517,6 +525,7 @@ async function landingRescue(browser, base, { name, width, height, level }) {
     await dbg('placeBall', at.x, at.z);
     await dbg('advanceFrames', 3, DT);
     await dbg('cameraOverride', lookPast(at, cage, { back: 2.0, up: 3.2, side: 1.1 }));
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -536,6 +545,7 @@ async function landingNear(browser, base, { name, width, height, level, target, 
     await dbg('placeBall', at.x, at.z);
     await dbg('advanceFrames', 3, DT);
     await dbg('cameraOverride', lookPast(at, t, { back: 2.0, up: 3.2, side: 1.1, ...cam }));
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -573,6 +583,7 @@ async function landingExploreFuel(browser, base, { name, width, height, level, m
     await dbg('advanceFrames', 2, DT);
     await faceToward(dbg, at, cell);
     await dbg('advanceFrames', 20, DT);
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -589,6 +600,7 @@ async function landingShip(browser, base, { name, width, height, level, at = 130
     const s = lv.start;
     const c = { back: 4.2, up: 4.6, side: 1.8, ...cam };
     await dbg('cameraOverride', { px: s.x + c.side, py: c.up, pz: s.z + c.back, lx: s.x, ly: 1.2, lz: s.z });
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
@@ -622,6 +634,7 @@ async function landingSecrets(browser, base, { name, width, height, level }) {
     await faceToward(dbg, at, { x: pk.x, z: pk.z });
     await dbg('useSignature');
     await dbg('advanceFrames', 20, DT);
+    sceneryMs += DT; await dbg('tickScenery', sceneryMs);
     const url = await dbg('snapshot', 'image/jpeg', 0.82);
     fs.writeFileSync(path.join(LANDING, name + '.jpg'), Buffer.from(url.split(',')[1], 'base64'));
     await page.close();
