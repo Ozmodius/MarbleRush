@@ -1212,6 +1212,37 @@ const failures = [];
         check((await wdbg('walk')).on === false && (await wdbg('walk')).fov !== 90, 'leaving the walk puts the camera back');
         await wCtx.close();
 
+        // --- a phone whose view went landscape (portraitLock.js) -------------
+        // The page turns itself back: the game stays portrait to the phone's
+        // own top (START at its bottom), and a drag along the phone's own
+        // down tilts the board toward the player, along its right to the right.
+        {
+            const tCtx = await browser.newContext({ viewport: { width: 844, height: 390 }, screen: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+            const tp = await tCtx.newPage();
+            tp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push('[turned] ' + e.message); });
+            await tp.goto(base);
+            await tp.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 30000 });
+            const tv = await tp.evaluate(() => {
+                const c = document.querySelector('canvas'), s = document.getElementById('mazeStartBtn').getBoundingClientRect();
+                return { cls: document.documentElement.className, cw: c.clientWidth, ch: c.clientHeight, startX: s.left + s.width / 2, startY: s.top + s.height / 2 };
+            });
+            // turn 90: the page's top is along the viewport's left, so its bottom (START) is at the right.
+            check(/\bis-turned\b/.test(tv.cls) && /\bturn-90\b/.test(tv.cls) && tv.cw === 390 && tv.ch === 844 && tv.startX > 844 * 0.75 && Math.abs(tv.startY - 195) < 60,
+                `a phone gone landscape is turned back upright, START at the phone's own bottom: ${JSON.stringify(tv)}`);
+            await tp.tap('#mazeStartBtn');
+            await tp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            // The phone's own down is the viewport's +x; its own right is the viewport's -y.
+            const steer = async (dx, dy) => {
+                await tp.mouse.move(420, 200); await tp.mouse.down(); await tp.mouse.move(420 + dx, 200 + dy, { steps: 4 });
+                const m = await tp.evaluate(() => window.__mazeDebug.manual());
+                await tp.mouse.up(); return m.reading;
+            };
+            const down = await steer(120, 0), right = await steer(0, -120);
+            check(down.beta > 0 && Math.abs(down.gamma) < 0.01 && right.gamma > 0 && Math.abs(right.beta) < 0.01,
+                `a turned phone's drag steers along the phone's own axes: down ${JSON.stringify(down)}, right ${JSON.stringify(right)}`);
+            await tCtx.close();
+        }
+
         // --- between levels on a computer (keyboard, no touch) ---------------
         // Two levels cleared: the third clear opens the daily maze and says so
         // under the result; NEXT shows SPACE; Space moves on even with REPLAY

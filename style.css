@@ -1816,3 +1816,45 @@ button.home-worldname:focus-visible { outline: 2px solid #7fe8ff; outline-offset
   .maze-hud:not(.is-running) .maze-medal { display: none; }
   .maze-hud.is-running .maze-levelname { visibility: hidden; }
 }
+
+/* --- a phone held portrait (portraitLock.js, the user's call, 2026-10-12) ---- */
+/* When a phone's view turns landscape the page turns itself back: the body
+   is rotated a quarter turn round the viewport's centre, the phone's own top
+   up, sized to the viewport with its sides swapped. The phone's notch and
+   home bar are then at the viewport's sides. Media queries still see a wide
+   viewport, so every (max-width: 560px) and (max-width: 400px) rule has a
+   twin here, under html.is-turned / html.is-turned-narrow (test_portrait.js
+   holds them in step), and the wide-screen rules that would wrongly apply
+   are put back. */
+html.is-turned body { position: fixed; left: 50%; top: 50%; width: var(--turn-w, 100vh); height: var(--turn-h, 100vw); transform: translate(-50%, -50%) rotate(-90deg); }
+html.is-turned.turn-270 body { transform: translate(-50%, -50%) rotate(90deg); }
+html.is-turned.turn-90 { --safe-top: env(safe-area-inset-left, 0px); --safe-bottom: env(safe-area-inset-right, 0px); }
+html.is-turned.turn-270 { --safe-top: env(safe-area-inset-right, 0px); --safe-bottom: env(safe-area-inset-left, 0px); }
+html.is-turned .ad-banner { height: 50px; }
+html.is-turned .maze-mission { left: 50%; transform: translateX(-50%); width: min(330px, calc(100% - 32px)); }
+/* vw and vh read the wide viewport: in the turned page they are --turn-w / --turn-h. */
+html.is-turned .home-logo { font-size: clamp(2.2rem, calc(var(--turn-w, 100vh) * 0.11), 3.4rem); }
+html.is-turned .rewards-pane .missions-list { max-height: min(calc(var(--turn-h, 100vw) * 0.56), 460px); }
+/* twins: generated from the phone-width rules above; :where() keeps each
+   exactly as specific as its original, so they rank as the originals do */
+:where(html.is-turned) .maze-levelname { position: absolute; top: 52px; left: 0; right: 0; font-size: 0.7rem; color: var(--ink-dim); }
+:where(html.is-turned) #mazeCamBtn, :where(html.is-turned) #mazeCamBtn[style*="none"] + #mazeSoundBtn { margin-left: auto; }
+:where(html.is-turned) .maze-status { top: calc(80px + var(--safe-top)); }
+:where(html.is-turned) .maze-powerups { top: calc(108px + var(--safe-top)); }
+:where(html.is-turned) .maze-status2 { top: calc(110px + var(--safe-top)); }
+:where(html.is-turned) .maze-mission { top: calc(80px + var(--safe-top)); }
+:where(html.is-turned) .maze-medal { position: absolute; top: 49px; left: 50%; transform: translateX(-50%); }
+:where(html.is-turned) .maze-hud:not(.is-running) .maze-medal { display: none; }
+:where(html.is-turned) .maze-hud.is-running .maze-levelname { visibility: hidden; }
+:where(html.is-turned-narrow) .home-stats { gap: 4px; }
+:where(html.is-turned-narrow) .hud-chip { height: 30px; padding: 0 7px; gap: 3px; font-size: 0.82rem; }
+:where(html.is-turned-narrow) .hud-medals, :where(html.is-turned-narrow) .hud-powerups { font-size: 0.8rem; }
+:where(html.is-turned-narrow) .hud-coins { padding: 0 3px; font-size: 0.92rem; }
+:where(html.is-turned-narrow) .hud-coins .chip-value { min-width: 0; }
+:where(html.is-turned-narrow) .coin-icon { width: 22px; height: 22px; }
+:where(html.is-turned-narrow) .chip-plus { width: 19px; height: 19px; font-size: 0.95rem; }
+:where(html.is-turned-narrow) .hud-medals .medal { margin-left: 4px; }
+:where(html.is-turned-narrow) .hud-powerups { gap: 5px; }
+:where(html.is-turned-narrow) .home-pu .pu-dot { margin-right: 3px; }
+:where(html.is-turned-narrow) .home-statlabel { font-size: 0.56rem; letter-spacing: 0.14em; }
+/* end twins */

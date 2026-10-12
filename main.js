@@ -8,6 +8,7 @@ import { createCloudSync } from './cloudSync.js';
 import { initCloudUi } from './leaderboardUi.js';
 import { initPrivacy } from './privacy.js';
 import { fitSafeArea } from './safeArea.js';
+import { holdPortrait } from './portraitLock.js';
 
 // BOOT. Platform first (CrazyGames wants loadingStart as early as possible and
 // the save may live in its SDK), then the renderer, then the save, then the
@@ -23,6 +24,7 @@ function bootMessage(text) {
 
 async function boot() {
     fitSafeArea();   // before anything is laid out (safeArea.js)
+    holdPortrait();          // a phone stays portrait however it is tilted (portraitLock.js)
     loadingStart();
     await initPlatform();
     // While an ad is being fetched or played, nothing under it takes a tap.

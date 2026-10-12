@@ -23,6 +23,7 @@ import { buildShip } from './ship3d.js';
 import { buildBackdrop } from './backdrop3d.js';
 import { fuelSpot, fuelGate, fuelCount, launchNeed, FUEL_REACH } from './fuel.js';
 import { missionFor } from './mission.js';
+import { currentTurn, contentPoint, pageRect } from './portraitLock.js';
 import { buildFuelCell } from './fuel3d.js';
 import { createSurvey, surveyOf, SURVEYED } from './survey.js';
 import { levelGrid as levelGridFor } from './levelSpots.js';
@@ -564,12 +565,14 @@ if (typeof window !== 'undefined') {
         if (!inRun() || drag) return;
         // Buttons (EXIT, RECENTER, ...) keep their taps.
         if (e.target && e.target.closest && e.target.closest('button, .maze-btn, input')) return;
-        drag = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, id: e.pointerId };
+        const p = contentPoint(e);
+        drag = { x0: p.x, y0: p.y, x: p.x, y: p.y, id: e.pointerId };
         noteManualInput();
     });
     window.addEventListener('pointermove', (e) => {
         if (!drag || e.pointerId !== drag.id) return;
-        drag.x = e.clientX; drag.y = e.clientY;
+        const p = contentPoint(e);
+        drag.x = p.x; drag.y = p.y;
     });
     const endDrag = (e) => { if (drag && (!e || e.pointerId === drag.id)) drag = null; };
     window.addEventListener('pointerup', endDrag);
@@ -1102,6 +1105,9 @@ function unbindOrientation() {
 }
 
 function screenAngle() {
+    // The page turned itself back upright (portraitLock.js): it is portrait
+    // to the phone's own top, whatever the screen says.
+    if (currentTurn()) return 0;
     try {
         if (window.screen && window.screen.orientation && Number.isFinite(window.screen.orientation.angle)) {
             return window.screen.orientation.angle;
@@ -2493,7 +2499,7 @@ function computeMenuPose() {
     // orbit may pass behind the HUD; the sites never do.
     const r = planet ? planet.radius : 5.3;
     const t = Math.tan(fov / 2);
-    const rect = homeBand && getRenderer() ? getRenderer().domElement.getBoundingClientRect() : null;
+    const rect = homeBand && getRenderer() ? pageRect(getRenderer().domElement) : null;
     if (rect && rect.height > 0 && homeBand.bottom - homeBand.top > 40) {
         const H = rect.height, W = rect.width;
         const top = homeBand.top - rect.top, bottom = homeBand.bottom - rect.top;
@@ -2534,7 +2540,10 @@ const _proj = new THREE.Vector3();
 export function pickWorld(clientX, clientY) {
     const r = getRenderer(), camera = getCamera();
     if (!solar || !r || !camera) return null;
-    const rect = r.domElement.getBoundingClientRect();
+    // In the page's own coordinates (portraitLock.js: a turned page's canvas
+    // fills it, its box no longer the viewport's).
+    const rect = pageRect(r.domElement);
+    if (currentTurn()) { const p = contentPoint({ clientX, clientY }); clientX = p.x; clientY = p.y; }
     _ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     _ray.setFromCamera(_ndc, camera);
     return solar.pick(_ray);
@@ -2556,7 +2565,7 @@ export function selectWorld(n) { if (solar) solar.select(n); requestRender(); }
 export function worldAnchors() {
     const r = getRenderer(), camera = getCamera();
     if (!solar || !r || !camera) return [];
-    const rect = r.domElement.getBoundingClientRect();
+    const rect = pageRect(r.domElement);
     camera.updateMatrixWorld();
     return solar.anchors().map(a => {
         _proj.copy(a.pos).add(new THREE.Vector3(0, -a.r * 1.1, 0)).project(camera);
@@ -2634,7 +2643,7 @@ export function homeSites() {
     const r = getRenderer(), camera = getCamera();
     if (!planet || !planet.siteWorld || backdrop !== 'planet' || !r || !camera) return [];
     const lvls = allLevels.filter(l => l.world === homeWorld());
-    const rect = r.domElement.getBoundingClientRect();
+    const rect = pageRect(r.domElement);
     camera.updateMatrixWorld();
     const out = [];
     for (let i = 0; i < Math.min(lvls.length, planet.siteCount); i++) {
