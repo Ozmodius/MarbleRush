@@ -280,6 +280,18 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   `viewport-fit=cover` (2026-10-10: the user's S25 Ultra browser reported
   the status and nav bars as insets, leaving ~38px and ~54px empty). Never
   read `env(safe-area-inset-*)` anywhere else.
+- **A phone stays portrait** (`portraitLock.js`, the user's call,
+  2026-10-12: a steep tilt tripped auto-rotate mid-run).
+  `screen.orientation.lock('portrait')` where allowed (Android fullscreen, an
+  installed app); everywhere else, a phone's landscape view turns the page
+  back (`html.is-turned`, the body rotated a quarter turn), never a tablet,
+  a computer or the landing site. Turned, tilt reads as portrait, pointers
+  come through `contentPoint(e)` and boxes through `pageRect(el)` -- never
+  raw clientX / getBoundingClientRect / innerWidth for layout or input.
+  Media queries still see a wide viewport, so every `(max-width: 560px)` and
+  `(max-width: 400px)` rule has a `:where(html.is-turned)` twin at the end of
+  style.css (`test_portrait.js` holds them in step), and vw/vh sizes get a
+  turned version in `--turn-w` / `--turn-h`.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

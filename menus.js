@@ -10,6 +10,7 @@ import { captiveFor, isRescueLevel, VILLAIN } from './rescue.js';
 import { fuelGate, fuelCount, launchNeed } from './fuel.js';
 import { isSurveyed } from './survey.js';
 import { POCKET_LEVELS } from './pockets.js';
+import { contentPoint, pageRect } from './portraitLock.js';
 import { initDailyUi, renderDailyButtons, maybeAutoOpenDaily, closeDailyPanels, showLevelUps } from './dailyUi.js';
 
 // THE MENUS: a bottom tab bar (HOME, GEAR, CREW, STORE) over the spinning
@@ -331,8 +332,8 @@ function layoutHome() {
     const view = $('homeView');
     const hud = view && view.querySelector('.home-hud'), nav = view && view.querySelector('.home-worldnav');
     if (!hud || !nav) return;
-    const top = hud.getBoundingClientRect().bottom, bottom = nav.getBoundingClientRect().top;
-    const vr = view.getBoundingClientRect();
+    const top = pageRect(hud).bottom, bottom = pageRect(nav).top;   // the page's own (portraitLock.js)
+    const vr = pageRect(view);
     view.style.setProperty('--home-top', Math.round(top - vr.top + 10) + 'px');
     ctx.game.setHomeBand(top + 4, bottom - 8);
 }
@@ -533,17 +534,18 @@ export function initMenus({ store, game }) {
         const SWIPE_PX = 45;
         let swipe = null;
         canvas.addEventListener('pointerdown', (e) => {
-            if (current === 'home') swipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
+            if (current === 'home') { const p = contentPoint(e); swipe = { id: e.pointerId, x: p.x, y: p.y }; }
         });
         // A swipe can start on a landing site's button too (they cover the
         // planet), and then it is a swipe, not a tap on that site.
         const sitesBox = $('homeSites');
         if (sitesBox) sitesBox.addEventListener('pointerdown', (e) => {
-            if (current === 'home') swipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
+            if (current === 'home') { const p = contentPoint(e); swipe = { id: e.pointerId, x: p.x, y: p.y }; }
         });
         const swipeEnd = (e) => {
             if (!swipe || e.pointerId !== swipe.id) return;
-            const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+            const p = contentPoint(e);
+            const dx = p.x - swipe.x, dy = p.y - swipe.y;
             swipe = null;
             if (current !== 'home' || Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy) * 1.2) return;
             swipedAt = performance.now();

@@ -14,6 +14,7 @@
 // mazeGame.js owns the run and asks it each frame what to do.
 
 import { WALK, MARBLES } from './shopCatalog.js';
+import { contentPoint } from './portraitLock.js';
 
 export const EYE_ABOVE_CENTRE = 0.12;   // eye height over the body's centre (walls are 0.55 tall)
 export const PITCH_MAX = 0.9;           // radians: look most of the way down or up
@@ -176,17 +177,19 @@ export function createWalkInput({ active, onFirstInput, stickEl, padEl }) {
         window.addEventListener('blur', () => { keys.clear(); stick = null; look = null; showStick(); });
         window.addEventListener('pointerdown', (e) => {
             if (!active() || isUi(e.target)) return;
-            if (e.clientX < window.innerWidth * 0.45 && !stick) {
-                stick = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY };
+            const p = contentPoint(e);            // the page's own coordinates (portraitLock.js)
+            if (p.x < p.w * 0.45 && !stick) {
+                stick = { id: e.pointerId, x0: p.x, y0: p.y, x: p.x, y: p.y };
                 showStick();
-            } else if (!look) { look = { id: e.pointerId, x: e.clientX, y: e.clientY }; showStick(); }
+            } else if (!look) { look = { id: e.pointerId, x: p.x, y: p.y }; showStick(); }
             onFirstInput && onFirstInput();
         });
         window.addEventListener('pointermove', (e) => {
-            if (stick && e.pointerId === stick.id) { stick.x = e.clientX; stick.y = e.clientY; showStick(); }
+            const p = contentPoint(e);
+            if (stick && e.pointerId === stick.id) { stick.x = p.x; stick.y = p.y; showStick(); }
             else if (look && e.pointerId === look.id) {
-                lookDX += e.clientX - look.x; lookDY += e.clientY - look.y;
-                look.x = e.clientX; look.y = e.clientY;
+                lookDX += p.x - look.x; lookDY += p.y - look.y;
+                look.x = p.x; look.y = p.y;
             }
         });
         const end = (e) => {
