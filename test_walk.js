@@ -142,6 +142,36 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
         const at = { x: lv1.start.x, y: lv1.ballRadius, z: lv1.start.z }, y1 = W.openingYaw(lv1), all1 = lv1.walls.concat(rails);
         check(W.thirdBlocked(all1, at, y1, W.THIRD.elev, 0.55, lv1.ballRadius) && !W.thirdBlocked(all1, at, y1, W.THIRD.high, 0.55, lv1.ballRadius), 'w1_01 starts with the edge in the low view, clear from the starting height');
     }
+    // Raised and the marble still hidden (a tall Explore wall just behind it):
+    // the camera rises steeper, to the first height that sees it, and eases there.
+    {
+        const tall = [{ x: 0, z: 0.75, w: 2, d: 0.1 }], TOP = 0.95;
+        const to = W.thirdRise(tall, P, 0, TOP);
+        check(W.thirdBlocked(tall, P, 0, W.THIRD.high, TOP, 0) && to > W.THIRD.high && !W.thirdBlocked(tall, P, 0, to, TOP, 0)
+            && W.thirdRise([], P, 0, TOP) === W.THIRD.high,
+            `with the marble hidden from the starting height, the camera rises to ${to} and sees it; with nothing in the way the starting height`);
+        let c = { elev: W.THIRD.elev, holdMs: 0, top: W.THIRD.high };
+        for (let i = 0; i < 40; i++) c = W.nextThirdElev(c, true, 16, to);
+        const up = c.elev;
+        for (let i = 0; i < 40; i++) c = W.nextThirdElev(c, true, 16, 99);
+        check(Math.abs(up - to) < 0.02 && c.elev <= W.THIRD.steeper[W.THIRD.steeper.length - 1] + 1e-9, `it eases to ${to} (${up.toFixed(2)}), never past ${W.THIRD.steeper[W.THIRD.steeper.length - 1]}`);
+    }
+    // Over every level (a coarse grid, facing down the open way): the low,
+    // starting or a steeper camera always sees the marble over 0.95 walls.
+    {
+        const TOP = 0.95; let n = 0, hidden = 0;
+        for (const lv of ALL) {
+            const r = lv.ballRadius, hw = lv.size.w / 2, hd = lv.size.d / 2, t = 0.4;
+            const walls = lv.walls.concat([{ x: 0, z: -hd - t / 2, w: lv.size.w + t * 2, d: t }, { x: 0, z: hd + t / 2, w: lv.size.w + t * 2, d: t }, { x: -hw - t / 2, z: 0, w: t, d: lv.size.d }, { x: hw + t / 2, z: 0, w: t, d: lv.size.d }]);
+            for (let x = -hw + 0.5; x < hw; x += 1) for (let z = -hd + 0.5; z < hd; z += 1) {
+                if (Math.abs(x) > hw - r || Math.abs(z) > hd - r || lv.walls.some(w => Math.abs(x - w.x) < w.w / 2 + r && Math.abs(z - w.z) < w.d / 2 + r)) continue;
+                const yaw = W.openingYaw({ ...lv, start: { x, z } }), p = { x, y: r, z };
+                n++;
+                if (W.thirdBlocked(walls, p, yaw, W.THIRD.elev, TOP, 0)) { if (W.thirdBlocked(walls, p, yaw, W.thirdRise(walls, p, yaw, TOP), TOP, 0)) hidden++; }
+            }
+        }
+        check(n > 1000 && hidden === 0, `the camera finds the marble at all ${n} sampled spots (${hidden} hidden)`);
+    }
     // Up quickly while blocked, a moment's hold, then a slow slide down; never past the starting height.
     let cam = { elev: W.THIRD.elev, holdMs: 0 }, top = 0;
     for (let i = 0; i < 30; i++) { cam = W.nextThirdElev(cam, true, 16); top = Math.max(top, cam.elev); }

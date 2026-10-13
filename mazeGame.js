@@ -48,7 +48,7 @@ import { buildSolarSystem } from './solarSystem3d.js';
 import { isUnlocked, nearMiss, walkGoldMs, tierLimits } from './progressStore.js';
 import { createWalkHud } from './walkHud.js';
 import { openComfort, closeComfort } from './comfortUi.js';
-import { createWalkInput, wantedVelocity, walkImpulse, walkHandling, handlingAccel, clampPitch, lookPoint, openingYaw, thirdPersonPose, thirdBlocked, nextThirdElev, THIRD, EYE_ABOVE_CENTRE } from './walkMode.js';
+import { createWalkInput, wantedVelocity, walkImpulse, walkHandling, handlingAccel, clampPitch, lookPoint, openingYaw, thirdPersonPose, thirdBlocked, thirdRise, nextThirdElev, THIRD, EYE_ABOVE_CENTRE } from './walkMode.js';
 import { MISSIONS } from './shopCatalog.js';
 import { rewardText } from './daily.js';
 import { applySkin } from './skins3d.js';
@@ -210,7 +210,7 @@ let walkMode = false;
 let walkYaw = 0, walkPitch = 0, walkStartYaw = 0;
 // The third-person camera's height (walkMode.js THIRD): low, risen while a
 // wall blocks the low view. thirdWalls: what can block it -- every wall drawn.
-let thirdCam = { elev: THIRD.elev, holdMs: 0 }, thirdWalls = [];
+let thirdCam = { elev: THIRD.elev, holdMs: 0, top: THIRD.high }, thirdWalls = [];
 let walkWant = { x: 0, z: 0 };
 let walkSpeedNow = 0, walkTurning = false, walkBob = 0;
 let walkInput = null;
@@ -219,7 +219,10 @@ let ballOnIce = false;               // on ice this step, after any Ice Skates
 let walkHud = null;               // compass and map (walkHud.js), when owned
 let walkHintShown = false;
 let savedFov = null;
-const WALK_HINT = 'LEFT: MOVE  ·  RIGHT: LOOK  ·  OR WASD';
+// Explore's controls, in the device's words and on one line: on a phone the
+// old 'LEFT: MOVE · RIGHT: LOOK · OR WASD' wrapped onto the power-ups line
+// (SHIELD) under it, and a phone has no keys to speak of.
+function walkHintText() { return keyboardFirst() ? 'WASD TO MOVE  ·  DRAG OR ARROWS TO LOOK' : 'LEFT: MOVE  ·  RIGHT: LOOK'; }
 const _walkEye = new THREE.Vector3();
 const _walkLook = new THREE.Vector3();
 
@@ -253,10 +256,14 @@ function setWalkFov(on) {
 function thirdLowBlocked() {
     return thirdBlocked(thirdWalls, ballBody.position, walkYaw, THIRD.elev, FLOOR_Y + drawnWallHeight(), level ? level.ballRadius : 0);
 }
+// How high it must rise to see the marble (the starting height, or steeper).
+function thirdRiseTo() {
+    return thirdRise(thirdWalls, ballBody.position, walkYaw, FLOOR_Y + drawnWallHeight(), level ? level.ballRadius : 0);
+}
 // At a level's start or a restart: straight to the height the view needs.
 function resetThirdCam() {
-    thirdCam = { elev: THIRD.elev, holdMs: 0 };
-    if (ballBody && thirdLowBlocked()) thirdCam = { elev: THIRD.high, holdMs: THIRD.holdMs };
+    thirdCam = { elev: THIRD.elev, holdMs: 0, top: THIRD.high };
+    if (ballBody && thirdLowBlocked()) { const top = thirdRiseTo(); thirdCam = { elev: top, holdMs: THIRD.holdMs, top }; }
 }
 function computeWalkPose() {
     const p = ballBody.position;
@@ -290,7 +297,10 @@ function stepWalkControls(elapsedMs, lookOnly) {
     const dPitch = walkThird() ? 0 : inp.dPitch;
     walkPitch = clampPitch(walkPitch + dPitch);
     walkTurning = inp.dYaw !== 0 || dPitch !== 0;
-    if (walkThird() && ballBody) thirdCam = nextThirdElev(thirdCam, thirdLowBlocked(), elapsedMs);
+    if (walkThird() && ballBody) {
+        const blocked = thirdLowBlocked();
+        thirdCam = nextThirdElev(thirdCam, blocked, elapsedMs, blocked ? thirdRiseTo() : THIRD.high);
+    }
     walkWant = lookOnly ? { x: 0, z: 0 } : wantedVelocity(inp.move, walkYaw);
     if (world) world.gravity.set(0, -GRAVITY, 0);
     if (mazeGroup) mazeGroup.rotation.set(0, 0, 0);
@@ -3241,7 +3251,7 @@ async function startRun() {
         showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false); showEl('mazeExploreBtn', false);
         restart();
         walkHintShown = true;
-        setStatus(WALK_HINT);
+        setStatus(walkHintText());
         return;
     }
     const perm = await requestTiltPermission();

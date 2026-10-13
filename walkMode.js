@@ -127,10 +127,17 @@ export function openingYaw(lv) {
 // between it and the marble does it rise to the old starting height (`high`),
 // then slide back down once the low view is clear ("starting height, when
 // walls are in the way, then slide down to where it is now").
-export const THIRD = { dist: 2.5, elev: 0.35, high: 0.79, ahead: 1.0, riseMs: 110, fallMs: 650, holdMs: 450 };
-export function thirdPersonPose(p, yaw, elev = THIRD.elev) {
+//
+// Raised and the marble STILL hidden (a tall Explore wall just behind it,
+// 2026-10-12), it keeps rising, steeper, to the first of `steeper` that sees
+// the marble. Moving in closer was tried and measured first: it keeps the
+// angle, so a wall just behind the marble stays in the way at any distance
+// (it cleared no spot of 11,742 sampled over every level); rising clears all.
+export const THIRD = { dist: 2.5, elev: 0.35, high: 0.79, ahead: 1.0, riseMs: 110, fallMs: 650, holdMs: 450,
+    steeper: [0.95, 1.1, 1.25, 1.4] };
+export function thirdPersonPose(p, yaw, elev = THIRD.elev, dist = THIRD.dist) {
     const F = forwardOf(yaw);
-    const back = Math.cos(elev) * THIRD.dist, up = Math.sin(elev) * THIRD.dist;
+    const back = Math.cos(elev) * dist, up = Math.sin(elev) * dist;
     return {
         eye: { x: p.x - F.x * back, y: p.y + up, z: p.z - F.z * back },
         look: { x: p.x + F.x * THIRD.ahead, y: p.y, z: p.z + F.z * THIRD.ahead }
@@ -142,11 +149,21 @@ export function thirdPersonPose(p, yaw, elev = THIRD.elev) {
 // edge (`r`: the marble's radius; a wall hiding the floor it rolls on is in
 // the way too), against each wall's box, floor to `top`, a hair fatter
 // (`pad`) so a wall skimming a line counts.
-export function thirdBlocked(walls, p, yaw, elev, top, r = 0, pad = 0.04) {
-    const e = thirdPersonPose(p, yaw, elev).eye, F = forwardOf(yaw);
+export function thirdBlocked(walls, p, yaw, elev, top, r = 0, pad = 0.04, dist = THIRD.dist) {
+    const e = thirdPersonPose(p, yaw, elev, dist).eye, F = forwardOf(yaw);
     const floorY = p.y - r + 0.02;
     return segmentBlocked(walls, e, p, top, pad)
         || segmentBlocked(walls, e, { x: p.x - F.x * r, y: floorY, z: p.z - F.z * r }, top, pad);
+}
+// How high the camera rises when the low view is blocked: the starting
+// height if it sees the marble from there, else the first of THIRD.steeper
+// that sees the marble and the floor at its near edge (`r`), else the first
+// that sees at least its centre (the last if none).
+export function thirdRise(walls, p, yaw, top, r = 0) {
+    if (!thirdBlocked(walls, p, yaw, THIRD.high, top, 0)) return THIRD.high;
+    for (const e of THIRD.steeper) if (!thirdBlocked(walls, p, yaw, e, top, r)) return e;
+    for (const e of THIRD.steeper) if (!thirdBlocked(walls, p, yaw, e, top, 0)) return e;
+    return THIRD.steeper[THIRD.steeper.length - 1];
 }
 function segmentBlocked(walls, e, q, top, pad) {
     const d = { x: q.x - e.x, y: q.y - e.y, z: q.z - e.z };
@@ -166,17 +183,21 @@ function segmentBlocked(walls, e, q, top, pad) {
     return false;
 }
 
-// One frame of the camera's height: up to `high` quickly while the low view
-// is blocked, held there a moment once it clears (no bobbing at a wall's
-// end), then a slow slide back down. state: { elev, holdMs }.
-export function nextThirdElev(state, blockedLow, dtMs) {
-    const s = state && Number.isFinite(state.elev) ? state : { elev: THIRD.elev, holdMs: 0 };
+// One frame of the camera's height: up quickly while the low view is
+// blocked -- to `riseTo` (thirdRise: the starting height, or steeper if the
+// marble is still hidden there) -- held a moment once it clears (no bobbing
+// at a wall's end), then a slow slide back down. state: { elev, holdMs, top }
+// (top: the height it last rose to, kept while it holds).
+export function nextThirdElev(state, blockedLow, dtMs, riseTo = THIRD.high) {
+    const s = state && Number.isFinite(state.elev) ? state : { elev: THIRD.elev, holdMs: 0, top: THIRD.high };
     const dt = Math.max(0, Number(dtMs) || 0);
     let hold = blockedLow ? THIRD.holdMs : Math.max(0, s.holdMs - dt);
-    const want = blockedLow || hold > 0 ? THIRD.high : THIRD.elev;
+    const cap = THIRD.steeper[THIRD.steeper.length - 1];
+    const top = blockedLow ? Math.max(THIRD.high, Math.min(cap, Number(riseTo) || THIRD.high)) : (Number.isFinite(s.top) ? s.top : THIRD.high);
+    const want = blockedLow || hold > 0 ? top : THIRD.elev;
     const tau = want > s.elev ? THIRD.riseMs : THIRD.fallMs;
     const elev = s.elev + (want - s.elev) * (1 - Math.exp(-dt / tau));
-    return { elev, holdMs: hold };
+    return { elev, holdMs: hold, top };
 }
 
 export function clampPitch(p) { return Math.max(-PITCH_MAX, Math.min(PITCH_MAX, p)); }
