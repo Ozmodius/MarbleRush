@@ -86,6 +86,12 @@ const DAILY_URL = 'dailyLevels.json';   // the daily maze pool (daily.js)
 // rotates it off vertical and preserves this magnitude at every tilt.
 const GRAVITY = 30;
 const WALL_HEIGHT = 0.55;
+// EXPLORE'S WALLS are drawn taller (the user's call, 2026-10-12: "raise the
+// walls some in explore to better hide the maze"). Drawing only: every body
+// stays WALL_HEIGHT, and nothing in the game leaves the floor (a spring pad
+// launches along it), so no route, verifier guarantee or gold time changes.
+export const WALK_WALL_HEIGHT = 0.95;
+function drawnWallHeight() { return walkMode ? WALK_WALL_HEIGHT : WALL_HEIGHT; }
 const FLOOR_Y = 0;
 const FIXED_STEP = 1 / 60;
 const MAX_CATCHUP_STEPS = 150;   // ~2.5s of sim in one frame, same cap diceBox3d uses
@@ -245,7 +251,7 @@ function setWalkFov(on) {
 }
 
 function thirdLowBlocked() {
-    return thirdBlocked(thirdWalls, ballBody.position, walkYaw, THIRD.elev, FLOOR_Y + WALL_HEIGHT, level ? level.ballRadius : 0);
+    return thirdBlocked(thirdWalls, ballBody.position, walkYaw, THIRD.elev, FLOOR_Y + drawnWallHeight(), level ? level.ballRadius : 0);
 }
 // At a level's start or a restart: straight to the height the view needs.
 function resetThirdCam() {
@@ -672,7 +678,7 @@ function buildWalls(lv, group, theme) {
     // like any other wall -- but is left out of what is returned, which is
     // what the physics builds bodies from.
     const drawn = pocket ? all.concat([pocket.wall]) : all;
-    const built = buildFloorAndWalls(lv, drawn, theme, { height: WALL_HEIGHT, floorY: FLOOR_Y }, tracked);
+    const built = buildFloorAndWalls(lv, drawn, theme, { height: drawnWallHeight(), floorY: FLOOR_Y }, tracked);
     tracked.forEach(track);
     group.add(built.group);
     forest = built.forest;
@@ -737,7 +743,7 @@ function buildGates(lv, group, theme) {
         // position is the gate's centre on the floor. The seed keeps two gates
         // from wearing identical rock.
         const geo = track(makeWallGeometry(theme, [{ x: 0, z: 0, w: spec.w, d: spec.d }],
-            { height: WALL_HEIGHT, reach: lv.ballRadius, seed: i + 1 }));
+            { height: drawnWallHeight(), reach: lv.ballRadius, seed: i + 1 }));
         const mesh = new THREE.Mesh(geo, own || mat);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -862,7 +868,7 @@ function buildLevelMeshes(lv, theme) {
     // The fuel beacon's light, ready for a rewarded ad to switch on.
     if (walkMode && fuelCell && !fuelCell.found) {
         const tracked = [];
-        fuelBeaconFx = buildSight({ walls: [], beacons: [{ x: fuelCell.spot.x, z: fuelCell.spot.z, gone: () => !fuelCell || fuelCell.taken }] }, WALL_HEIGHT, tracked);
+        fuelBeaconFx = buildSight({ walls: [], beacons: [{ x: fuelCell.spot.x, z: fuelCell.spot.z, gone: () => !fuelCell || fuelCell.taken }] }, drawnWallHeight(), tracked);
         tracked.forEach(track);
         group.add(fuelBeaconFx.group);
     }
@@ -874,7 +880,7 @@ function buildLevelMeshes(lv, theme) {
             const beacons = [];
             if (fuelCell && !fuelCell.found) beacons.push({ x: fuelCell.spot.x, z: fuelCell.spot.z, gone: () => !fuelCell || fuelCell.taken });
             if (pocket && !pocket.found) beacons.push({ x: pocket.page.x, z: pocket.page.z, gone: () => !pocket || pocket.taken });
-            sightFx = buildSight({ walls: pocket ? [pocket.wall] : [], beacons }, WALL_HEIGHT, tracked);
+            sightFx = buildSight({ walls: pocket ? [pocket.wall] : [], beacons }, drawnWallHeight(), tracked);
             tracked.forEach(track);
             group.add(sightFx.group);
         }

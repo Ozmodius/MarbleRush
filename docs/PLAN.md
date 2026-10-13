@@ -233,6 +233,9 @@ Phase 3 as built (2026-10-06), on Oz's call and choices:
   verifier guarantee holds unchanged; gravity stays straight down and a
   capped push (12 u/s^2, over twice the strongest trap's) drives it toward
   walking pace (1.8 u/s). Traps are live. The eye sits below the wall tops.
+- *Taller walls in Explore* (the user's call, 2026-10-12, 0.95 picked from
+  0.8 / 0.95 / 1.1): drawn 0.95 high to hide the maze, bodies still 0.55 --
+  nothing leaves the floor, so no route or time changes.
 - *Medals and pay*: walk par = 1.1 x the level's gold time; the first walk
   pays half the level's first-clear pay plus coins, a walk gold its gold
   bonus; walk records are kept apart from rolling ones.
