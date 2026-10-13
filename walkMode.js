@@ -67,17 +67,18 @@ export function walkImpulse(v, want, dt, accel = WALK.accel) {
 // HANDLING: the marble and its upgrades, carried into Explore. Each stat does
 // here what its blurb promises when rolling (shopCatalog.js), and none of it
 // touches top speed (WALK.speed, the same for every marble) or the radius:
-//   drive     how hard it pushes toward the speed asked for (grip + Grip
-//             upgrade): quicker off the mark, tighter turns. Classic is the
+//   drive     how hard it pushes toward the speed asked for (grip, with the
+//             crew's tuned steps): quicker off the mark, tighter turns. Classic is the
 //             tuned WALK.accel; never below minDrive, which beats twice the
 //             strongest trap push (test_walk.js), on ice too.
-//   brake     how hard it stops with nothing held (damping + Air Brake).
-//             Classic coasts about half a second; Steel and the Air Brake
-//             stop much shorter, up to nearly dead (maxBrake). Braking is
+//   brake     how hard it stops with nothing held (damping, with tuned
+//             stopping). Classic coasts about half a second; Sterling, Cinder
+//             and Rivet stop much shorter, up to nearly dead (maxBrake). Braking is
 //             only ever with nothing held, so it never decides whether a trap
 //             can be walked out of -- drive does.
 //   response  stick sensitivity: full speed with a shorter drag (Glass).
-// On ice (no Rubber Coat) every marble drives at minDrive and barely brakes:
+// On ice (unless Ice Skates cover the patch: mazeGame.js) every marble drives
+// at minDrive and barely brakes:
 // let go and it slides on, the way ice reads when rolling.
 export const HANDLING = { minDrive: 10, maxDrive: 18, coast: 3.6, brakePerDamping: 240, maxBrake: 30, iceBrake: 1 };
 export function walkHandling(spec) {
@@ -120,17 +121,62 @@ export function openingYaw(lv) {
 }
 
 // THIRD PERSON: the camera behind the walker and above the wall tops, looking
-// down at it and on along its way. Looking up or down raises or lowers the
-// camera round the marble (an orbit), rather than tilting the view.
-export const THIRD = { dist: 2.5, elevation: 0.72, ahead: 1.0, minElev: 0.35, maxElev: 1.3 };
-export function thirdPersonPose(p, yaw, pitch) {
-    const elev = Math.max(THIRD.minElev, Math.min(THIRD.maxElev, THIRD.elevation - pitch * 0.9));
+// down at it and on along its way. Never raised by the look (the user's call,
+// 2026-10-12: "the look should not allow a higher camera angle"): it sits LOW
+// (`elev`, what was the lowest of the old orbit) and only when a wall stands
+// between it and the marble does it rise to the old starting height (`high`),
+// then slide back down once the low view is clear ("starting height, when
+// walls are in the way, then slide down to where it is now").
+export const THIRD = { dist: 2.5, elev: 0.35, high: 0.79, ahead: 1.0, riseMs: 110, fallMs: 650, holdMs: 450 };
+export function thirdPersonPose(p, yaw, elev = THIRD.elev) {
     const F = forwardOf(yaw);
     const back = Math.cos(elev) * THIRD.dist, up = Math.sin(elev) * THIRD.dist;
     return {
         eye: { x: p.x - F.x * back, y: p.y + up, z: p.z - F.z * back },
         look: { x: p.x + F.x * THIRD.ahead, y: p.y, z: p.z + F.z * THIRD.ahead }
     };
+}
+
+// Whether a wall stands between the camera (at `elev`) and the marble: the
+// lines from the eye to the marble's centre and to the floor at its near
+// edge (`r`: the marble's radius; a wall hiding the floor it rolls on is in
+// the way too), against each wall's box, floor to `top`, a hair fatter
+// (`pad`) so a wall skimming a line counts.
+export function thirdBlocked(walls, p, yaw, elev, top, r = 0, pad = 0.04) {
+    const e = thirdPersonPose(p, yaw, elev).eye, F = forwardOf(yaw);
+    const floorY = p.y - r + 0.02;
+    return segmentBlocked(walls, e, p, top, pad)
+        || segmentBlocked(walls, e, { x: p.x - F.x * r, y: floorY, z: p.z - F.z * r }, top, pad);
+}
+function segmentBlocked(walls, e, q, top, pad) {
+    const d = { x: q.x - e.x, y: q.y - e.y, z: q.z - e.z };
+    for (const w of walls || []) {
+        let t0 = 0, t1 = 0.97;                 // stop short of the target itself
+        const slabs = [[e.x, d.x, w.x - w.w / 2 - pad, w.x + w.w / 2 + pad], [e.y, d.y, -1, top + pad], [e.z, d.z, w.z - w.d / 2 - pad, w.z + w.d / 2 + pad]];
+        let hit = true;
+        for (const [o, v, lo, hi] of slabs) {
+            if (Math.abs(v) < 1e-9) { if (o < lo || o > hi) { hit = false; break; } continue; }
+            let a = (lo - o) / v, b = (hi - o) / v;
+            if (a > b) [a, b] = [b, a];
+            t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+            if (t0 > t1) { hit = false; break; }
+        }
+        if (hit) return true;
+    }
+    return false;
+}
+
+// One frame of the camera's height: up to `high` quickly while the low view
+// is blocked, held there a moment once it clears (no bobbing at a wall's
+// end), then a slow slide back down. state: { elev, holdMs }.
+export function nextThirdElev(state, blockedLow, dtMs) {
+    const s = state && Number.isFinite(state.elev) ? state : { elev: THIRD.elev, holdMs: 0 };
+    const dt = Math.max(0, Number(dtMs) || 0);
+    let hold = blockedLow ? THIRD.holdMs : Math.max(0, s.holdMs - dt);
+    const want = blockedLow || hold > 0 ? THIRD.high : THIRD.elev;
+    const tau = want > s.elev ? THIRD.riseMs : THIRD.fallMs;
+    const elev = s.elev + (want - s.elev) * (1 - Math.exp(-dt / tau));
+    return { elev, holdMs: hold };
 }
 
 export function clampPitch(p) { return Math.max(-PITCH_MAX, Math.min(PITCH_MAX, p)); }

@@ -119,14 +119,39 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
 
     // Third person: behind the walker and above the wall tops, looking at it.
     for (const yaw of [0, 1, 2.5, -2]) {
-        const tp = W.thirdPersonPose({ x: 1, y: 0.3, z: 2 }, yaw, 0);
+        const tp = W.thirdPersonPose({ x: 1, y: 0.3, z: 2 }, yaw);
         const F = W.forwardOf(yaw);
         const back = (1 - tp.eye.x) * F.x + (2 - tp.eye.z) * F.z;
         check(back > 1 && tp.eye.y > 0.55 + 0.3, `third person sits behind (${back.toFixed(2)}) and above the walls (${tp.eye.y.toFixed(2)}) at yaw ${yaw}`);
         check((tp.look.x - 1) * F.x + (tp.look.z - 2) * F.z > 0, 'and looks on past the walker');
     }
-    const low = W.thirdPersonPose({ x: 0, y: 0.3, z: 0 }, 0, 0.9), high = W.thirdPersonPose({ x: 0, y: 0.3, z: 0 }, 0, -0.9);
-    check(high.eye.y > low.eye.y && low.eye.y > 0.55, 'looking down raises the camera, looking up lowers it -- never below the walls');
+    // The camera's height (2026-10-12): low by default (the old orbit's
+    // lowest), still clear of the wall tops; the look never raises it.
+    const tp0 = W.thirdPersonPose({ x: 0, y: 0.3, z: 0 }, 0);
+    check(near(tp0.eye.y, 0.3 + Math.sin(W.THIRD.elev) * W.THIRD.dist) && tp0.eye.y > 0.55 + 0.3 && W.THIRD.high > W.THIRD.elev, `third person sits low (${tp0.eye.y.toFixed(2)})`);
+    // A wall just behind the marble hides it from the low camera, not from the raised one.
+    // (A marble of radius 0.3 at the origin facing -z: the camera is behind, at +z.)
+    const P = { x: 0, y: 0.3, z: 0 }, behind = [{ x: 0, z: 1.05, w: 2, d: 0.1 }], ahead = [{ x: 0, z: -0.6, w: 2, d: 0.1 }], far = [{ x: 0, z: 1.8, w: 2, d: 0.1 }];
+    check(W.thirdBlocked(behind, P, 0, W.THIRD.elev, 0.55, 0.3) && !W.thirdBlocked(behind, P, 0, W.THIRD.high, 0.55, 0.3)
+        && !W.thirdBlocked(ahead, P, 0, W.THIRD.elev, 0.55, 0.3) && !W.thirdBlocked(far, P, 0, W.THIRD.elev, 0.55, 0.3) && !W.thirdBlocked([], P, 0, W.THIRD.elev, 0.55, 0.3),
+        'a wall hiding the marble or the floor it is on from the low camera blocks it; the raised camera sees over it; a wall ahead or under the camera does not count');
+    // At a real start against the board's edge (w1_01), the low camera cannot see the floor under the marble.
+    {
+        const lv1 = ALL.find(l => l.id === 'w1_01'), hw = lv1.size.w / 2, hd = lv1.size.d / 2, t = 0.4;
+        const rails = [{ x: 0, z: -hd - t / 2, w: lv1.size.w + t * 2, d: t }, { x: 0, z: hd + t / 2, w: lv1.size.w + t * 2, d: t }, { x: -hw - t / 2, z: 0, w: t, d: lv1.size.d }, { x: hw + t / 2, z: 0, w: t, d: lv1.size.d }];
+        const at = { x: lv1.start.x, y: lv1.ballRadius, z: lv1.start.z }, y1 = W.openingYaw(lv1), all1 = lv1.walls.concat(rails);
+        check(W.thirdBlocked(all1, at, y1, W.THIRD.elev, 0.55, lv1.ballRadius) && !W.thirdBlocked(all1, at, y1, W.THIRD.high, 0.55, lv1.ballRadius), 'w1_01 starts with the edge in the low view, clear from the starting height');
+    }
+    // Up quickly while blocked, a moment's hold, then a slow slide down; never past the starting height.
+    let cam = { elev: W.THIRD.elev, holdMs: 0 }, top = 0;
+    for (let i = 0; i < 30; i++) { cam = W.nextThirdElev(cam, true, 16); top = Math.max(top, cam.elev); }
+    const risen = cam.elev;
+    cam = W.nextThirdElev(cam, false, 16);
+    const held = cam.elev;
+    let slid = 0;
+    for (let i = 0; i < 400 && cam.elev > W.THIRD.elev + 0.01; i++) { cam = W.nextThirdElev(cam, false, 16); slid += 16; }
+    check(risen > W.THIRD.high - 0.02 && top <= W.THIRD.high + 1e-9 && held >= risen - 1e-6 && slid > W.THIRD.holdMs + 500 && slid < 5000,
+        `the camera rises to the starting height when blocked (${risen.toFixed(2)} in 0.5 s), holds, then slides down (${(slid / 1000).toFixed(1)} s)`);
 
     // 3. the walker is the ball
     check(!('radius' in C.WALK) && !('ball' in C.WALK), 'walking never changes the ball radius');

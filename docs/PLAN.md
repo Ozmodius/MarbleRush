@@ -218,9 +218,15 @@ Phase 3 as built (2026-10-06), on Oz's call and choices:
   short a stick drag reaches full speed. Top speed is the same for every
   marble, and the weakest drive anywhere -- ice included -- still beats
   twice the strongest trap push (`walkHandling`, test_walk.js). On ice every
-  marble drives at that floor and slides on when let go; Rubber Coat makes
-  ice grip like floor. Power Time, Coin Reach, power-ups and world prizes
-  already applied (they run through the same pickups and hazards).
+  marble drives at that floor and slides on when let go; Ice Skates make
+  a patch grip like floor. The crew's tuned steps carry in with the stats.
+  Power-ups, shields, signatures and planet charges work exactly as rolling
+  (the user's call, 2026-10-12: "the moving controls should reflect the
+  characters stats, upgrades and shields ... and surface"): every trap asks
+  the same `covered(kind)`, Hole Hop and the shield take a fall, Coin Sense
+  is a tap here too; only Clear Sight is Explore-only. The floors' themes
+  (wood, snow, foam, steel) differ in sound, not grip: only ice and belts
+  change how the floor holds, rolling or walking.
 - *Which mazes*: the 50 ladder levels, each walkable once rolled (a WALK IT
   button after a clear, and a ROLL | WALK switch on the worlds sheet).
 - *The walker is the ball's body* (walkMode.js): the same radius, so every
