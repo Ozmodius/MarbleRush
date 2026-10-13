@@ -236,6 +236,14 @@ Phase 3 as built (2026-10-06), on Oz's call and choices:
 - *Taller walls in Explore* (the user's call, 2026-10-12, 0.95 picked from
   0.8 / 0.95 / 1.1): drawn 0.95 high to hide the maze, bodies still 0.55 --
   nothing leaves the floor, so no route or time changes.
+- *The third-person camera* (the user's calls, 2026-10-12): low (0.35 rad),
+  never raised by the look; rises to the old starting height (0.79) when a
+  wall hides the marble or the floor under it, and -- only if the marble is
+  still hidden there -- steeper (0.95 to 1.4), then slides back down.
+  Moving it in closer was tried first and measured: it keeps the angle, so a
+  wall just behind the marble stays in the way (it cleared no spot of 11,742
+  sampled); rising steeper clears every one. The controls hint is one line
+  in the device's words (LEFT: MOVE · RIGHT: LOOK on a phone).
 - *Medals and pay*: walk par = 1.1 x the level's gold time; the first walk
   pays half the level's first-clear pay plus coins, a walk gold its gold
   bonus; walk records are kept apart from rolling ones.
