@@ -48,7 +48,7 @@ import { buildSolarSystem } from './solarSystem3d.js';
 import { isUnlocked, nearMiss, walkGoldMs, tierLimits } from './progressStore.js';
 import { createWalkHud } from './walkHud.js';
 import { openComfort, closeComfort } from './comfortUi.js';
-import { createWalkInput, wantedVelocity, walkImpulse, walkHandling, handlingAccel, clampPitch, lookPoint, openingYaw, thirdPersonPose, EYE_ABOVE_CENTRE } from './walkMode.js';
+import { createWalkInput, wantedVelocity, walkImpulse, walkHandling, handlingAccel, clampPitch, lookPoint, openingYaw, thirdPersonPose, thirdBlocked, nextThirdElev, THIRD, EYE_ABOVE_CENTRE } from './walkMode.js';
 import { MISSIONS } from './shopCatalog.js';
 import { rewardText } from './daily.js';
 import { applySkin } from './skins3d.js';
@@ -202,6 +202,9 @@ function ballCamWanted() {
 // body is the walker; the camera is its eye.
 let walkMode = false;
 let walkYaw = 0, walkPitch = 0, walkStartYaw = 0;
+// The third-person camera's height (walkMode.js THIRD): low, risen while a
+// wall blocks the low view. thirdWalls: what can block it -- every wall drawn.
+let thirdCam = { elev: THIRD.elev, holdMs: 0 }, thirdWalls = [];
 let walkWant = { x: 0, z: 0 };
 let walkSpeedNow = 0, walkTurning = false, walkBob = 0;
 let walkInput = null;
@@ -241,11 +244,19 @@ function setWalkFov(on) {
     camera.updateProjectionMatrix();
 }
 
+function thirdLowBlocked() {
+    return thirdBlocked(thirdWalls, ballBody.position, walkYaw, THIRD.elev, FLOOR_Y + WALL_HEIGHT, level ? level.ballRadius : 0);
+}
+// At a level's start or a restart: straight to the height the view needs.
+function resetThirdCam() {
+    thirdCam = { elev: THIRD.elev, holdMs: 0 };
+    if (ballBody && thirdLowBlocked()) thirdCam = { elev: THIRD.high, holdMs: THIRD.holdMs };
+}
 function computeWalkPose() {
     const p = ballBody.position;
     if (walkThird()) {
         // Behind and above, eased so the camera glides rather than jitters.
-        const tp = thirdPersonPose(p, walkYaw);
+        const tp = thirdPersonPose(p, walkYaw, thirdCam.elev);
         if (!thirdEyeSet) { _thirdEye.set(tp.eye.x, tp.eye.y, tp.eye.z); thirdEyeSet = true; }
         _thirdEye.x += (tp.eye.x - _thirdEye.x) * 0.3;
         _thirdEye.y += (tp.eye.y - _thirdEye.y) * 0.3;
@@ -273,6 +284,7 @@ function stepWalkControls(elapsedMs, lookOnly) {
     const dPitch = walkThird() ? 0 : inp.dPitch;
     walkPitch = clampPitch(walkPitch + dPitch);
     walkTurning = inp.dYaw !== 0 || dPitch !== 0;
+    if (walkThird() && ballBody) thirdCam = nextThirdElev(thirdCam, thirdLowBlocked(), elapsedMs);
     walkWant = lookOnly ? { x: 0, z: 0 } : wantedVelocity(inp.move, walkYaw);
     if (world) world.gravity.set(0, -GRAVITY, 0);
     if (mazeGroup) mazeGroup.rotation.set(0, 0, 0);
@@ -2218,7 +2230,7 @@ function restart() {
     showEl('mazeDoubleBtn', false);
     showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false); showEl('mazeExploreBtn', false);
     placeBallAtStart();
-    if (walkMode) { walkYaw = walkStartYaw; walkPitch = -0.08; if (walkHud) walkHud.show(true); }
+    if (walkMode) { walkYaw = walkStartYaw; walkPitch = -0.08; resetThirdCam(); thirdEyeSet = false; if (walkHud) walkHud.show(true); }
     smoothed = null;
     recenterPending = true;      // re-zero to however they're holding it now
     runStartedAt = performance.now();
@@ -2772,6 +2784,8 @@ function startLevel(levelId, opts = {}) {
     // Walking: face down the open corridor, look a touch down, widen the view.
     walkStartYaw = openingYaw(lv);
     walkYaw = walkStartYaw; walkPitch = -0.08; walkSpeedNow = 0; vignetteNow = 0;
+    thirdWalls = walkMode ? lv.walls.concat(boundaryRails(lv), pocket ? [pocket.wall] : []) : [];
+    resetThirdCam();
     if (walkInput) walkInput.reset();
     setWalkFov(walkMode);
     document.body.classList.toggle('is-walking', walkMode);
@@ -3038,7 +3052,7 @@ window.__mazeDebug = {
     walkTurn: (rad) => { walkYaw += rad; return walkYaw; },
     walk: () => ({
         compass: !!(el('walkCompass') && !el('walkCompass').hidden), map: !!(el('walkMap') && !el('walkMap').hidden),
-        on: walkMode, yaw: walkYaw, pitch: walkPitch, speed: walkSpeedNow,
+        on: walkMode, yaw: walkYaw, pitch: walkPitch, speed: walkSpeedNow, thirdElev: thirdCam.elev, thirdBlocked: walkMode && ballBody ? thirdLowBlocked() : false,
         handling: { ...walkFeel }, onIce: ballOnIce, marble: ballSpec.id,
         stick: walkInput ? walkInput.stickMove(40, 0).strafe : null,
         fov: getCamera() ? getCamera().fov : null, ballVisible: !!(ballMesh && ballMesh.visible),
