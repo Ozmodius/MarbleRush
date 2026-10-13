@@ -35,7 +35,9 @@ export const SAVE_KEY = 'marbleRush.progress.v1';
 // 2: the alpha wipe (the user's call, 2026-10-11, with the Crew). A save from
 // any other version loads as a fresh one, on a device and on the server, so
 // every player started over and no old save can merge back up. The key stays.
-export const SAVE_VERSION = 2;
+// 3: the harder ladder (the user's call, 2026-10-13: every level regenerated
+// harder than the last), the same way: everyone starts over again.
+export const SAVE_VERSION = 3;
 
 export function defaultComfort() {
     const c = {};

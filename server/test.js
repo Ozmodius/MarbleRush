@@ -30,7 +30,7 @@ const crazyToken = (userId, username, key = privateKey) =>
 const pgUrl = process.env.TEST_DATABASE_URL;
 if (pgUrl) {
     const c = new pg.Client({ connectionString: pgUrl }); await c.connect();
-    await c.query('DROP TABLE IF EXISTS wipes, wipe_alpha_2026_10_11_saves, wipe_alpha_2026_10_11_scores, event_stats, player_days, codes, accounts, level_stats, links, scores, saves, tokens, players'); await c.end();
+    await c.query('DROP TABLE IF EXISTS wipes, wipe_alpha_2026_10_11_saves, wipe_alpha_2026_10_11_scores, wipe_harder_2026_10_13_saves, wipe_harder_2026_10_13_scores, event_stats, player_days, codes, accounts, level_stats, links, scores, saves, tokens, players'); await c.end();
 }
 const store = pgUrl ? await createPgStore(pgUrl) : createMemoryStore();
 let clock = Date.parse('2026-10-07T12:00:00Z');

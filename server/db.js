@@ -128,6 +128,10 @@ END $$;
 //                     and the play stats stay. The game's SAVE_VERSION went to
 //                     2 at the same time, so a device's own old save loads
 //                     fresh too and cannot merge back up.
+//   harder_2026_10_13  The harder ladder: all 50 levels were regenerated, so
+//                     old clears and times belong to levels that are gone.
+//                     The same wipe as alpha's (saves, leaderboard times, a
+//                     player's furthest and level), with SAVE_VERSION 3.
 //   platform_2026_10_11  Not a wipe, and deletes nothing: the platform
 //                     columns (SCHEMA) start empty, so the players who signed
 //                     in with CrazyGames, and their days played, are marked
@@ -145,6 +149,14 @@ export const WIPES = [
         id: 'platform_2026_10_11',
         sql: `UPDATE players SET platform = 'crazygames' WHERE kind = 'crazygames' AND platform IS NULL;
               UPDATE player_days d SET platform = 'crazygames' FROM players p WHERE p.id = d.player_id AND p.kind = 'crazygames';`
+    },
+    {
+        id: 'harder_2026_10_13',
+        sql: `CREATE TABLE IF NOT EXISTS wipe_harder_2026_10_13_saves AS SELECT * FROM saves;
+              CREATE TABLE IF NOT EXISTS wipe_harder_2026_10_13_scores AS SELECT * FROM scores;
+              DELETE FROM saves;
+              DELETE FROM scores;
+              UPDATE players SET furthest = NULL, player_level = NULL;`
     }
 ];
 export const PLATFORMS = ['web', 'crazygames'];

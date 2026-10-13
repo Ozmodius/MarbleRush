@@ -641,7 +641,7 @@ const failures = [];
         await shopCtx.addInitScript(() => {
             if (sessionStorage.getItem('seeded')) return;
             sessionStorage.setItem('seeded', '1');
-            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 2000, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: [], charges: { slowmo: 1, iceSkates: 2, fireShield: 1 } }));
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 3, wallet: 2000, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: [], charges: { slowmo: 1, iceSkates: 2, fireShield: 1 } }));
         });
         const shop = await shopCtx.newPage();
         shop.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
@@ -770,7 +770,7 @@ const failures = [];
             await crewCtx.addInitScript((hi) => {
                 if (sessionStorage.getItem('seeded')) return;
                 sessionStorage.setItem('seeded', '1');
-                localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 1000, xp: 0, highestIndex: hi, cleared: { w1_07: { bestMs: 60000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {},
+                localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 3, wallet: 1000, xp: 0, highestIndex: hi, cleared: { w1_07: { bestMs: 60000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {},
                     marbles: ['classic', 'glass', 'cinder'], marble: 'cinder', bond: { cinder: 100 }, daily: { streak: 1, last: '2099-01-01', doubled: '' } }));
             }, flCrew.index - 1);
             const cp = await crewCtx.newPage();
@@ -849,7 +849,7 @@ const failures = [];
             if (sessionStorage.getItem('seeded')) return;
             sessionStorage.setItem('seeded', '1');
             const cleared = { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 }, w1_03: { bestMs: 99000, coins: 0 } };
-            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 0, xp: 400, highestIndex: 3, cleared, goldClaimed: [], prizes: [], charges: {} }));
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 3, wallet: 0, xp: 400, highestIndex: 3, cleared, goldClaimed: [], prizes: [], charges: {} }));
         });
         const dp = await dCtx.newPage();
         dp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
@@ -914,7 +914,7 @@ const failures = [];
             sessionStorage.setItem('seeded', '1');
             const cleared = {};
             for (let i = 1; i <= 9; i++) cleared['w1_0' + i] = { bestMs: 99000, coins: 0 };
-            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 0, xp: 900, highestIndex: 9, cleared, goldClaimed: [], prizes: [], charges: {} }));
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 3, wallet: 0, xp: 900, highestIndex: 9, cleared, goldClaimed: [], prizes: [], charges: {} }));
         });
         const rp = await rCtx.newPage();
         rp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
@@ -1148,7 +1148,7 @@ const failures = [];
             sessionStorage.setItem('seeded', '1');
             const d = new Date(); const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
             const cleared = { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 }, w1_03: { bestMs: 99000, coins: 0 } };
-            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 1000, xp: 0, highestIndex: 3, cleared, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: key } }));
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 3, wallet: 1000, xp: 0, highestIndex: 3, cleared, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: key } }));
         });
         const wp = await wCtx.newPage();
         wp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
@@ -1270,7 +1270,7 @@ const failures = [];
         {
             const kCtx = await browser.newContext({ viewport: { width: 907, height: 510 } });
             await kCtx.addInitScript((s) => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('marbleRush.progress.v1', JSON.stringify(s)); } },
-                { v: 2, wallet: 0, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {} });
+                { v: 3, wallet: 0, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {} });
             const kp = await kCtx.newPage();
             kp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push('[keys] ' + e.message); });
             const kdbg = (fn, ...args) => kp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
@@ -1364,7 +1364,7 @@ const failures = [];
             };
             const today = new Date();
             const dayKeyNow = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-            const d1seed = { v: 2, wallet: 777, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: dayKeyNow } };
+            const d1seed = { v: 3, wallet: 777, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: dayKeyNow } };
             // Device 1 has played (a guest save from before accounts) and makes an
             // account at the gate; its progress becomes the account's.
             const d1 = await cloudDevice(d1seed, { before: async (pg) => {
@@ -1490,7 +1490,7 @@ const failures = [];
             await d2.c.close();
             let d3 = null;
             if (!crazyBuild) {
-                d3 = await cloudDevice({ v: 2, wallet: 321, xp: 0, highestIndex: 1, cleared: { w1_01: { bestMs: 88000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {} }, { before: async (pg) => {
+                d3 = await cloudDevice({ v: 3, wallet: 321, xp: 0, highestIndex: 1, cleared: { w1_01: { bestMs: 88000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {} }, { before: async (pg) => {
                     await pg.waitForSelector('#landing', { state: 'visible', timeout: 30000 });
                     const guestLinks = await pg.$$eval('#landing [data-lp="guest"]', els => els.filter(e => !e.hidden).length);
                     check(guestLinks >= 2, `the landing site offers PLAY AS GUEST under its big buttons (${guestLinks})`);

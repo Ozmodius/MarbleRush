@@ -56,13 +56,13 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(P.addXp(out.progress, 0).gained.length === 0, 'no XP, no level');
     // Paid once ever: a save from the old curve keeps its levels' rewards and
     // is not paid them again when it climbs back through them.
-    const oldCurve = S.parseProgress(JSON.stringify({ v: 2, wallet: 0, xp: 2700, charges: {} }));
+    const oldCurve = S.parseProgress(JSON.stringify({ v: 3, wallet: 0, xp: 2700, charges: {} }));
     check(oldCurve.levelPaid === 10 && P.levelForXp(oldCurve.xp) === 9, `an old-curve save at 2,700 XP was paid to level 10, shows level 9 now (${oldCurve.levelPaid}, ${P.levelForXp(oldCurve.xp)})`);
     const back = P.addXp(oldCurve, P.xpForLevel(12) - oldCurve.xp);
     check(back.gained.map(g => g.level).join() === '10,11,12' && back.gained[0].repeat && back.progress.wallet === P.rewardFor(11).coins + P.rewardFor(12).coins,
         `climbing back through level 10 shows it but pays only 11 and 12 (${back.progress.wallet})`);
     check(back.progress.levelPaid === 12, 'and remembers 12 as paid');
-    check(S.parseProgress(JSON.stringify({ v: 2, xp: null })).levelPaid === 1 && S.freshProgress().levelPaid === 1, 'a new or pre-level save has nothing paid yet');
+    check(S.parseProgress(JSON.stringify({ v: 3, xp: null })).levelPaid === 1 && S.freshProgress().levelPaid === 1, 'a new or pre-level save has nothing paid yet');
     for (const [kind, L] of Object.entries(C.LOOKS)) for (const [id, item] of Object.entries(L.table)) {
         if (!Number.isFinite(item.level)) continue;
         const r = C.LEVEL_REWARDS[item.level];
@@ -90,7 +90,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(JSON.parse(mem[S.SAVE_KEY]).xp === store.get().xp, 'XP is saved');
 
     // 4. backfill
-    const old = JSON.stringify({ v: 2, wallet: 50, highestIndex: 2, cleared: { w1_01: { bestMs: 8000, coins: 1 }, w2_01: { bestMs: 9000, coins: 0 } }, goldClaimed: ['w1_01'] });
+    const old = JSON.stringify({ v: 3, wallet: 50, highestIndex: 2, cleared: { w1_01: { bestMs: 8000, coins: 1 }, w2_01: { bestMs: 9000, coins: 0 } }, goldClaimed: ['w1_01'] });
     const m2 = { [S.SAVE_KEY]: old };
     const st2 = S.createProgressStore({ load: async k => m2[k] || null, save: (k, v) => { m2[k] = v; return true; } });
     await st2.load();

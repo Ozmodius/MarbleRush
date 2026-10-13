@@ -17,7 +17,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
 
 (async () => {
     const S = await import('./progressStore.js');
-    const base = () => ({ ...S.freshProgress(), v: 2 });
+    const base = () => ({ ...S.freshProgress(), v: 3 });
     const a = { ...base(), savedAt: 1000, wallet: 500, highestIndex: 4, xp: 600,
         cleared: { w1_01: { bestMs: 9000, coins: 2, at: 1 }, w1_02: { bestMs: 8000, coins: 1, at: 1 } },
         goldClaimed: ['w1_01'], marbles: ['classic', 'steel'], bond: { classic: 250, steel: 40 }, crew: { classic: 2 }, charges: { shield: 3 },
@@ -76,7 +76,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const fresh = S.freshProgress();
     check(S.mergeProgress(fresh, a).wallet === 500 && S.mergeProgress(a, fresh).cleared.w1_02, 'a fresh save never wipes a real one, in either order');
     check(S.mergeProgress(null, a).highestIndex === 4 && S.mergeProgress(a, undefined).highestIndex === 4, 'a missing save is no save');
-    const junk = S.mergeProgress(a, { v: 2, savedAt: 9e12, wallet: -5, marbles: ['classic', 'unicorn'], cleared: { x: { bestMs: 'fast' } } });
+    const junk = S.mergeProgress(a, { v: 3, savedAt: 9e12, wallet: -5, marbles: ['classic', 'unicorn'], cleared: { x: { bestMs: 'fast' } } });
     check(junk.wallet === 0 && !junk.marbles.includes('unicorn') && !junk.cleared.x && junk.cleared.w1_01, 'junk from the other side is cleaned, and real progress kept');
     check(S.mergeProgress({ ...a, xp: undefined }, { ...b, xp: undefined }).xp === null, 'an unknown XP stays unknown (so the store backfills it)');
 

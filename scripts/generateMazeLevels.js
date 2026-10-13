@@ -32,6 +32,8 @@ let H = null;
 const path = require('path');
 
 const OUT_PATH = path.join(__dirname, '..', 'mazeLevels.json');
+// The gold pace along the route, units per second.
+const GOLD_PACE = 1.5;
 const BOARD_W = 9.0, BOARD_D = 14.0;
 
 // HOW MUCH SLACK THE FORCED ROUTE MUST HAVE, in ball radii, per side.
@@ -930,15 +932,22 @@ function placeFlares(open, cfg, g, path, rand, count) {
 
 // GEYSERS sit in route cells, well away from the start and the goal and from
 // each other; holes are then kept GEYSER_HOLE_CLEAR away (see buildLevel).
+// Away AS THE CROW FLIES too, as the verifier measures: a long winding route
+// can double back beside the goal three cells after leaving it (a daily maze
+// of 2026-10-13 put a geyser's reach over the exit that way).
 function placeGeysers(open, cfg, g, path, rand, count) {
     const cells = path.slice(3, -3);
     shuffle(cells, rand);
     const out = [];
+    const [si, sj] = path[0], [gi, gj] = path[path.length - 1];
+    const goalR = Math.min(g.px, g.pz) * 0.3;
     for (const [i, j] of cells) {
         if (out.length >= count) break;
         if (out.some(o => Math.hypot(o.x - g.cx(i), o.z - g.cz(j)) < 2.6)) continue;
         const gy = { x: r2(g.cx(i)), z: r2(g.cz(j)), r: 0.24, reach: r2(Math.min(1.1, Math.min(g.px, g.pz) * 0.85)),
             periodMs: 3200 + Math.round(rand() * 8) * 100, phase: r2(rand()) };
+        if (Math.hypot(gy.x - g.cx(gi), gy.z - g.cz(gj)) <= gy.reach + goalR + 0.05) continue;
+        if (Math.hypot(gy.x - g.cx(si), gy.z - g.cz(sj)) <= gy.reach + cfg.ball + 0.05) continue;
         for (let k = 0; k < 20 && H.firstBlastMs(gy) < 2000; k++) gy.phase = r2((gy.phase + 0.13) % 1);
         if (H.firstBlastMs(gy) < 2000) continue;
         out.push(gy);
@@ -1250,16 +1259,16 @@ const WORLDS = [
                   'CONVEYOR BELTS: floor that carries the ball, with you or against you.'],
         // grid, holes, gates, conveyors, coins, route fraction
         levels: [
-            { cols: 4, rows: 6, holes: 2, gates: 0, conveyors: 0, coins: 5,  route: 0.35 },
-            { cols: 4, rows: 6, holes: 3, gates: 0, conveyors: 0, coins: 6,  route: 0.4 },
-            { cols: 4, rows: 6, holes: 4, gates: 0, conveyors: 0, coins: 7,  route: 0.5 },
-            { cols: 4, rows: 7, holes: 3, gates: 1, conveyors: 0, coins: 7,  route: 0.35 },
-            { cols: 4, rows: 7, holes: 4, gates: 1, conveyors: 0, coins: 8,  route: 0.45 },
-            { cols: 5, rows: 7, holes: 4, gates: 1, conveyors: 0, coins: 8,  route: 0.45 },
-            { cols: 5, rows: 7, holes: 5, gates: 2, conveyors: 0, coins: 9,  route: 0.5 },
-            { cols: 5, rows: 8, holes: 5, gates: 2, conveyors: 0, coins: 10, route: 0.45 },
-            { cols: 5, rows: 8, holes: 6, gates: 2, conveyors: 0, coins: 10, route: 0.55 },
-            { cols: 5, rows: 8, holes: 5, gates: 1, conveyors: 2, coins: 12, route: 0.5 }
+            { cols: 5, rows: 7, holes: 2, gates: 0, conveyors: 0, coins: 5,  routeMw: 40, braid: 0.22 },
+            { cols: 5, rows: 8, holes: 3, gates: 0, conveyors: 0, coins: 6,  routeMw: 42, braid: 0.216 },
+            { cols: 5, rows: 8, holes: 4, gates: 0, conveyors: 0, coins: 7,  routeMw: 44, braid: 0.211 },
+            { cols: 5, rows: 9, holes: 3, gates: 1, conveyors: 0, coins: 7,  routeMw: 47, braid: 0.207 },
+            { cols: 5, rows: 9, holes: 4, gates: 1, conveyors: 0, coins: 8,  routeMw: 49, braid: 0.202 },
+            { cols: 6, rows: 9, holes: 4, gates: 1, conveyors: 0, coins: 8,  routeMw: 51, braid: 0.198 },
+            { cols: 6, rows: 9, holes: 5, gates: 2, conveyors: 0, coins: 9,  routeMw: 53, braid: 0.193 },
+            { cols: 6, rows: 10, holes: 5, gates: 2, conveyors: 0, coins: 10, routeMw: 56, braid: 0.189 },
+            { cols: 6, rows: 10, holes: 6, gates: 2, conveyors: 0, coins: 10, routeMw: 58, braid: 0.184 },
+            { cols: 6, rows: 10, holes: 5, gates: 1, conveyors: 2, coins: 12, routeMw: 60, braid: 0.18 }
         ],
         prize: 'rubberCoat'
     },
@@ -1277,16 +1286,16 @@ const WORLDS = [
                   'Wind, ice and a gate.', 'A finer grid.', 'The finest grid this ball fits.',
                   'FALLING ICICLES: watch the shadow grow, then go -- or wait.'],
         levels: [
-            { cols: 5, rows: 8, holes: 3, gates: 0, conveyors: 0, ice: 1, fans: 0, icicles: 0, coins: 6,  route: 0.35 },
-            { cols: 5, rows: 8, holes: 4, gates: 0, conveyors: 0, ice: 2, fans: 0, icicles: 0, coins: 7,  route: 0.45 },
-            { cols: 5, rows: 8, holes: 4, gates: 1, conveyors: 0, ice: 2, fans: 0, icicles: 0, coins: 8,  route: 0.5 },
-            { cols: 5, rows: 8, holes: 4, gates: 0, conveyors: 0, ice: 1, fans: 1, icicles: 0, coins: 8,  route: 0.4 },
-            { cols: 6, rows: 8, holes: 5, gates: 1, conveyors: 0, ice: 2, fans: 1, icicles: 0, coins: 9,  route: 0.45 },
-            { cols: 6, rows: 9, holes: 5, gates: 0, conveyors: 0, ice: 2, fans: 2, icicles: 0, coins: 9,  route: 0.45 },
-            { cols: 6, rows: 9, holes: 6, gates: 1, conveyors: 0, ice: 2, fans: 2, icicles: 0, coins: 10, route: 0.5 },
-            { cols: 6, rows: 9, holes: 6, gates: 0, conveyors: 0, ice: 3, fans: 2, icicles: 0, coins: 10, route: 0.5 },
-            { cols: 6, rows: 9, holes: 7, gates: 1, conveyors: 0, ice: 3, fans: 2, icicles: 0, coins: 11, route: 0.55 },
-            { cols: 6, rows: 9, holes: 5, gates: 0, conveyors: 0, ice: 2, fans: 1, icicles: 3, coins: 12, route: 0.5 }
+            { cols: 6, rows: 10, holes: 3, gates: 0, conveyors: 0, ice: 1, fans: 0, icicles: 0, coins: 6,  routeMw: 62, braid: 0.175 },
+            { cols: 6, rows: 10, holes: 4, gates: 0, conveyors: 0, ice: 2, fans: 0, icicles: 0, coins: 7,  routeMw: 63, braid: 0.171 },
+            { cols: 6, rows: 10, holes: 4, gates: 1, conveyors: 0, ice: 2, fans: 0, icicles: 0, coins: 8,  routeMw: 65, braid: 0.166 },
+            { cols: 6, rows: 10, holes: 4, gates: 0, conveyors: 0, ice: 1, fans: 1, icicles: 0, coins: 8,  routeMw: 66, braid: 0.162 },
+            { cols: 6, rows: 10, holes: 5, gates: 1, conveyors: 0, ice: 2, fans: 1, icicles: 0, coins: 9,  routeMw: 67, braid: 0.157 },
+            { cols: 7, rows: 10, holes: 5, gates: 0, conveyors: 0, ice: 2, fans: 2, icicles: 0, coins: 9,  routeMw: 69, braid: 0.153 },
+            { cols: 7, rows: 10, holes: 6, gates: 1, conveyors: 0, ice: 2, fans: 2, icicles: 0, coins: 10, routeMw: 70, braid: 0.148 },
+            { cols: 7, rows: 10, holes: 6, gates: 0, conveyors: 0, ice: 3, fans: 2, icicles: 0, coins: 10, routeMw: 71, braid: 0.144 },
+            { cols: 7, rows: 10, holes: 7, gates: 1, conveyors: 0, ice: 3, fans: 2, icicles: 0, coins: 11, routeMw: 73, braid: 0.139 },
+            { cols: 7, rows: 10, holes: 5, gates: 0, conveyors: 0, ice: 2, fans: 1, icicles: 3, coins: 12, routeMw: 74, braid: 0.135 }
         ],
         prize: 'heatShield'
     },
@@ -1303,16 +1312,16 @@ const WORLDS = [
                   'Seams and molten gates.', 'A finer grid.', 'The finest grid this ball fits.',
                   'GEYSERS: they bubble, then blast you away from them.'],
         levels: [
-            { cols: 6, rows: 9,  holes: 4, gates: 0, molten: 0, conveyors: 0, flares: 2, geysers: 0, coins: 7,  route: 0.35 },
-            { cols: 6, rows: 9,  holes: 5, gates: 0, molten: 0, conveyors: 0, flares: 3, geysers: 0, coins: 8,  route: 0.45 },
-            { cols: 6, rows: 9,  holes: 5, gates: 1, molten: 0, conveyors: 0, flares: 3, geysers: 0, coins: 8,  route: 0.5 },
-            { cols: 6, rows: 9,  holes: 5, gates: 0, molten: 1, conveyors: 0, flares: 2, geysers: 0, coins: 9,  route: 0.4 },
-            { cols: 6, rows: 10, holes: 6, gates: 0, molten: 1, conveyors: 0, flares: 3, geysers: 0, coins: 9,  route: 0.45 },
-            { cols: 7, rows: 10, holes: 6, gates: 0, molten: 2, conveyors: 0, flares: 3, geysers: 0, coins: 10, route: 0.45 },
-            { cols: 7, rows: 10, holes: 7, gates: 0, molten: 2, conveyors: 0, flares: 3, geysers: 0, coins: 10, route: 0.5 },
-            { cols: 7, rows: 10, holes: 7, gates: 0, molten: 2, conveyors: 0, flares: 4, geysers: 0, coins: 11, route: 0.5 },
-            { cols: 7, rows: 10, holes: 8, gates: 0, molten: 2, conveyors: 0, flares: 4, geysers: 0, coins: 11, route: 0.55 },
-            { cols: 7, rows: 10, holes: 6, gates: 0, molten: 1, conveyors: 0, flares: 3, geysers: 3, coins: 12, route: 0.5 }
+            { cols: 7, rows: 10,  holes: 4, gates: 0, molten: 0, conveyors: 0, flares: 2, geysers: 0, coins: 7,  routeMw: 76, braid: 0.13 },
+            { cols: 7, rows: 10,  holes: 5, gates: 0, molten: 0, conveyors: 0, flares: 3, geysers: 0, coins: 8,  routeMw: 77, braid: 0.126 },
+            { cols: 7, rows: 10,  holes: 5, gates: 1, molten: 0, conveyors: 0, flares: 3, geysers: 0, coins: 8,  routeMw: 79, braid: 0.121 },
+            { cols: 7, rows: 10,  holes: 5, gates: 0, molten: 1, conveyors: 0, flares: 2, geysers: 0, coins: 9,  routeMw: 80, braid: 0.117 },
+            { cols: 7, rows: 11, holes: 6, gates: 0, molten: 1, conveyors: 0, flares: 3, geysers: 0, coins: 9,  routeMw: 81, braid: 0.112 },
+            { cols: 7, rows: 11, holes: 6, gates: 0, molten: 2, conveyors: 0, flares: 3, geysers: 0, coins: 10, routeMw: 83, braid: 0.108 },
+            { cols: 7, rows: 11, holes: 7, gates: 0, molten: 2, conveyors: 0, flares: 3, geysers: 0, coins: 10, routeMw: 84, braid: 0.103 },
+            { cols: 7, rows: 11, holes: 7, gates: 0, molten: 2, conveyors: 0, flares: 4, geysers: 0, coins: 11, routeMw: 85, braid: 0.099 },
+            { cols: 7, rows: 11, holes: 8, gates: 0, molten: 2, conveyors: 0, flares: 4, geysers: 0, coins: 11, routeMw: 87, braid: 0.094 },
+            { cols: 7, rows: 11, holes: 6, gates: 0, molten: 1, conveyors: 0, flares: 3, geysers: 3, coins: 12, routeMw: 88, braid: 0.09 }
         ],
         prize: 'obsidianCore'
     },
@@ -1330,16 +1339,16 @@ const WORLDS = [
                   'More springs.', 'A finer grid.', 'The finest grid this ball fits.',
                   'SPINNING ARMS: rotors in open rooms. Slip through behind a blade.'],
         levels: [
-            { cols: 7, rows: 10, holes: 4, gates: 0, conveyors: 0, bumpers: 3, springs: 0, arms: 0, coins: 7,  route: 0.35 },
-            { cols: 7, rows: 10, holes: 5, gates: 0, conveyors: 0, bumpers: 4, springs: 0, arms: 0, coins: 8,  route: 0.45 },
-            { cols: 7, rows: 10, holes: 5, gates: 1, conveyors: 0, bumpers: 4, springs: 0, arms: 0, coins: 8,  route: 0.5 },
-            { cols: 7, rows: 10, holes: 5, gates: 0, conveyors: 0, bumpers: 2, springs: 2, arms: 0, coins: 9,  route: 0.4 },
-            { cols: 7, rows: 10, holes: 6, gates: 0, conveyors: 0, bumpers: 3, springs: 2, arms: 0, coins: 9,  route: 0.45 },
-            { cols: 7, rows: 11, holes: 6, gates: 1, conveyors: 0, bumpers: 3, springs: 2, arms: 0, coins: 10, route: 0.45 },
-            { cols: 7, rows: 11, holes: 6, gates: 0, conveyors: 0, bumpers: 4, springs: 3, arms: 0, coins: 10, route: 0.5 },
-            { cols: 7, rows: 11, holes: 7, gates: 0, conveyors: 0, bumpers: 4, springs: 3, arms: 0, coins: 11, route: 0.5 },
-            { cols: 7, rows: 11, holes: 7, gates: 1, conveyors: 0, bumpers: 4, springs: 3, arms: 0, coins: 11, route: 0.55 },
-            { cols: 7, rows: 10, holes: 5, gates: 0, conveyors: 0, bumpers: 2, springs: 1, arms: 2, coins: 12, route: 0.5 }
+            { cols: 7, rows: 11, holes: 4, gates: 0, conveyors: 0, bumpers: 3, springs: 0, arms: 0, coins: 7,  routeMw: 90, braid: 0.085 },
+            { cols: 7, rows: 11, holes: 5, gates: 0, conveyors: 0, bumpers: 4, springs: 0, arms: 0, coins: 8,  routeMw: 91, braid: 0.081 },
+            { cols: 7, rows: 11, holes: 5, gates: 1, conveyors: 0, bumpers: 4, springs: 0, arms: 0, coins: 8,  routeMw: 92, braid: 0.076 },
+            { cols: 7, rows: 11, holes: 5, gates: 0, conveyors: 0, bumpers: 2, springs: 2, arms: 0, coins: 9,  routeMw: 93, braid: 0.072 },
+            { cols: 7, rows: 11, holes: 6, gates: 0, conveyors: 0, bumpers: 3, springs: 2, arms: 0, coins: 9,  routeMw: 94, braid: 0.067 },
+            { cols: 7, rows: 11, holes: 6, gates: 1, conveyors: 0, bumpers: 3, springs: 2, arms: 0, coins: 10, routeMw: 96, braid: 0.063 },
+            { cols: 7, rows: 11, holes: 6, gates: 0, conveyors: 0, bumpers: 4, springs: 3, arms: 0, coins: 10, routeMw: 97, braid: 0.058 },
+            { cols: 7, rows: 11, holes: 7, gates: 0, conveyors: 0, bumpers: 4, springs: 3, arms: 0, coins: 11, routeMw: 98, braid: 0.054 },
+            { cols: 7, rows: 11, holes: 7, gates: 1, conveyors: 0, bumpers: 4, springs: 3, arms: 0, coins: 11, routeMw: 99, braid: 0.049 },
+            { cols: 7, rows: 11, holes: 5, gates: 0, conveyors: 0, bumpers: 2, springs: 1, arms: 2, coins: 12, routeMw: 100, braid: 0.045 }
         ],
         prize: 'plasticBall'
     },
@@ -1357,16 +1366,16 @@ const WORLDS = [
                   'A finer grid.', 'More of everything.', 'The finest grid this ball fits.',
                   'ELECTRIC RAILS: walls that spark, then shock. Keep off them while they are live.'],
         levels: [
-            { cols: 7, rows: 11, holes: 4, gates: 0, conveyors: 0, magnets: 2, crushers: 0, rails: 0, coins: 7,  route: 0.35 },
-            { cols: 7, rows: 11, holes: 5, gates: 0, conveyors: 0, magnets: 3, crushers: 0, rails: 0, coins: 8,  route: 0.45 },
-            { cols: 7, rows: 11, holes: 5, gates: 1, conveyors: 0, magnets: 3, crushers: 0, rails: 0, coins: 8,  route: 0.5 },
-            { cols: 7, rows: 11, holes: 5, gates: 0, conveyors: 0, magnets: 2, crushers: 2, rails: 0, coins: 9,  route: 0.4 },
-            { cols: 7, rows: 11, holes: 6, gates: 0, conveyors: 0, magnets: 2, crushers: 2, rails: 0, coins: 9,  route: 0.45 },
-            { cols: 7, rows: 12, holes: 6, gates: 1, conveyors: 0, magnets: 2, crushers: 3, rails: 0, coins: 10, route: 0.45 },
-            { cols: 8, rows: 12, holes: 6, gates: 0, conveyors: 0, magnets: 3, crushers: 3, rails: 0, coins: 10, route: 0.5 },
-            { cols: 8, rows: 12, holes: 7, gates: 0, conveyors: 0, magnets: 3, crushers: 3, rails: 0, coins: 11, route: 0.5 },
-            { cols: 8, rows: 12, holes: 7, gates: 1, conveyors: 0, magnets: 3, crushers: 3, rails: 0, coins: 11, route: 0.55 },
-            { cols: 7, rows: 11, holes: 5, gates: 0, conveyors: 0, magnets: 2, crushers: 2, rails: 4, coins: 12, route: 0.5 }
+            { cols: 8, rows: 12, holes: 4, gates: 0, conveyors: 0, magnets: 2, crushers: 0, rails: 0, coins: 7,  routeMw: 104, braid: 0.04 },
+            { cols: 8, rows: 12, holes: 5, gates: 0, conveyors: 0, magnets: 3, crushers: 0, rails: 0, coins: 8,  routeMw: 109, braid: 0.036 },
+            { cols: 8, rows: 13, holes: 5, gates: 1, conveyors: 0, magnets: 3, crushers: 0, rails: 0, coins: 8,  routeMw: 114, braid: 0.031 },
+            { cols: 8, rows: 13, holes: 5, gates: 0, conveyors: 0, magnets: 2, crushers: 2, rails: 0, coins: 9,  routeMw: 119, braid: 0.027 },
+            { cols: 8, rows: 14, holes: 6, gates: 0, conveyors: 0, magnets: 2, crushers: 2, rails: 0, coins: 9,  routeMw: 124, braid: 0.022 },
+            { cols: 8, rows: 14, holes: 6, gates: 1, conveyors: 0, magnets: 2, crushers: 3, rails: 0, coins: 10, routeMw: 130, braid: 0.018 },
+            { cols: 9, rows: 14, holes: 6, gates: 0, conveyors: 0, magnets: 3, crushers: 3, rails: 0, coins: 10, routeMw: 135, braid: 0.013 },
+            { cols: 9, rows: 14, holes: 7, gates: 0, conveyors: 0, magnets: 3, crushers: 3, rails: 0, coins: 11, routeMw: 140, braid: 0.009 },
+            { cols: 9, rows: 14, holes: 7, gates: 1, conveyors: 0, magnets: 3, crushers: 3, rails: 0, coins: 11, routeMw: 145, braid: 0.004 },
+            { cols: 9, rows: 14, holes: 5, gates: 0, conveyors: 0, magnets: 2, crushers: 2, rails: 4, coins: 12, routeMw: 150, braid: 0.0 }
         ],
         prize: 'chromePolish'
     }
@@ -1575,7 +1584,7 @@ function buildLevel(cfg, n, index, seed) {
     const steps = Math.max(1, path.length - 1);
     const dist = steps * Math.min(g.px, g.pz);
     const minMs = Math.max(2500, Math.round(dist / 9 * 1000));
-    const goldMs = Math.round(dist / 1.5 * 1000);
+    const goldMs = Math.round(dist / GOLD_PACE * 1000);
 
     // Collectibles last: they go where the finished level leaves room.
     const placed = { ...base, holes, gates, springs: springs.map(s => s.pad), crushers };
@@ -1614,33 +1623,97 @@ function buildLevel(cfg, n, index, seed) {
     if (rails.length) lv.rails = rails.map(strip);
     lv.coins = coins;
     if (pickups.length) lv.pickups = pickups;
+    Object.defineProperty(lv, 'junctions', { value: routeJunctions(open, cfg, path), enumerable: false });
     return lv;
 }
 
-// HOW LONG A LEVEL'S ROUTE SHOULD BE is each level slot's `route`: a fraction
-// of its grid's cells. The carve is random, and a corner-to-corner route
-// through one runs anywhere from a quarter of the cells to four fifths
-// depending on the seed, so taking the first seed that passed every filter set
-// each level's length by accident (one world once got SHORTER as the player
-// advanced). Seeds are ranked by closeness to the target instead. A fraction
-// of the grid rather than a count, because the grid grows level to level.
+// THE ROUTE'S JUNCTIONS: route cells (not the start or the goal) with three
+// or more open sides -- each a place to take a wrong turn. The ladder's second
+// difficulty measure (pickLevel). test_maze_levels.js counts them the same way
+// from the walls.
+function routeJunctions(open, cfg, path) {
+    let n = 0;
+    for (let k = 1; k < path.length - 1; k++) {
+        const [i, j] = path[k], c = open[j][i];
+        if ((c.N ? 1 : 0) + (c.S ? 1 : 0) + (c.E ? 1 : 0) + (c.W ? 1 : 0) >= 3) n++;
+    }
+    return n;
+}
+
+// A level's route in marble widths: its length (goldMs is the route at the
+// gold pace) over the marble's diameter.
+function routeMw(lv) { return lv.goldMs / 1000 * GOLD_PACE / (2 * lv.ballRadius); }
+// THE LADDER'S DIFFICULTY SCORE: the route in marble widths, plus
+// JUNCTION_MW for each junction on it -- a wrong turn into a dead end costs
+// at least two cells there and back. test_maze_levels.js scores the same way.
+const JUNCTION_MW = 4;
+const ROUTE_KEEP = 0.92;     // a level's route is never under 92% of the last's
+function minScore(mw, j) { return mw + JUNCTION_MW * j; }
+function levelScore(lv) { return minScore(routeMw(lv), lv.junctions); }
+// Whether a built level carries its slot's whole hazard and coin quota.
+function quotaFull(built, cfg) {
+    return built.holes.length === cfg.holes
+        && (built.gates || []).length === cfg.gates + (cfg.molten || 0)
+        && (built.flares || []).length === (cfg.flares || 0)
+        && (built.geysers || []).length === (cfg.geysers || 0)
+        && (built.ice || []).length === cfg.ice
+        && (built.conveyors || []).length === cfg.conveyors
+        && (built.fans || []).length === (cfg.fans || 0)
+        && (built.icicles || []).length === (cfg.icicles || 0)
+        && (built.bumpers || []).length === (cfg.bumpers || 0)
+        && (built.springs || []).length === (cfg.springs || 0)
+        && (built.arms || []).length === (cfg.arms || 0)
+        && (built.magnets || []).length === (cfg.magnets || 0)
+        && (built.crushers || []).length === (cfg.crushers || 0)
+        && (built.rails || []).length === (cfg.rails || 0)
+        && built.coins.length === cfg.coins;
+}
+
+// HOW LONG A LEVEL'S ROUTE SHOULD BE is each level slot's `routeMw`: a length
+// in marble widths (the marble shrinks planet by planet, so units would lie).
+// The carve is random, and a corner-to-corner route through one runs anywhere
+// from a quarter of the cells to four fifths depending on the seed, so taking
+// the first seed that passed every filter set each level's length by accident
+// (one world once got SHORTER as the player advanced). Seeds are ranked by
+// closeness to the target instead.
 //
-// Each trap's introduction level dips back to a shorter route: it wants room
-// to teach before it asks for endurance too. That dip is the point.
+// EVERY LEVEL HARDER THAN THE LAST (the user's call, 2026-10-13: "the game is
+// too easy"). Across all fifty, in order: the grid only gets finer (as far as
+// each planet's marble and traps allow: Magmars and Bouncelot stop at 7x11,
+// their traps need the room), the loops only thin out (`braid` 0.22 down to
+// none: more dead ends, wrong turns cost more), and the route never gets
+// shorter -- enforced, not hoped for: a seed whose route is shorter than the
+// level before is never taken (pickLevel's `minMw`). The old dip at each
+// trap's introduction level is gone. test_maze_levels.js holds the climb.
 
 // One level for a world slot: rank candidate seeds by how close their route
 // comes to the slot's target, then take the first that builds with the full
 // hazard quota. `seedOf(attempt)` names the candidates -- the ladder and the
 // daily pool use different seed ranges, so neither can disturb the other.
-function pickLevel(cfg, n, index, seedOf) {
-    const target = cfg.route * cfg.cols * cfg.rows;
+function pickLevel(cfg, n, index, seedOf, minMw = 0, minJ = 0) {
+    // The route target: a length in MARBLE WIDTHS (routeMw, the ladder since
+    // 2026-10-13) turned into cells of this grid, or a fraction of its cells.
+    const cellLen = Math.min(BOARD_W / cfg.cols, BOARD_D / cfg.rows);
+    const target = Number.isFinite(cfg.routeMw) ? cfg.routeMw * 2 * cfg.ball / cellLen + 1 : cfg.route * cfg.cols * cfg.rows;
+    // THE CLIMB (the user's call, 2026-10-13: "each level should be harder
+    // than the last"): on the ladder a level is only taken if it SCORES higher
+    // than the level before (`minMw`, `minJ`: its route and junctions) and its
+    // route is not much shorter (ROUTE_KEEP). The route alone cannot climb
+    // every single level for fifty: a corner-to-corner route grows in steps of
+    // two cells, ~4.5 marble widths, and Bouncelot's bumpers only fit routes up
+    // to ~105; the junctions -- places to take a wrong turn -- fill the steps.
+    // Harder means a higher difficulty score (levelScore: the route plus the
+    // wrong turns off it), with the route never much shorter than the last.
+    const longer = (lv) => minMw === 0 || (levelScore(lv) > minScore(minMw, minJ) + 1e-6 && routeMw(lv) >= minMw * ROUTE_KEEP - 1e-6);
     // Rank the candidate seeds by how close their route lands to the
     // target BEFORE building any of them. Route length is a property of
     // the carve alone -- carve, braid, shortest path, nothing else -- so
     // it can be read off cheaply, and the expensive hazard placement
     // then runs in preference order instead of in seed order.
     const ranked = [];
-    for (let attempt = 0; attempt < 40; attempt++) {
+    // The ladder looks wider (it must also climb); the daily pool keeps 40.
+    const ATTEMPTS = minMw > 0 ? 120 : 40;
+    for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
         const seed = seedOf(attempt);
         const rand = mulberry32(seed);
         const open = carve(cfg.cols, cfg.rows, rand);
@@ -1668,6 +1741,20 @@ function pickLevel(cfg, n, index, seedOf) {
     // ships its best-fitting level rather than nothing.
     const SCAN = 12;
     let lv = null, fallback = null;
+    // On the ladder, the smallest step up: of every candidate that carries
+    // the full quota and scores above the level before, the lowest score
+    // (then the route nearest the target). A big jump now would leave no room
+    // for the levels after it.
+    if (minMw > 0) {
+        let best = null;
+        for (const cand of ranked) {
+            const built = buildLevel(cfg, n, index, cand.seed);
+            if (!built || !quotaFull(built, cfg) || !longer(built)) continue;
+            if (!best || levelScore(built) < levelScore(best) - 1e-6) best = built;
+        }
+        if (!best) throw new Error(`w${cfg.world} slot ${n + 1}: no seed carries the full quota and beats ${minMw.toFixed(1)} marble widths / ${minJ} junctions`);
+        return best;
+    }
     for (const cand of ranked.slice(0, SCAN)) {
         const built = buildLevel(cfg, n, index, cand.seed);
         if (!built) continue;
@@ -1686,7 +1773,16 @@ function pickLevel(cfg, n, index, seedOf) {
             && (built.magnets || []).length === (cfg.magnets || 0)
             && (built.crushers || []).length === (cfg.crushers || 0)
             && (built.rails || []).length === (cfg.rails || 0)
-            && built.coins.length === cfg.coins) { lv = built; break; }
+            && built.coins.length === cfg.coins && longer(built)) { lv = built; break; }
+    }
+    // On the ladder, a level that does not climb is never shipped: look
+    // further down the ranking, then fail loudly so the slot is retuned.
+    if (!lv && minMw > 0) {
+        for (const cand of ranked.slice(SCAN)) {
+            const built = buildLevel(cfg, n, index, cand.seed);
+            if (built && quotaFull(built, cfg) && longer(built)) { lv = built; break; }
+        }
+        if (!lv) throw new Error(`w${cfg.world} slot ${n + 1}: no seed carries the full quota and beats ${minMw.toFixed(1)} marble widths / ${minJ} junctions`);
     }
     if (!lv) lv = fallback;
     if (!lv) {
@@ -1700,14 +1796,16 @@ function pickLevel(cfg, n, index, seedOf) {
 
 function buildAll() {
     const levels = [];
-    let index = 1;
+    let index = 1, climb = 0, climbJ = 0;    // the route (and its junctions) each next level must beat
     for (const world of WORLDS) {
         for (let n = 0; n < world.levels.length; n++) {
             const cfg = { ...world, ...world.levels[n], ice: world.levels[n].ice || 0 };
             const lv = pickLevel(cfg, n, index,
-                attempt => cfg.world * 1000 + n * 17 + 7 + attempt * 101 + cfg.cols * 7919 + cfg.rows * 104729);
+                attempt => cfg.world * 1000 + n * 17 + 7 + attempt * 101 + cfg.cols * 7919 + cfg.rows * 104729, climb, climbJ);
             if (!lv) throw new Error(`could not generate a solvable level for world ${cfg.world} slot ${n}`);
             levels.push(lv);
+            climb = routeMw(lv); climbJ = lv.junctions;
+            if (process.env.GEN_LOG) console.error(`${lv.id} ${cfg.cols}x${cfg.rows} target ${cfg.routeMw} got ${climb.toFixed(1)} mw, ${climbJ} junctions`);
             index++;
         }
     }
@@ -1748,6 +1846,13 @@ function buildDaily() {
 module.exports.buildAll = buildAll;
 module.exports.buildDaily = buildDaily;
 module.exports.WORLDS = WORLDS;
+// For probing a slot at another grid (dev only): pickLevel, and the hazard
+// timing module buildLevel reads (main() loads it).
+module.exports.pickLevel = pickLevel;
+module.exports.buildLevel = (...a) => buildLevel(...a);
+module.exports.quotaFull = (...a) => quotaFull(...a);
+module.exports.routeMw = (...a) => routeMw(...a);
+module.exports.setHazards = (h) => { H = h; };
 
 if (require.main === module) (async () => {
     H = await import('../mazeHazards.js');

@@ -235,7 +235,7 @@ function saveFor({ skin = 'galaxy', trail = 'rainbow', ballCam = false, marble =
     for (const l of LEVELS) { cleared[l.id] = { bestMs: l.goldMs * 2, coins: 0 }; survey[l.id] = 74; }
     const friends = { 1: 'pip', 2: 'flurry', 3: 'cinder', 4: 'bobble', 5: 'rivet' };
     return {
-        v: 2, wallet: 2500, xp: 3000, levelPaid: 99, highestIndex: LEVELS.length, cleared, goldClaimed: [], prizes: [], charges: { fireShield: 2, iceSkates: 1 },
+        v: 3, wallet: 2500, xp: 3000, levelPaid: 99, highestIndex: LEVELS.length, cleared, goldClaimed: [], prizes: [], charges: { fireShield: 2, iceSkates: 1 },
         daily: { streak: 3, last: today(), doubled: '' },
         marbles: ['classic', 'steel', 'rubber', 'glass', ...rescued.map(w => friends[w])], marble,
         bond: { classic: 420, glass: 160 }, crew: { classic: 2, glass: 1 },

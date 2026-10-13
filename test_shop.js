@@ -94,9 +94,9 @@ const check = (c, m) => { if (!c) failures.push(m); };
     check(!S.selectMarble(p, 'glass').ok, 'cannot select a marble you do not own');
 
     // 6. old saves
-    const old = S.parseProgress(JSON.stringify({ v: 2, wallet: 10, highestIndex: 2, cleared: {}, goldClaimed: [], prizes: [], charges: {} }));
+    const old = S.parseProgress(JSON.stringify({ v: 3, wallet: 10, highestIndex: 2, cleared: {}, goldClaimed: [], prizes: [], charges: {} }));
     check(old.marble === 'classic' && old.marbles.join() === 'classic' && old.wallet === 10, 'a pre-shop save loads with Classic owned and selected');
-    const tamper = S.parseProgress(JSON.stringify({ v: 2, marbles: ['glass', 'nonsense'], marble: 'nonsense', crew: { glass: 99, bogus: 2 } }));
+    const tamper = S.parseProgress(JSON.stringify({ v: 3, marbles: ['glass', 'nonsense'], marble: 'nonsense', crew: { glass: 99, bogus: 2 } }));
     check(tamper.marble === 'classic' && !tamper.marbles.includes('nonsense'), 'unknown marbles in a save are dropped');
     check(tamper.crew.glass === CR.TRACK_MAX && !('bogus' in tamper.crew), 'track steps in a save are capped and strangers dropped');
 
