@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { getScene, getCamera, getRenderer, onFrame, setExclusiveMode, requestRender } from './sceneHost.js';
+import { getScene, getCamera, getRenderer, onFrame, setExclusiveMode, requestRender, setShadowFocus } from './sceneHost.js';
 import { gateFraction, gateVelocity, gateSpecAt, isOnIce, ICE_FRICTION } from './mazeHazards.js';
 import { makeIceMaterial, makeGateMaterial, makeMoltenGateMaterial } from './mazeTheme3d.js';
 import { buildFloorAndWalls } from './levelDressing3d.js';
@@ -136,9 +136,18 @@ function computeCameraPose() {
     const halfV = Math.tan(fov / 2);
     const halfH = halfV * aspect;
 
-    const needHalfW = level.size.w / 2 + CAM_MARGIN;
-    const needHalfD = level.size.d / 2 + CAM_MARGIN;
+    // The view is the 9 x 14 WINDOW (VIEW_W x VIEW_D) whatever the board: a
+    // board that big or smaller is shown whole, as always; a bigger one
+    // (2026-10-13: "bigger levels but display the same amount of maze, just
+    // focus on the marble") is seen through that window, following the ball.
+    // Closer on a bigger board (the user's call, 2026-10-13: less of the maze
+    // in view the further you get): viewScale().
+    const vs = viewScale();
+    const viewW = Math.min(level.size.w, VIEW_W * vs), viewD = Math.min(level.size.d, VIEW_D * vs);
+    const needHalfW = viewW / 2 + CAM_MARGIN;
+    const needHalfD = viewD / 2 + CAM_MARGIN;
     const dist = Math.max(needHalfW / halfH, needHalfD / halfV);
+    const big = boardBiggerThanView();
 
     // Ease toward ball cam or the full view (per frame, by the frame's time).
     const dt = Math.min(100, lastFrameMs || 16);
@@ -146,7 +155,8 @@ function computeCameraPose() {
     if (camZoom < 0.002 && !ballCamWanted()) camZoom = 0;
     const d = dist * (1 - (1 - BALL_CAM_ZOOM) * camZoom);
     _camLook.copy(CAM_LOOKAT);
-    if (camZoom > 0 && ballBody) {
+    const follow = big ? 1 : camZoom;
+    if (follow > 0 && ballBody) {
         // Follow the ball, clamped so the closer view stays over the board.
         const spanX = Math.max(0, level.size.w / 2 + CAM_MARGIN - d * halfH);
         const spanZ = Math.max(0, level.size.d / 2 + CAM_MARGIN - d * halfV);
@@ -156,8 +166,8 @@ function computeCameraPose() {
         const k = 1 - Math.exp(-dt / BALL_CAM_EASE_MS);
         _camFollow.x += (tx - _camFollow.x) * k;
         _camFollow.z += (tz - _camFollow.z) * k;
-        _camLook.x = CAM_LOOKAT.x + (_camFollow.x - CAM_LOOKAT.x) * camZoom;
-        _camLook.z = CAM_LOOKAT.z + (_camFollow.z - CAM_LOOKAT.z) * camZoom;
+        _camLook.x = CAM_LOOKAT.x + (_camFollow.x - CAM_LOOKAT.x) * follow;
+        _camLook.z = CAM_LOOKAT.z + (_camFollow.z - CAM_LOOKAT.z) * follow;
     } else camFollowSet = false;
 
     _camPos.set(
@@ -166,6 +176,39 @@ function computeCameraPose() {
         _camLook.z + Math.sin(CAM_TILT_RAD) * d
     );
     return { pos: _camPos, lookAt: _camLook };
+}
+
+// The rolling camera's window onto the board (computeCameraPose), and whether
+// this level's board is bigger than it (then the view follows the marble).
+const VIEW_W = 9, VIEW_D = 14;
+function boardBiggerThanView() { return !!level && (level.size.w > VIEW_W + 1e-6 || level.size.d > VIEW_D + 1e-6); }
+// How much of the 9 x 14 window a board's view shows: all of it up to a
+// 9-wide board, closing in as boards widen, to VIEW_MIN at 13.5 and wider.
+const VIEW_MIN = 0.7;
+function viewScale() {
+    if (!boardBiggerThanView()) return 1;
+    const k = Math.max(0, Math.min(1, (level.size.w - VIEW_W) / 4.5));
+    return 1 - (1 - VIEW_MIN) * k;
+}
+
+// The board's visible lean pivots round the floor under the view's centre:
+// on a board bigger than the view, leaning round the board's own centre would
+// swing the part in view up and down by most of a wall's height.
+const _leanP = new THREE.Vector3(), _leanQ = new THREE.Vector3();
+function pivotLean() {
+    if (!mazeGroup) return;
+    if (!boardBiggerThanView() || !camFollowSet) { mazeGroup.position.set(0, 0, 0); return; }
+    _leanP.set(_camFollow.x, FLOOR_Y, _camFollow.z - CAM_LOOKAT.z);
+    _leanQ.copy(_leanP).applyEuler(mazeGroup.rotation);
+    mazeGroup.position.set(_leanP.x - _leanQ.x, _leanP.y - _leanQ.y, _leanP.z - _leanQ.z);
+}
+// Where the sun's shadow box is centred (sceneHost.js): the floor in view on
+// a big board, the walker in Explore, else the board's centre.
+function shadowFocusNow() {
+    if (!level || !ballBody) return [0, 0];
+    if (walkMode) return [ballBody.position.x, ballBody.position.z];
+    if (boardBiggerThanView() && camFollowSet) return [_camFollow.x, _camFollow.z - CAM_LOOKAT.z];
+    return [0, 0];
 }
 
 // The HUD's camera button.
@@ -303,7 +346,7 @@ function stepWalkControls(elapsedMs, lookOnly) {
     }
     walkWant = lookOnly ? { x: 0, z: 0 } : wantedVelocity(inp.move, walkYaw);
     if (world) world.gravity.set(0, -GRAVITY, 0);
-    if (mazeGroup) mazeGroup.rotation.set(0, 0, 0);
+    if (mazeGroup) { mazeGroup.rotation.set(0, 0, 0); mazeGroup.position.set(0, 0, 0); }
 }
 
 // One physics step of walking: lean toward the asked-for velocity (traps add
@@ -427,6 +470,7 @@ let ballMarbleId = 'classic';
 // the marble hits it: 'floor', or a soundModel.js WALLS key.
 let audio = null;
 const bodySound = new Map();
+let wallBodyCount = 0;            // tests: how many physics bodies the walls are (one)
 // THE CREW IN A RUN (crew.js): the marble's signature and its free uses
 // left this run, the trap charges armed for it, and what each covers until.
 // Built afresh on every restart (startCrewRun).
@@ -999,13 +1043,19 @@ function buildWorld(lv, wallSpecs) {
     solidMaterial = solidMat;
     iceMaterial = iceMat;
 
-    for (const spec of wallSpecs) {
+    // Every wall is a box on ONE static body (2026-10-13, with boards bigger
+    // than the screen): a body per wall made the broadphase test every pair --
+    // ~3 ms a step at 450 walls on a computer, several times that on a phone --
+    // while one body is a single pair whose boxes are each a cheap bound check
+    // (~0.08 ms). The same boxes in the same places, so contacts are the same.
+    if (wallSpecs.length) {
         const body = new CANNON.Body({ mass: 0, material: solidMat });
-        body.addShape(new CANNON.Box(new CANNON.Vec3(spec.w / 2, WALL_HEIGHT / 2, spec.d / 2)));
-        body.position.set(spec.x, FLOOR_Y + WALL_HEIGHT / 2, spec.z);
+        body.position.set(0, FLOOR_Y + WALL_HEIGHT / 2, 0);
+        for (const spec of wallSpecs) body.addShape(new CANNON.Box(new CANNON.Vec3(spec.w / 2, WALL_HEIGHT / 2, spec.d / 2)), new CANNON.Vec3(spec.x, 0, spec.z));
         w.addBody(body);
         bodySound.set(body, wallSound);
     }
+    wallBodyCount = wallSpecs.length ? 1 : 0;
 
     // Gates are KINEMATIC, not static-bodies-we-move. A mass-0 static body whose
     // position is reassigned each frame has no velocity as far as the solver is
@@ -1160,6 +1210,7 @@ function step() {
         tickSurfaces(t);
         (planet || solar).tick(t);
         if (planet) slidePlanet();
+        setShadowFocus(0, 0);
         return;
     }
     if (!active || !world || !ballBody) return;
@@ -1169,6 +1220,7 @@ function step() {
     lastStepTime = now;
     tickScenery(now);
     advance(elapsedMs);
+    setShadowFocus(...shadowFocusNow());
 }
 // What moves on the page clock, not the run clock -- it is scenery, and it
 // keeps breathing on the ready screen and after a fall: lava pulses, coins
@@ -1229,6 +1281,7 @@ function advance(elapsedMs) {
         // board's visible lean calibrated to the old value.
         mazeGroup.rotation.z = -clamp(tilt.gamma / MAX_TILT_DEG, -1, 1) * VISUAL_TILT_MAX_RAD;
         mazeGroup.rotation.x = clamp(tilt.beta / MAX_TILT_DEG, -1, 1) * VISUAL_TILT_MAX_RAD;
+        pivotLean();
     }
     if (phase === 'running') {
         // The gate clock only advances while the run is RUNNING. Paused on the
@@ -2118,7 +2171,7 @@ function win() {
     // happened to be holding at the moment they won, and the ball wanders back
     // out of the goal it just reached while the CLEARED banner is still up.
     world.gravity.set(0, -GRAVITY, 0);
-    mazeGroup.rotation.set(0, 0, 0);
+    mazeGroup.rotation.set(0, 0, 0); mazeGroup.position.set(0, 0, 0);
     if (audio) audio.event('win', { x: level.goal.x, z: level.goal.z });
     // The leaderboards (cloudSync.js, via main.js) hear of every win: the
     // clear when it counted, null when it did not.
@@ -2983,6 +3036,7 @@ window.__mazeDebug = {
         lengths: { drop: DROP_MS, shipDrop: SHIP_DROP_MS, shipPickup: SHIP_PICKUP_MS } }),
     // Hold the show at an age (ms), drawn at once; null lets it run on.
     holdShow: (ms) => { showHeldAt = Number.isFinite(ms) ? ms : null; if (show && active && world) advance(0); return show ? show.ms : null; },
+    wallBodies: () => wallBodyCount,
     ballPos: () => (ballBody ? { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z } : null),
     gravity: () => (world ? { x: world.gravity.x, y: world.gravity.y, z: world.gravity.z } : null),
     // The last orientation reading the module actually received. Lets a test

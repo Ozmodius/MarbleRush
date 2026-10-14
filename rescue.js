@@ -88,6 +88,8 @@ export const CAPTIVE_REACH = 0.42;
 // three fifths of the start-to-exit route, and among those the spot farthest
 // from the route wins (a side branch, not a bulge).
 const cache = new Map();
+// The generator (scripts/generateMazeLevels.js) tries candidates under one id.
+export function forgetCaptiveSpot(id) { cache.delete(id); }
 export function captiveSpot(lv) {
     if (!isRescueLevel(lv)) return null;
     if (cache.has(lv.id)) return cache.get(lv.id);

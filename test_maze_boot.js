@@ -494,7 +494,11 @@ const failures = [];
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const gy = lvGy.geysers[0], tb = H.firstBlastMs(gy);
             await dbg('setRunClock', tb - 40);
-            const g0 = await dbg('placeBall', gy.x + 0.25, gy.z);
+            // Beside the vent on a side with room to be thrown (the vent's
+            // corridor has a wall close on some sides).
+            const R = lvGy.ballRadius, side = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dz]) =>
+                lvGy.walls.every(w => Math.abs(gy.x + dx * 0.6 - w.x) > w.w / 2 + R || Math.abs(gy.z + dz * 0.6 - w.z) > w.d / 2 + R)) || [1, 0];
+            const g0 = await dbg('placeBall', gy.x + side[0] * 0.25, gy.z + side[1] * 0.25);
             const g1 = await dbg('advanceFrames', 20);
             check(Math.hypot(g1.x - gy.x, g1.z - gy.z) > Math.hypot(g0.x - gy.x, g0.z - gy.z) + 0.1, 'a geyser blast throws the ball away from the vent');
             check(await dbg('phase') === 'running', 'a blast moves the ball; it does not end the run');
@@ -1231,6 +1235,46 @@ const failures = [];
         await wp.waitForSelector('#homeView', { state: 'visible' });
         check((await wdbg('walk')).on === false && (await wdbg('walk')).fov !== 90, 'leaving the walk puts the camera back');
         await wCtx.close();
+
+        // --- a board bigger than the screen (2026-10-13) ---------------------
+        // The camera shows the same 9 x 14 window as on a first level, and
+        // follows the marble across the board; the wall physics is one body.
+        {
+            const bCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+            const bp = await bCtx.newPage();
+            bp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push('[big] ' + e.message); });
+            const bdbg = (fn, ...args) => bp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
+            await bp.goto(base);
+            await bp.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 30000 });
+            const small = levels.find(l => l.size.w <= 9 && l.size.d <= 14);
+            const big = levels.reduce((a, l) => (l.size.w * l.size.d > a.size.w * a.size.d ? l : a), levels[0]);
+            check(await bdbg('startLevelForTest', small.id), `can build ${small.id}`);
+            await bdbg('advanceFrames', 2, 16);
+            const smallY = (await bdbg('ballCam')).pose.y;
+            check(await bdbg('startLevelForTest', big.id), `can build ${big.id}`);
+            await bdbg('advanceFrames', 2, 16);
+            const bigPose = (await bdbg('ballCam')).pose;
+            // Closer on a bigger board (70% of the window at 13.5 wide and over;
+            // the camera's margin round the window keeps it from scaling exactly).
+            check(big.size.w > 9 && big.size.d > 14 && bigPose.y < smallY * 0.85 && bigPose.y > smallY * 0.6, `a ${big.size.w} x ${big.size.d} board is seen closer than a 9 x 14 one (camera height ${bigPose.y.toFixed(2)} vs ${smallY.toFixed(2)})`);
+            await bp.tap('#mazeStartBtn');
+            await bp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            // To the side opposite the start, so the view has somewhere to go.
+            const sx = big.start.x >= 0 ? -1 : 1;
+            const tx = sx * (big.size.w / 2 - 1.2), tz = big.start.z;
+            await bdbg('placeBall', tx, tz);
+            await bdbg('advanceFrames', 2, 16);
+            const ball = await bdbg('ballPos');
+            // Clamped so the window stays over the board: the look point is as near the ball as that allows.
+            const halfView = 4.5 * (1 - 0.3 * Math.max(0, Math.min(1, (big.size.w - 9) / 4.5)));
+            const wantX = Math.max(-(big.size.w / 2 - halfView), Math.min(big.size.w / 2 - halfView, ball.x));
+            // The view eases on drawn frames (not the stepped ones): wait on frames.
+            await bp.waitForFunction((w) => Math.abs(window.__mazeDebug.ballCam().pose.lx - w) < 1.2, wantX, { timeout: 20000 }).catch(() => {});
+            const after = (await bdbg('ballCam')).pose;
+            check(Math.abs(after.lx - wantX) < 1.2 && (after.lx - bigPose.lx) * sx > 1, `the camera follows the marble across the board (looks at x ${after.lx.toFixed(2)} from ${bigPose.lx.toFixed(2)}, ball at ${ball.x.toFixed(2)})`);
+            check((await bdbg('wallBodies')) === 1, 'every wall is one physics body');
+            await bCtx.close();
+        }
 
         // --- a phone whose view went landscape (portraitLock.js) -------------
         // The page turns itself back: the game stays portrait to the phone's

@@ -169,7 +169,7 @@ function findPocket(lv) {
 // that fit. Worked out from the levels (pocketLevels below), and written down
 // here only so a level start need not search a planet's floors to know --
 // test_pockets.js recomputes it and fails if this ever disagrees.
-export const POCKET_LEVELS = ['w1_07', 'w1_08', 'w2_04', 'w2_06', 'w3_03', 'w3_07', 'w4_03', 'w4_07', 'w5_07', 'w5_06'];
+export const POCKET_LEVELS = ['w1_07', 'w1_04', 'w2_03', 'w2_07', 'w3_03', 'w3_07', 'w4_03', 'w4_07', 'w5_03', 'w5_07'];
 export const isPocketLevel = (lv) => !!lv && POCKET_LEVELS.includes(lv.id);
 
 const byLevel = new Map();
