@@ -387,8 +387,21 @@ html, body {
   flex-direction: column;
   gap: 8px;
 }
-.maze-charge { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; }
-.maze-charge .count { color: var(--accent); }
+/* Round icon buttons, a count on each (2026-10-14: "opaque and just an icon
+   off the board ... as transparent as possible" over it). placeCharges() in
+   mazeGame.js sets is-off (beside or under the board: solid) or is-over
+   (the board fills the screen under them: see-through). */
+.maze-charge { position: relative; display: grid; place-items: center; width: 54px; height: 54px; min-height: 0; padding: 0; border-radius: 50%; }
+.maze-charge .charge-icon { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.maze-charge .charge-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.maze-charge .count { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; display: grid; place-items: center; font-size: 0.72rem; font-weight: 800; letter-spacing: 0; color: #1a1205; background: var(--accent); }
+.charge-slowmo { color: #c9a2ff; }
+.charge-magnet { color: #ff7b88; }
+.maze-sig { color: #7fe8ff; }
+.maze-charges.is-off .maze-charge { background: rgba(14, 22, 48, 0.96); box-shadow: var(--bevel, 0 3px 0 rgba(0, 0, 0, 0.45)); }
+.maze-charges.is-over .maze-charge { background: rgba(10, 16, 38, 0.12); border-color: rgba(127, 220, 255, 0.22); box-shadow: none; opacity: 0.55; }
+.maze-charges.is-over .maze-charge .count { opacity: 0.85; }
+.maze-charges.is-row { flex-direction: row; }
 
 /* --- tab bar ----------------------------------------------------------------- */
 .tabbar {
@@ -1720,7 +1733,6 @@ html.kbd-first .key-hint { display: inline-block; }
 .trap-demagnetize { background: #c9a24a; }
 /* The run's tap signature (Rolle's Coin Sense, Glint's Clear Sight). */
 .maze-sig { border-color: rgba(127, 232, 255, 0.55); }
-.maze-sig .sig-star { color: #7fe8ff; }
 /* Home's planet name opens the planet page. */
 button.home-worldname { font: inherit; background: none; border: 0; padding: 2px 6px; cursor: pointer; border-radius: 10px; }
 button.home-worldname:focus-visible { outline: 2px solid #7fe8ff; outline-offset: 2px; }

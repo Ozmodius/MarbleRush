@@ -1221,6 +1221,7 @@ function step() {
     tickScenery(now);
     advance(elapsedMs);
     setShadowFocus(...shadowFocusNow());
+    if (phase === 'running') placeCharges();
 }
 // What moves on the page clock, not the run clock -- it is scenery, and it
 // keeps breathing on the ready screen and after a fall: lava pulses, coins
@@ -1482,7 +1483,63 @@ function renderSignature() {
     if (tap) {
         const nm = b.querySelector('.sig-name'); if (nm) nm.textContent = crewRun.sig.name.toUpperCase();
         const c = b.querySelector('.count'); if (c) c.textContent = String(crewRun.free);
+        b.setAttribute('aria-label', crewRun.sig.name);
+        const ic = b.querySelector('.sig-icon');
+        if (ic && ic.dataset.power !== crewRun.sig.power) { ic.dataset.power = crewRun.sig.power; ic.innerHTML = SIG_ICONS[crewRun.sig.power] || SIG_ICONS.star; }
     }
+}
+// The signature button's icon, by its power: Coin Sense a coin drawing in,
+// Clear Sight an eye.
+const SIG_ICONS = {
+    magnet: '<circle cx="12" cy="12" r="5"/><path d="M12 9.5v5M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>',
+    sight: '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    star: '<path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/>'
+};
+
+// WHERE THE POWER-UP BUTTONS SIT (2026-10-14): off the board where the screen
+// has room -- beside it on a wide screen, under it on a phone -- solid; where
+// the board fills the screen under them (a big board, Explore), at the bottom
+// right and as see-through as they can be. From the board's corners projected
+// with the live camera, so it follows the view as it moves.
+const _corner = new THREE.Vector3();
+let chargesPlace = '';
+function boardScreenBox() {
+    const cam = getCamera(), r = getRenderer();
+    if (!cam || !r || !level || walkMode) return null;
+    const rect = pageRect(r.domElement);
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    const hw = level.size.w / 2 + 0.4, hd = level.size.d / 2 + 0.4;   // the boundary rails too
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (const y of [FLOOR_Y, FLOOR_Y + WALL_HEIGHT]) {
+        _corner.set(sx * hw, y, sz * hd);
+        if (mazeGroup) _corner.applyMatrix4(mazeGroup.matrixWorld);
+        _corner.project(cam);
+        const px = rect.left + (_corner.x + 1) / 2 * rect.width, py = rect.top + (1 - _corner.y) / 2 * rect.height;
+        x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+    }
+    return { x0, x1, y0, y1, right: rect.left + rect.width, bottom: rect.top + rect.height };
+}
+function placeCharges() {
+    const box = el('mazeCharges');
+    if (!box) return;
+    const b = boardScreenBox();
+    const safeBottom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-bottom')) || 0;
+    let place = 'over';
+    if (b) {
+        if (b.right - b.x1 >= 76) place = 'right';                         // a wide screen: beside the board
+        else if (b.bottom - safeBottom - b.y1 >= 74) place = 'below';      // a phone: under the board
+    }
+    const key = place + (place === 'below' ? ':' + Math.round(b.bottom - b.y1) : '');
+    if (key === chargesPlace) return;
+    chargesPlace = key;
+    box.classList.toggle('is-off', place !== 'over');
+    box.classList.toggle('is-over', place === 'over');
+    box.classList.toggle('is-row', place === 'below');
+    if (place === 'below') {
+        // Centred in the strip under the board.
+        const strip = b.bottom - b.y1;
+        box.style.bottom = Math.max(8, Math.round((strip - 54) / 2)) + 'px';
+        box.style.right = '50%'; box.style.transform = 'translateX(50%)';
+    } else { box.style.bottom = ''; box.style.right = ''; box.style.transform = ''; }
 }
 
 // A belt under the ball's centre drags it toward the belt's speed, once per
@@ -3037,6 +3094,7 @@ window.__mazeDebug = {
     // Hold the show at an age (ms), drawn at once; null lets it run on.
     holdShow: (ms) => { showHeldAt = Number.isFinite(ms) ? ms : null; if (show && active && world) advance(0); return show ? show.ms : null; },
     wallBodies: () => wallBodyCount,
+    chargesPlace: () => { placeCharges(); return chargesPlace; },
     ballPos: () => (ballBody ? { x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z } : null),
     gravity: () => (world ? { x: world.gravity.x, y: world.gravity.y, z: world.gravity.z } : null),
     // The last orientation reading the module actually received. Lets a test
