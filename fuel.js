@@ -40,6 +40,8 @@ export function fuelGate(progress, lv) {
 
 // Where a level's cell sits: { x, z, detour, route }, or null.
 const cache = new Map();
+// The generator (scripts/generateMazeLevels.js) tries candidates under one id.
+export function forgetFuelSpot(id) { cache.delete(id); }
 export function fuelSpot(lv) {
     if (!lv || !isLadderId(lv.id)) return null;
     if (cache.has(lv.id)) return cache.get(lv.id);

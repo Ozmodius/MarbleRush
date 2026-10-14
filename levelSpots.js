@@ -33,7 +33,11 @@ function build(lv) {
         const x = cx(i), z = cz(j), k = i + j * nx;
         const holeFree = (lv.holes || []).every(h => Math.hypot(x - h.x, z - h.z) > h.r);
         pass[k] = inBounds(x, z, 1.05) && !inWall(x, z, 1.02) && holeFree ? 1 : 0;
-        wide[k] = inBounds(x, z, 1.5) && !inWall(x, z, 1.5) ? 1 : 0;
+        // 1.45, not 1.5: this grid is coarse (0.1) and the corridors leave a
+        // 50%-wider marble only a few hundredths, so whether a grid row lands
+        // in that band is luck. test_fuel.js / test_rescue.js check the exact
+        // 1.5 on a 0.05 grid, as the generator does before taking a level.
+        wide[k] = inBounds(x, z, 1.45) && !inWall(x, z, 1.45) ? 1 : 0;
         sit[k] = pass[k] && inBounds(x, z, 1.6) && !inWall(x, z, 1.6) && isSafeSpot(lv, x, z, r) ? 1 : 0;
     }
     const ci = x => Math.max(0, Math.min(nx - 1, Math.floor((x + W / 2) / G)));
@@ -82,6 +86,8 @@ export function distances(g, from, mask = g.pass) {
 }
 
 const grids = new Map();
+// The generator tries many candidates under one level id: it forgets them.
+export function forgetGrid(id) { grids.delete(id); }
 export function levelGrid(lv) {
     if (!grids.has(lv.id)) grids.set(lv.id, build(lv));
     return grids.get(lv.id);

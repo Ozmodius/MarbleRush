@@ -38,17 +38,32 @@ const covers = new Set();
 let coverFrames = 0;   // frames still to draw before a new cover freezes the scene
 const frameFns = [];
 
-// The sun. Its shadow frustum is sized for a level: test_maze_levels.js keeps
-// every level within 10 units of the origin for exactly this box.
+// The sun. Its shadow frustum is a 20 x 20 box: a whole board up to 9 x 14
+// and then some, or -- on a board bigger than the rolling camera's window
+// (2026-10-13) -- the part in view, the box following it (setShadowFocus).
+// test_maze_levels.js keeps the window inside the box.
+const SUN_OFFSET = { x: -4, y: 12, z: 6 };
+let sunLight = null;
 function addLights(s) {
     s.add(new THREE.HemisphereLight(0xfff4e6, 0x3a3530, 1.15));
     const sun = new THREE.DirectionalLight(0xffffff, 2.1);
-    sun.position.set(-4, 12, 6);
+    sun.position.set(SUN_OFFSET.x, SUN_OFFSET.y, SUN_OFFSET.z);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 30 });
     sun.shadow.bias = -0.0005;
     s.add(sun);
+    s.add(sun.target);
+    sunLight = sun;
+}
+// Centre the sun's shadow box on the floor at (x, z): the same light, moved
+// with what it lights, so shadows reach every part of a big board in view.
+export function setShadowFocus(x = 0, z = 0) {
+    if (!sunLight) return;
+    if (sunLight.target.position.x === x && sunLight.target.position.z === z) return;
+    sunLight.target.position.set(x, 0, z);
+    sunLight.position.set(x + SUN_OFFSET.x, SUN_OFFSET.y, z + SUN_OFFSET.z);
+    sunLight.target.updateMatrixWorld();
 }
 
 // Match the drawing buffer and the camera to the canvas's real CSS box. The

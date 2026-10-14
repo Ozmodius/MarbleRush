@@ -48,6 +48,24 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   verifier checks every daily maze exactly like a ladder level.
 - **Tilt rotates GRAVITY, never the bodies.** Static walls keep frozen
   quaternions; the board's visible lean is cosmetic and decoupled.
+- **Every level is harder than the last** (the user's call, 2026-10-13: "the
+  game is too easy"). Across all fifty, in order: the board only grows, the
+  grid only gets finer (as each planet's marble and traps allow), the loops
+  thin (`braid` 0.22 to none), and each level SCORES above the one before --
+  its route in marble widths plus 4 per junction on it, the route never under
+  92% of the last's (`pickLevel` in the generator; `test_maze_levels.js` reads
+  the score back from the walls). The generator fails loudly rather than ship
+  a level that does not climb.
+- **Boards grow past the screen** (the user's call, 2026-10-13: "bigger levels
+  but display the same amount of maze, just focus on the marble"): 9 x 14 for
+  the first floors, up to 14.4 x 22.4 on the last; the last level is centre
+  out (start in the middle, exit on the edge). Rolling, a board up to 9 x 14
+  is seen whole as always; a bigger one through a window that follows the
+  marble and closes in as boards widen -- today's view up to 9 wide, 70% of
+  it at 13.5 and wider (`viewScale`, the user's pick, 2026-10-13) --
+  (`computeCameraPose`); the lean pivots under the view (`pivotLean`); the
+  sun's shadow box follows it (`sceneHost.setShadowFocus`); every wall is ONE
+  static physics body (a body per wall cost ~3 ms a step at 450 walls).
 - **Gates are kinematic bodies driven by velocity**, on the run's own clock,
   reset on restart, so every attempt sees the same gate phases.
 - **Ice is a material swap on the one floor body**, never extra geometry.

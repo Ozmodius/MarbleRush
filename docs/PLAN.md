@@ -470,3 +470,29 @@ Not started. The plan, cheapest first:
   flat.
 - Testing: Meta's WebXR emulator here; feel only on the user's headset.
 
+## The harder ladder (2026-10-13)
+
+Oz: "Each level should be harder than the last. The game is too easy." His
+picks: harder from level 1, by longer routes with fewer loops and narrower
+corridors (not more traps, not tighter gold), saves wiped again
+(SAVE_VERSION 3, the server's `harder_2026_10_13` wipe). Then: "bigger levels
+but display the same amount of maze, just focus on the marble", and "maybe a
+centre out maze for the last one".
+- *The curve*: boards 9 x 14 for levels 1-4, then growing every level to
+  1.6x (14.4 x 22.4) at the last; within each planet the grid finer, the
+  loops fewer; trap counts as before. Each level must out-score the one
+  before (route in marble widths + 4 per junction), which the generator
+  enforces and the verifier checks. Strictly longer routes alone could not
+  last fifty levels (routes grow two cells at a time, and Bouncelot's bumpers
+  need rooms, capping its grid at 7 x 11 cells per 9 x 14).
+- *The view*: rolling shows a 9 x 14 board whole, as before; a bigger one
+  through a window following the marble, no opening overview. A phone is
+  tall, so the old window already showed ~20 units down: Oz picked a closer
+  camera on big boards (option 2 of 2, over 2x boards) -- the window closes
+  in as boards widen, to 70% at 13.5 and wider (`viewScale`). Ball cam still
+  zooms in closer. Explore is unchanged (it never showed the whole board).
+- *The final level* (Gearth floor 10) is centre out: the marble starts in the
+  middle and the exit is the edge cell farthest from it by the maze.
+- *Performance*: all walls are one physics body; the sun's shadow box follows
+  the view.
+

@@ -494,7 +494,11 @@ const failures = [];
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const gy = lvGy.geysers[0], tb = H.firstBlastMs(gy);
             await dbg('setRunClock', tb - 40);
-            const g0 = await dbg('placeBall', gy.x + 0.25, gy.z);
+            // Beside the vent on a side with room to be thrown (the vent's
+            // corridor has a wall close on some sides).
+            const R = lvGy.ballRadius, side = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dz]) =>
+                lvGy.walls.every(w => Math.abs(gy.x + dx * 0.6 - w.x) > w.w / 2 + R || Math.abs(gy.z + dz * 0.6 - w.z) > w.d / 2 + R)) || [1, 0];
+            const g0 = await dbg('placeBall', gy.x + side[0] * 0.25, gy.z + side[1] * 0.25);
             const g1 = await dbg('advanceFrames', 20);
             check(Math.hypot(g1.x - gy.x, g1.z - gy.z) > Math.hypot(g0.x - gy.x, g0.z - gy.z) + 0.1, 'a geyser blast throws the ball away from the vent');
             check(await dbg('phase') === 'running', 'a blast moves the ball; it does not end the run');
@@ -641,7 +645,7 @@ const failures = [];
         await shopCtx.addInitScript(() => {
             if (sessionStorage.getItem('seeded')) return;
             sessionStorage.setItem('seeded', '1');
-            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 2000, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: [], charges: { slowmo: 1, iceSkates: 2, fireShield: 1 } }));
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 3, wallet: 2000, highestIndex: 0, cleared: {}, goldClaimed: [], prizes: [], charges: { slowmo: 1, iceSkates: 2, fireShield: 1 } }));
         });
         const shop = await shopCtx.newPage();
         shop.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
@@ -770,7 +774,7 @@ const failures = [];
             await crewCtx.addInitScript((hi) => {
                 if (sessionStorage.getItem('seeded')) return;
                 sessionStorage.setItem('seeded', '1');
-                localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 1000, xp: 0, highestIndex: hi, cleared: { w1_07: { bestMs: 60000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {},
+                localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 3, wallet: 1000, xp: 0, highestIndex: hi, cleared: { w1_07: { bestMs: 60000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {},
                     marbles: ['classic', 'glass', 'cinder'], marble: 'cinder', bond: { cinder: 100 }, daily: { streak: 1, last: '2099-01-01', doubled: '' } }));
             }, flCrew.index - 1);
             const cp = await crewCtx.newPage();
@@ -849,7 +853,7 @@ const failures = [];
             if (sessionStorage.getItem('seeded')) return;
             sessionStorage.setItem('seeded', '1');
             const cleared = { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 }, w1_03: { bestMs: 99000, coins: 0 } };
-            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 0, xp: 400, highestIndex: 3, cleared, goldClaimed: [], prizes: [], charges: {} }));
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 3, wallet: 0, xp: 400, highestIndex: 3, cleared, goldClaimed: [], prizes: [], charges: {} }));
         });
         const dp = await dCtx.newPage();
         dp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
@@ -914,7 +918,7 @@ const failures = [];
             sessionStorage.setItem('seeded', '1');
             const cleared = {};
             for (let i = 1; i <= 9; i++) cleared['w1_0' + i] = { bestMs: 99000, coins: 0 };
-            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 0, xp: 900, highestIndex: 9, cleared, goldClaimed: [], prizes: [], charges: {} }));
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 3, wallet: 0, xp: 900, highestIndex: 9, cleared, goldClaimed: [], prizes: [], charges: {} }));
         });
         const rp = await rCtx.newPage();
         rp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
@@ -1148,7 +1152,7 @@ const failures = [];
             sessionStorage.setItem('seeded', '1');
             const d = new Date(); const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
             const cleared = { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 }, w1_03: { bestMs: 99000, coins: 0 } };
-            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 2, wallet: 1000, xp: 0, highestIndex: 3, cleared, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: key } }));
+            localStorage.setItem('marbleRush.progress.v1', JSON.stringify({ v: 3, wallet: 1000, xp: 0, highestIndex: 3, cleared, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: key } }));
         });
         const wp = await wCtx.newPage();
         wp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
@@ -1232,6 +1236,46 @@ const failures = [];
         check((await wdbg('walk')).on === false && (await wdbg('walk')).fov !== 90, 'leaving the walk puts the camera back');
         await wCtx.close();
 
+        // --- a board bigger than the screen (2026-10-13) ---------------------
+        // The camera shows the same 9 x 14 window as on a first level, and
+        // follows the marble across the board; the wall physics is one body.
+        {
+            const bCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+            const bp = await bCtx.newPage();
+            bp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push('[big] ' + e.message); });
+            const bdbg = (fn, ...args) => bp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
+            await bp.goto(base);
+            await bp.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 30000 });
+            const small = levels.find(l => l.size.w <= 9 && l.size.d <= 14);
+            const big = levels.reduce((a, l) => (l.size.w * l.size.d > a.size.w * a.size.d ? l : a), levels[0]);
+            check(await bdbg('startLevelForTest', small.id), `can build ${small.id}`);
+            await bdbg('advanceFrames', 2, 16);
+            const smallY = (await bdbg('ballCam')).pose.y;
+            check(await bdbg('startLevelForTest', big.id), `can build ${big.id}`);
+            await bdbg('advanceFrames', 2, 16);
+            const bigPose = (await bdbg('ballCam')).pose;
+            // Closer on a bigger board (70% of the window at 13.5 wide and over;
+            // the camera's margin round the window keeps it from scaling exactly).
+            check(big.size.w > 9 && big.size.d > 14 && bigPose.y < smallY * 0.85 && bigPose.y > smallY * 0.6, `a ${big.size.w} x ${big.size.d} board is seen closer than a 9 x 14 one (camera height ${bigPose.y.toFixed(2)} vs ${smallY.toFixed(2)})`);
+            await bp.tap('#mazeStartBtn');
+            await bp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
+            // To the side opposite the start, so the view has somewhere to go.
+            const sx = big.start.x >= 0 ? -1 : 1;
+            const tx = sx * (big.size.w / 2 - 1.2), tz = big.start.z;
+            await bdbg('placeBall', tx, tz);
+            await bdbg('advanceFrames', 2, 16);
+            const ball = await bdbg('ballPos');
+            // Clamped so the window stays over the board: the look point is as near the ball as that allows.
+            const halfView = 4.5 * (1 - 0.3 * Math.max(0, Math.min(1, (big.size.w - 9) / 4.5)));
+            const wantX = Math.max(-(big.size.w / 2 - halfView), Math.min(big.size.w / 2 - halfView, ball.x));
+            // The view eases on drawn frames (not the stepped ones): wait on frames.
+            await bp.waitForFunction((w) => Math.abs(window.__mazeDebug.ballCam().pose.lx - w) < 1.2, wantX, { timeout: 20000 }).catch(() => {});
+            const after = (await bdbg('ballCam')).pose;
+            check(Math.abs(after.lx - wantX) < 1.2 && (after.lx - bigPose.lx) * sx > 1, `the camera follows the marble across the board (looks at x ${after.lx.toFixed(2)} from ${bigPose.lx.toFixed(2)}, ball at ${ball.x.toFixed(2)})`);
+            check((await bdbg('wallBodies')) === 1, 'every wall is one physics body');
+            await bCtx.close();
+        }
+
         // --- a phone whose view went landscape (portraitLock.js) -------------
         // The page turns itself back: the game stays portrait to the phone's
         // own top (START at its bottom), and a drag along the phone's own
@@ -1270,7 +1314,7 @@ const failures = [];
         {
             const kCtx = await browser.newContext({ viewport: { width: 907, height: 510 } });
             await kCtx.addInitScript((s) => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('marbleRush.progress.v1', JSON.stringify(s)); } },
-                { v: 2, wallet: 0, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {} });
+                { v: 3, wallet: 0, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {} });
             const kp = await kCtx.newPage();
             kp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push('[keys] ' + e.message); });
             const kdbg = (fn, ...args) => kp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
@@ -1364,7 +1408,7 @@ const failures = [];
             };
             const today = new Date();
             const dayKeyNow = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-            const d1seed = { v: 2, wallet: 777, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: dayKeyNow } };
+            const d1seed = { v: 3, wallet: 777, xp: 0, highestIndex: 2, cleared: { w1_01: { bestMs: 99000, coins: 0 }, w1_02: { bestMs: 99000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {}, daily: { streak: 1, last: dayKeyNow } };
             // Device 1 has played (a guest save from before accounts) and makes an
             // account at the gate; its progress becomes the account's.
             const d1 = await cloudDevice(d1seed, { before: async (pg) => {
@@ -1490,7 +1534,7 @@ const failures = [];
             await d2.c.close();
             let d3 = null;
             if (!crazyBuild) {
-                d3 = await cloudDevice({ v: 2, wallet: 321, xp: 0, highestIndex: 1, cleared: { w1_01: { bestMs: 88000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {} }, { before: async (pg) => {
+                d3 = await cloudDevice({ v: 3, wallet: 321, xp: 0, highestIndex: 1, cleared: { w1_01: { bestMs: 88000, coins: 0 } }, goldClaimed: [], prizes: [], charges: {} }, { before: async (pg) => {
                     await pg.waitForSelector('#landing', { state: 'visible', timeout: 30000 });
                     const guestLinks = await pg.$$eval('#landing [data-lp="guest"]', els => els.filter(e => !e.hidden).length);
                     check(guestLinks >= 2, `the landing site offers PLAY AS GUEST under its big buttons (${guestLinks})`);

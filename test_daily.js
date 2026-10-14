@@ -202,7 +202,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
     const junk = S.parseProgress(JSON.stringify({ ...S.freshProgress(), daily: { streak: 99, last: 'tuesday' }, missions: { date: '2026-10-06', ids: ['clears', 'fly'], counts: { clears: 999 }, claimed: ['fly'] } }));
     check(junk.daily.streak === 0 && junk.daily.last === '' && junk.missions.ids.join() === 'clears' && junk.missions.counts.clears === 3 && junk.missions.claimed.length === 0,
         `junk in the save is dropped, got ${JSON.stringify([junk.daily, junk.missions])}`);
-    check(S.parseProgress(JSON.stringify({ v: 2, wallet: 5 })).missions === null, 'an old save with no missions loads');
+    check(S.parseProgress(JSON.stringify({ v: 3, wallet: 5 })).missions === null, 'an old save with no missions loads');
 
     if (failures.length) {
         console.error('FAIL: daily\n - ' + failures.join('\n - '));

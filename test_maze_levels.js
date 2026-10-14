@@ -603,10 +603,17 @@ async function run() {
                 `${tag}: hole at (${h.x},${h.z}) extends outside the level bounds`);
         }
 
-        // The whole level must sit inside the scene's sun-shadow frustum, or it
-        // renders unlit-looking with no shadows and no obvious cause.
-        check(Math.max(a.hw, a.hd) <= 10,
-            `${tag}: half-extent ${Math.max(a.hw, a.hd)} exceeds 10 world units -- outside the shadow frustum`);
+        // What is IN VIEW must sit inside the scene's sun-shadow frustum (a
+        // 20 x 20 box, sceneHost.js), or it renders unlit-looking with no
+        // shadows and no obvious cause. A board up to the rolling camera's
+        // 9 x 14 window is seen whole, the box on its centre; a bigger one
+        // (2026-10-13) is seen through that window, and the box follows it
+        // (setShadowFocus) -- so the window, not the board, must fit.
+        const VIEW_HW = 4.5, VIEW_HD = 7;
+        const seenHW = Math.min(a.hw, VIEW_HW), seenHD = Math.min(a.hd, VIEW_HD);
+        check(Math.max(seenHW, seenHD) + 2 <= 10,
+            `${tag}: the view (half-extent ${Math.max(seenHW, seenHD)} plus margin) exceeds the 10-unit shadow frustum`);
+        check(Math.max(a.hw, a.hd) <= 16, `${tag}: half-extent ${Math.max(a.hw, a.hd)} -- bigger than any board is meant to be`);
 
         // --- placement --------------------------------------------------------
         check(a.startFree, `${tag}: the START is inside a wall, over a hole, or outside the bounds -- the run would be unplayable from frame one`);
@@ -849,6 +856,66 @@ async function run() {
         lvls.slice(0, -1).forEach(l => check(!l.prize, `${l.id}: only a world's last level carries a prize`));
     }
 
+    // EVERY LEVEL HARDER THAN THE LAST (the user's call, 2026-10-13). Read
+    // back from the shipped walls, the way scripts/generateMazeLevels.js
+    // scores a level when it picks one: the route in marble widths, plus 4 for
+    // each junction on it (a cell with three or more open sides -- a place to
+    // take a wrong turn). Each level must score above the one before, with a
+    // route never under 92% of the last's; and the boards only grow.
+    {
+        const JUNCTION_MW = 4, ROUTE_KEEP = 0.92;
+        const scoreOf = (lv) => {
+            const m = /^(\d+)x(\d+) /.exec(lv._shape || '');
+            if (!m) return null;
+            const cols = +m[1], rows = +m[2], px = lv.size.w / cols, pz = lv.size.d / rows;
+            const cx = i => -lv.size.w / 2 + (i + 0.5) * px, cz = j => -lv.size.d / 2 + (j + 0.5) * pz;
+            const walled = (x, z) => lv.walls.some(w => Math.abs(x - w.x) <= w.w / 2 + 1e-6 && Math.abs(z - w.z) <= w.d / 2 + 1e-6);
+            const open = (i, j, di, dj) => {
+                const a = i + di, b = j + dj;
+                if (a < 0 || b < 0 || a >= cols || b >= rows) return false;
+                return !walled((cx(i) + cx(a)) / 2, (cz(j) + cz(b)) / 2);
+            };
+            const cell = (p) => [Math.min(cols - 1, Math.max(0, Math.floor((p.x + lv.size.w / 2) / px))), Math.min(rows - 1, Math.max(0, Math.floor((p.z + lv.size.d / 2) / pz)))];
+            const [si, sj] = cell(lv.start), [gi, gj] = cell(lv.goal);
+            const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+            const dist = (ci, cj) => {
+                const d = new Map([[ci + ',' + cj, 0]]);
+                let q = [[ci, cj]];
+                while (q.length) {
+                    const nq = [];
+                    for (const [i, j] of q) for (const [di, dj] of DIRS) {
+                        const k = (i + di) + ',' + (j + dj);
+                        if (!d.has(k) && open(i, j, di, dj)) { d.set(k, d.get(i + ',' + j) + 1); nq.push([i + di, j + dj]); }
+                    }
+                    q = nq;
+                }
+                return d;
+            };
+            // Junctions on ANY shortest route (loops can give several), as the generator counts them.
+            const ds = dist(si, sj), dg = dist(gi, gj), L = ds.get(gi + ',' + gj);
+            let junctions = 0;
+            for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+                const a = ds.get(i + ',' + j), b = dg.get(i + ',' + j);
+                if (a === undefined || b === undefined || a + b !== L || a === 0 || b === 0) continue;
+                if (DIRS.filter(([di, dj]) => open(i, j, di, dj)).length >= 3) junctions++;
+            }
+            const mw = lv.goldMs / 1000 * 1.5 / (2 * lv.ballRadius);
+            return { mw, junctions, score: mw + JUNCTION_MW * junctions };
+        };
+        let last = null, lastLv = null;
+        for (const lv of DATA.levels) {
+            const sc = scoreOf(lv);
+            check(!!sc, `${lv.id}: its _shape does not name its grid`);
+            if (!sc) continue;
+            if (last) {
+                check(sc.score > last.score + 1e-6, `${lv.id} scores ${sc.score.toFixed(1)} (route ${sc.mw.toFixed(1)} marble widths, ${sc.junctions} junctions) -- not harder than ${lastLv.id} (${last.score.toFixed(1)})`);
+                check(sc.mw >= last.mw * ROUTE_KEEP - 1e-6, `${lv.id}: its route (${sc.mw.toFixed(1)}) is under ${ROUTE_KEEP * 100}% of ${lastLv.id}'s (${last.mw.toFixed(1)})`);
+                check(lv.size.w >= lastLv.size.w && lv.size.d >= lastLv.size.d, `${lv.id}: its board (${lv.size.w} x ${lv.size.d}) is smaller than ${lastLv.id}'s`);
+            }
+            last = sc; lastLv = lv;
+        }
+    }
+
     if (failures.length) {
         console.error('FAIL: maze level validation\n - ' + failures.join('\n - '));
         process.exitCode = 1;
@@ -859,8 +926,9 @@ async function run() {
         const coinCount = DATA.levels.reduce((n, l) => n + ((l.coins || []).length), 0);
         const pickupCount = DATA.levels.reduce((n, l) => n + ((l.pickups || []).length), 0);
         console.log(`PASS: ${beltCount} conveyor(s) stay off holes, start, goal and gate sweeps; ${coinCount} coin(s) and ${pickupCount} pickup(s) are all reachable and clear of holes; traps arrive only on levels 1/4/10 of their world`);
+        console.log('PASS: every level is harder than the last (its route plus its junctions score higher, the route never much shorter) on a board that only grows');
         console.log(`PASS: the ${DAILY.levels.length} daily mazes pass every per-level check, twelve a world, off the ladder, holding only traps their world teaches`);
-        console.log(`PASS: all ${DATA.levels.length} maze level(s) are well-formed, in bounds, inside the shadow frustum, BFS-solvable at the real ball radius AND passable by a ball ${FIT_MARGIN_R * 100}% wider, leave no carved floor cut off, put every hole and all ${iceCount} ice patch(es) somewhere reachable, retract all ${gateCount} gate(s) clear of the floor when open, and form a gap-free ladder with non-increasing ball size`);
+        console.log(`PASS: all ${DATA.levels.length} maze level(s) are well-formed, in bounds, in view of the shadow frustum, BFS-solvable at the real ball radius AND passable by a ball ${FIT_MARGIN_R * 100}% wider, leave no carved floor cut off, put every hole and all ${iceCount} ice patch(es) somewhere reachable, retract all ${gateCount} gate(s) clear of the floor when open, and form a gap-free ladder with non-increasing ball size`);
     }
 }
 
