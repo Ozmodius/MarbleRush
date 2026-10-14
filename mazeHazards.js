@@ -147,6 +147,18 @@ export function distanceToRect(rect, x, z) {
     return Math.hypot(dx, dz);
 }
 
+// NO HOLE ON A WALL (the user's call, 2026-10-14). A hole set against a
+// wall's foot reads as a hole cut into the wall, so a strip of floor at least
+// HOLE_WALL_CLEAR wide shows between every hole's rim and every wall and the
+// board's edge (gates keep a ball's width off a hole along their whole sweep
+// already). The generator places to this rule, the verifier holds it.
+export const HOLE_WALL_CLEAR = 0.06;
+export function holeWallGap(lv, h) {
+    let d = Math.min(lv.size.w / 2 - Math.abs(h.x), lv.size.d / 2 - Math.abs(h.z));
+    for (const w of lv.walls) d = Math.min(d, distanceToRect(w, h.x, h.z));
+    return d - h.r;
+}
+
 // How slippery ice is, as a cannon friction coefficient, against the ordinary
 // floor's 0.28. Low enough that the ball genuinely carries momentum across a
 // patch, but deliberately not zero: a frictionless sphere never spins up, so it

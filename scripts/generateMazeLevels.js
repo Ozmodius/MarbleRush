@@ -346,16 +346,44 @@ const r2 = v => Math.round(v * 100) / 100;
 // verifier's finer 0.05 grid did not, and the level shipped with floor cut off
 // behind a hole (world 1 got lucky; world 2's corridors did not).
 const HOLE_PASS_MARGIN = 0.18;
-const HOLE_WALL_GAP = 0.02;
+// The floor left between a hole and the wall it sits against: HOLE_WALL_CLEAR
+// in mazeHazards.js (0.06; no hole on a wall, 2026-10-14) plus room for
+// rounding to hundredths. A literal: mazeHazards.js loads after this file.
+const HOLE_WALL_GAP = 0.08;
+// BIGGER HOLES (the user's call, 2026-10-14: "increase the size of holes to
+// be a danger, but passable"). The ball falls only when its CENTRE is over a
+// hole, so it may lean out over the rim: the lane past a hole is the one its
+// centre needs, HOLE_CENTRE_LANE wide (a squeeze, never a seal), and the hole
+// takes the rest of the corridor. Never smaller than the old rule's size, so
+// the roomy first planet keeps its holes; the tight ones lose the 0.16 floor
+// that left their holes smaller than the marble.
+const HOLE_CENTRE_LANE = 0.16;
 function holeRadiusFor(cfg, g) {
     const free = Math.min(g.px, g.pz) - g.t;      // corridor width
-    return Math.max(0.16, r2((free - HOLE_WALL_GAP - 2 * cfg.ball - HOLE_PASS_MARGIN) / 2));
+    const old = (free - HOLE_WALL_GAP - 2 * cfg.ball - HOLE_PASS_MARGIN) / 2;
+    const lane = (free - HOLE_WALL_GAP - cfg.ball - HOLE_CENTRE_LANE) / 2;
+    return Math.max(0.16, r2(Math.max(old, lane)));
 }
-// How far off the corridor's centre a hole of radius r sits: against one
-// wall, leaving the other side as the lane.
-function holeOffsetFor(cfg, g, r) {
-    const free = Math.min(g.px, g.pz) - g.t;
-    return Math.max(0, free / 2 - HOLE_WALL_GAP - r);
+// How far off the cell's centre a hole of radius r sits along an axis (the
+// cell's own width on it): against one wall, leaving the other side as the lane.
+function holeOffsetFor(g, span, r) {
+    return Math.max(0, (span - g.t) / 2 - HOLE_WALL_GAP - r);
+}
+// Where in cell (i, j) the n-th hole goes. ACROSS its corridor, toward a
+// closed face: a corridor running east-west has its walls north and south,
+// so the hole moves in z (it used to move in x always, which in an east-west
+// corridor slid it along the corridor, centred, sealing both sides). The
+// side alternates so a player cannot learn one lane and hold it, unless only
+// one face is closed: then the hole leans on that one.
+function holeSpot(open, g, i, j, n, r) {
+    const c = open[j][i];
+    const xWall = !c.E || !c.W, zWall = !c.N || !c.S;
+    const alongX = xWall || !zWall;
+    let sign = n % 2 === 0 ? 1 : -1;
+    if (alongX && c.E !== c.W) sign = c.E ? -1 : 1;
+    if (!alongX && c.N !== c.S) sign = c.S ? -1 : 1;
+    const off = sign * holeOffsetFor(g, alongX ? g.px : g.pz, r);
+    return alongX ? { x: r2(g.cx(i) + off), z: r2(g.cz(j)), r } : { x: r2(g.cx(i)), z: r2(g.cz(j) + off), r };
 }
 
 // Holes go where a WRONG DECISION is punished: on the branches leading off the
@@ -438,12 +466,11 @@ function placeHoles(open, cfg, g, path, rand, count, gates = [], ice = []) {
         const dz = Math.max(Math.abs(z - ir.z) - ir.d / 2, 0);
         return Math.hypot(dx, dz) > cfg.ball * 1.35;
     });
-    // Offset within the cell so the ball has a side to pass on, alternating so a
-    // player cannot learn one lane and hold it.
-    return chosen.map(([i, j], n) => {
-        const off = (n % 2 === 0 ? 1 : -1) * holeOffsetFor(cfg, g, r);
-        return { x: r2(g.cx(i) + off), z: r2(g.cz(j)), r: r };
-    }).filter(h => clearOfGates(h.x, h.z) && clearOfIce(h.x, h.z));
+    // Offset within the cell so the ball has a side to pass on (holeSpot), and
+    // never on a wall: the verifier's own rule, so the two cannot disagree.
+    const walled = { size: { w: BOARD_W, d: BOARD_D }, walls: wallsFor(open, cfg, g) };
+    return chosen.map(([i, j], n) => holeSpot(open, g, i, j, n, r))
+        .filter(h => clearOfGates(h.x, h.z) && clearOfIce(h.x, h.z) && H.holeWallGap(walled, h) >= H.HOLE_WALL_CLEAR);
 }
 
 // Is the level passable with ROOM TO SPARE -- the same search as solvable(),
@@ -975,7 +1002,9 @@ function placeGeysers(open, cfg, g, path, rand, count) {
     const goalR = Math.min(g.px, g.pz) * 0.3;
     for (const [i, j] of cells) {
         if (out.length >= count) break;
-        if (out.some(o => Math.hypot(o.x - g.cx(i), o.z - g.cz(j)) < 2.6)) continue;
+        // Apart enough that no two blasts' reaches (<= 1.1 each) overlap; 2.6
+        // left too few spots for the 2026-10-14 trap counts.
+        if (out.some(o => Math.hypot(o.x - g.cx(i), o.z - g.cz(j)) < 2.3)) continue;
         const gy = { x: r2(g.cx(i)), z: r2(g.cz(j)), r: 0.24, reach: r2(Math.min(1.1, Math.min(g.px, g.pz) * 0.85)),
             periodMs: 3200 + Math.round(rand() * 8) * 100, phase: r2(rand()) };
         if (Math.hypot(gy.x - g.cx(gi), gy.z - g.cz(gj)) <= gy.reach + goalR + 0.05) continue;
@@ -1878,10 +1907,13 @@ function pickLevel(cfg, n, index, seedOf, minMw = 0, minJ = 0) {
             const built = buildLevel(cfg, n, index, cand.seed);
             if (built && quotaFull(built, cfg) && longer(built) && levelScore(built) <= prev * CLIMB_MAX + 8) return built;
         }
+        // None near the aim carries it all: the smallest step up of any that does.
+        let best = null;
         for (const cand of order) {
             const built = buildLevel(cfg, n, index, cand.seed);
-            if (built && quotaFull(built, cfg) && longer(built)) return built;
+            if (built && quotaFull(built, cfg) && longer(built) && (!best || levelScore(built) < levelScore(best))) best = built;
         }
+        if (best) return best;
         throw new Error(`w${cfg.world} slot ${n + 1}: no seed carries the full quota and beats ${minMw.toFixed(1)} marble widths / ${minJ} junctions`);
     }
     for (const cand of ranked.slice(0, SCAN)) {
@@ -1926,14 +1958,17 @@ function pickLevel(cfg, n, index, seedOf, minMw = 0, minJ = 0) {
 // TRAPS SCALE WITH THE MAZE (the user's call, 2026-10-13: "the mazes need
 // more traps now that they are bigger"). A slot's trap counts are written
 // for a 9 x 14 board; on a bigger one each is multiplied by the board's area
-// over 9 x 14's, rounded (never below the slot's own count). Coins stay.
+// over 9 x 14's -- and every count by TRAP_MORE (2026-10-14: "increase the
+// overall number of traps by 20%") -- rounded, never below the slot's own
+// count. Coins stay.
+const TRAP_MORE = 1.2;
 const TRAP_KEYS = ['holes', 'gates', 'molten', 'conveyors', 'ice', 'fans', 'icicles', 'flares', 'geysers',
     'bumpers', 'springs', 'arms', 'magnets', 'crushers', 'rails'];
 function trapScale(cfg) { return Math.max(1, ((cfg.boardW || VIEW_W) * (cfg.boardD || VIEW_D)) / (VIEW_W * VIEW_D)); }
 function slotConfig(world, n) {
     const cfg = { ...world, ...world.levels[n], ice: world.levels[n].ice || 0 };
     const k = trapScale(cfg);
-    for (const key of TRAP_KEYS) if (cfg[key]) cfg[key] = Math.max(cfg[key], Math.round(cfg[key] * k));
+    for (const key of TRAP_KEYS) if (cfg[key]) cfg[key] = Math.max(cfg[key], Math.round(cfg[key] * k * TRAP_MORE));
     return cfg;
 }
 

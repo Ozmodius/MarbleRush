@@ -11,8 +11,8 @@ import { POCKET_LEVELS } from './pockets.js';
 export const PAGES = {
     w1_07: 'Sawturn is wound tight at last. The little marbles spin my engines beautifully: round, tireless, perfect.',
     w1_04: 'That white marble, Rolle, followed my ship all the way here. Persistent. Irritating. Admirably round.',
-    w2_03: 'Ice slows a planet’s spring. I need a marble that never stops sliding. Flurry will do nicely.',
-    w2_07: 'Note to self: lock the cages twice. Rolle freed the little one. How does he keep finding them?',
+    w2_07: 'Ice slows a planet’s spring. I need a marble that never stops sliding. Flurry will do nicely.',
+    w2_04: 'Note to self: lock the cages twice. Rolle freed the little one. How does he keep finding them?',
     w3_03: 'Magmars runs hot, and heat keeps the gears loose. Cinder complains about the heat. Odd, for a cinder.',
     w3_07: 'I built my first clock when I was six. It stopped. Everything stops, in the end. Not my planets. Not while I can help it.',
     w4_03: 'Bouncelot’s springs keep their bounce only while something rolls. Bobble rolls. So Bobble stays.',
