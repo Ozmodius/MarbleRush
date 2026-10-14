@@ -479,7 +479,7 @@ corridors (not more traps, not tighter gold), saves wiped again
 but display the same amount of maze, just focus on the marble", and "maybe a
 centre out maze for the last one".
 - *The curve*: boards 9 x 14 for levels 1-4, then growing every level to
-  1.6x (14.4 x 22.4) at the last; within each planet the grid finer, the
+  1.6x the scale (13.5 x 21.5 at the last: each planet's cells keep their size); within each planet the grid finer, the
   loops fewer; trap counts as before. Each level must out-score the one
   before (route in marble widths + 4 per junction), which the generator
   enforces and the verifier checks. Strictly longer routes alone could not
@@ -495,4 +495,8 @@ centre out maze for the last one".
   middle and the exit is the edge cell farthest from it by the maze.
 - *Performance*: all walls are one physics body; the sun's shadow box follows
   the view.
+- *Traps scale with the maze* (2026-10-13, after the bigger boards: "the
+  mazes need more traps now that they are bigger"): each slot's trap counts
+  are written for 9 x 14 and multiplied by the board's area over that, so
+  Gearth's last floors carry ~30 where they had ~14. Coins do not scale.
 
