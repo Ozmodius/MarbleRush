@@ -1527,7 +1527,8 @@ function buildLevel(cfg, n, index, seed) {
     });
     const apart = (p, q, pad) => Math.abs(p.x - q.x) >= (p.w + q.w) / 2 + pad || Math.abs(p.z - q.z) >= (p.d + q.d) / 2 + pad;
     const flares = (cfg.flares ? placeFlares(open, cfg, g, path, rand, cfg.flares * 3) : [])
-        .filter(f => sweepRects.every(sw => apart(f, sw, cfg.ball)))
+        // (+0.02: a flare right at a sweep's edge can round onto it.)
+        .filter(f => sweepRects.every(sw => apart(f, sw, cfg.ball + 0.02)))
         .slice(0, cfg.flares || 0);
     const geysers = (cfg.geysers ? placeGeysers(open, cfg, g, path, rand, cfg.geysers * 3) : [])
         .filter(gy => sweepRects.every(sw => apart({ x: gy.x, z: gy.z, w: gy.reach * 2, d: gy.reach * 2 }, sw, 0)))
@@ -1922,12 +1923,26 @@ function pickLevel(cfg, n, index, seedOf, minMw = 0, minJ = 0) {
     return lv;
 }
 
+// TRAPS SCALE WITH THE MAZE (the user's call, 2026-10-13: "the mazes need
+// more traps now that they are bigger"). A slot's trap counts are written
+// for a 9 x 14 board; on a bigger one each is multiplied by the board's area
+// over 9 x 14's, rounded (never below the slot's own count). Coins stay.
+const TRAP_KEYS = ['holes', 'gates', 'molten', 'conveyors', 'ice', 'fans', 'icicles', 'flares', 'geysers',
+    'bumpers', 'springs', 'arms', 'magnets', 'crushers', 'rails'];
+function trapScale(cfg) { return Math.max(1, ((cfg.boardW || VIEW_W) * (cfg.boardD || VIEW_D)) / (VIEW_W * VIEW_D)); }
+function slotConfig(world, n) {
+    const cfg = { ...world, ...world.levels[n], ice: world.levels[n].ice || 0 };
+    const k = trapScale(cfg);
+    for (const key of TRAP_KEYS) if (cfg[key]) cfg[key] = Math.max(cfg[key], Math.round(cfg[key] * k));
+    return cfg;
+}
+
 function buildAll() {
     const levels = [];
     let index = 1, climb = 0, climbJ = 0;    // the route (and its junctions) each next level must beat
     for (const world of WORLDS) {
         for (let n = 0; n < world.levels.length; n++) {
-            const cfg = { ...world, ...world.levels[n], ice: world.levels[n].ice || 0 };
+            const cfg = slotConfig(world, n);
             const lv = pickLevel(cfg, n, index,
                 attempt => cfg.world * 1000 + n * 17 + 7 + attempt * 101 + cfg.cols * 7919 + cfg.rows * 104729, climb, climbJ);
             if (!lv) throw new Error(`could not generate a solvable level for world ${cfg.world} slot ${n}`);
@@ -1959,7 +1974,7 @@ function buildDaily() {
     for (const world of WORLDS) {
         for (let k = 0; k < DAILY_PER_WORLD; k++) {
             const n = DAILY_SLOTS[k % DAILY_SLOTS.length];
-            const cfg = { ...world, ...world.levels[n], ice: world.levels[n].ice || 0 };
+            const cfg = slotConfig(world, n);
             const lv = pickLevel(cfg, n, 0, attempt => 900000 + cfg.world * 10007 + k * 7919 + attempt * 101);
             if (!lv) throw new Error(`could not generate a daily maze for world ${cfg.world} #${k + 1}`);
             lv.id = `d${cfg.world}_${String(k + 1).padStart(2, '0')}`;
