@@ -316,6 +316,12 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   `(max-width: 400px)` rule has a `:where(html.is-turned)` twin at the end of
   style.css (`test_portrait.js` holds them in step), and vw/vh sizes get a
   turned version in `--turn-w` / `--turn-h`.
+- **Power-up and ability buttons are icons, off the board where they can
+  be** (the user's call, 2026-10-14): round icons with a count, solid beside
+  the board (a wide screen) or under it (a phone); where the board fills the
+  screen under them (a big board, Explore), as see-through as they can be
+  (`placeCharges` in mazeGame.js, from the board's corners projected with the
+  live camera each frame of a run).
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

@@ -391,10 +391,12 @@
   <canvas id="walkMap" class="walk-map" hidden aria-label="Explorer map"></canvas>
   <div id="mazePowerups" class="maze-powerups"></div>
   <!-- Bought power-ups, fired with a tap; shown only while some are held. -->
-  <div class="maze-charges">
-    <button id="mazeUse_slowmo" class="maze-btn maze-charge" type="button" style="display:none"><span class="pu-dot pu-slowmo"></span>SLOW-MO <span class="count"></span></button>
-    <button id="mazeUse_magnet" class="maze-btn maze-charge" type="button" style="display:none"><span class="pu-dot pu-magnet"></span>MAGNET <span class="count"></span></button>
-    <button id="mazeUse_sig" class="maze-btn maze-charge maze-sig" type="button" style="display:none"><span class="sig-star" aria-hidden="true">✦</span><span class="sig-name">SIGNATURE</span> <span class="count"></span></button>
+  <!-- Icons only: solid where they sit off the board, see-through when the
+       board fills the screen under them (mazeGame.js placeCharges). -->
+  <div id="mazeCharges" class="maze-charges">
+    <button id="mazeUse_slowmo" class="maze-btn maze-charge charge-slowmo" type="button" style="display:none" aria-label="Slow-mo"><svg class="charge-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3c0 5 8 6 8 9s-8 4-8 9M16 3c0 5-8 6-8 9s8 4 8 9"/></svg><span class="charge-label">SLOW-MO</span><span class="count"></span></button>
+    <button id="mazeUse_magnet" class="maze-btn maze-charge charge-magnet" type="button" style="display:none" aria-label="Magnet"><svg class="charge-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4v8a6 6 0 0 0 12 0V4"/><path d="M6 4h3v8M18 4h-3v8"/></svg><span class="charge-label">MAGNET</span><span class="count"></span></button>
+    <button id="mazeUse_sig" class="maze-btn maze-charge maze-sig" type="button" style="display:none"><svg class="charge-icon sig-icon" viewBox="0 0 24 24" aria-hidden="true"></svg><span class="sig-name charge-label">SIGNATURE</span><span class="count"></span></button>
   </div>
   <!-- The level's objectives, on the ready screen only (mission.js) -->
   <div id="mazeMission" class="maze-mission" hidden><span class="mission-title">MISSION</span><ol id="mazeMissionList"></ol></div>
