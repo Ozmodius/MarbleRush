@@ -601,6 +601,9 @@ async function run() {
         for (const h of lv.holes) {
             check(Math.abs(h.x) + h.r <= a.hw && Math.abs(h.z) + h.r <= a.hd,
                 `${tag}: hole at (${h.x},${h.z}) extends outside the level bounds`);
+            const gap = H.holeWallGap(lv, h);
+            check(gap >= H.HOLE_WALL_CLEAR - 1e-6,
+                `${tag}: hole at (${h.x},${h.z}) is ${gap.toFixed(3)} from a wall or the board's edge -- it would read as a hole in the wall; at least ${H.HOLE_WALL_CLEAR} of floor must show between them`);
         }
 
         // What is IN VIEW must sit inside the scene's sun-shadow frustum (a

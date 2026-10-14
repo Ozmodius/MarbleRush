@@ -346,7 +346,10 @@ const r2 = v => Math.round(v * 100) / 100;
 // verifier's finer 0.05 grid did not, and the level shipped with floor cut off
 // behind a hole (world 1 got lucky; world 2's corridors did not).
 const HOLE_PASS_MARGIN = 0.18;
-const HOLE_WALL_GAP = 0.02;
+// The floor left between a hole and the wall it sits against: HOLE_WALL_CLEAR
+// in mazeHazards.js (0.06; no hole on a wall, 2026-10-14) plus room for
+// rounding to hundredths. A literal: mazeHazards.js loads after this file.
+const HOLE_WALL_GAP = 0.08;
 // BIGGER HOLES (the user's call, 2026-10-14: "increase the size of holes to
 // be a danger, but passable"). The ball falls only when its CENTRE is over a
 // hole, so it may lean out over the rim: the lane past a hole is the one its
@@ -361,11 +364,26 @@ function holeRadiusFor(cfg, g) {
     const lane = (free - HOLE_WALL_GAP - cfg.ball - HOLE_CENTRE_LANE) / 2;
     return Math.max(0.16, r2(Math.max(old, lane)));
 }
-// How far off the corridor's centre a hole of radius r sits: against one
-// wall, leaving the other side as the lane.
-function holeOffsetFor(cfg, g, r) {
-    const free = Math.min(g.px, g.pz) - g.t;
-    return Math.max(0, free / 2 - HOLE_WALL_GAP - r);
+// How far off the cell's centre a hole of radius r sits along an axis (the
+// cell's own width on it): against one wall, leaving the other side as the lane.
+function holeOffsetFor(g, span, r) {
+    return Math.max(0, (span - g.t) / 2 - HOLE_WALL_GAP - r);
+}
+// Where in cell (i, j) the n-th hole goes. ACROSS its corridor, toward a
+// closed face: a corridor running east-west has its walls north and south,
+// so the hole moves in z (it used to move in x always, which in an east-west
+// corridor slid it along the corridor, centred, sealing both sides). The
+// side alternates so a player cannot learn one lane and hold it, unless only
+// one face is closed: then the hole leans on that one.
+function holeSpot(open, g, i, j, n, r) {
+    const c = open[j][i];
+    const xWall = !c.E || !c.W, zWall = !c.N || !c.S;
+    const alongX = xWall || !zWall;
+    let sign = n % 2 === 0 ? 1 : -1;
+    if (alongX && c.E !== c.W) sign = c.E ? -1 : 1;
+    if (!alongX && c.N !== c.S) sign = c.S ? -1 : 1;
+    const off = sign * holeOffsetFor(g, alongX ? g.px : g.pz, r);
+    return alongX ? { x: r2(g.cx(i) + off), z: r2(g.cz(j)), r } : { x: r2(g.cx(i)), z: r2(g.cz(j) + off), r };
 }
 
 // Holes go where a WRONG DECISION is punished: on the branches leading off the
@@ -448,12 +466,11 @@ function placeHoles(open, cfg, g, path, rand, count, gates = [], ice = []) {
         const dz = Math.max(Math.abs(z - ir.z) - ir.d / 2, 0);
         return Math.hypot(dx, dz) > cfg.ball * 1.35;
     });
-    // Offset within the cell so the ball has a side to pass on, alternating so a
-    // player cannot learn one lane and hold it.
-    return chosen.map(([i, j], n) => {
-        const off = (n % 2 === 0 ? 1 : -1) * holeOffsetFor(cfg, g, r);
-        return { x: r2(g.cx(i) + off), z: r2(g.cz(j)), r: r };
-    }).filter(h => clearOfGates(h.x, h.z) && clearOfIce(h.x, h.z));
+    // Offset within the cell so the ball has a side to pass on (holeSpot), and
+    // never on a wall: the verifier's own rule, so the two cannot disagree.
+    const walled = { size: { w: BOARD_W, d: BOARD_D }, walls: wallsFor(open, cfg, g) };
+    return chosen.map(([i, j], n) => holeSpot(open, g, i, j, n, r))
+        .filter(h => clearOfGates(h.x, h.z) && clearOfIce(h.x, h.z) && H.holeWallGap(walled, h) >= H.HOLE_WALL_CLEAR);
 }
 
 // Is the level passable with ROOM TO SPARE -- the same search as solvable(),

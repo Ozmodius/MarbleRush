@@ -503,8 +503,15 @@ centre out maze for the last one".
   traps by 20%, increase the size of holes to be a danger, but passable"):
   every scaled trap count times 1.2 (~19% after rounding); holes sized so the
   marble's centre keeps a 0.16 lane past them (it falls only when its centre
-  is over one), never smaller than before -- radius 0.20 to 0.36 where it was
+  is over one), never smaller than before -- radius 0.20 to 0.48 where it was
   0.16 to 0.19. Geysers may sit 2.3 apart (was 2.6; their reaches still
   never overlap). More traps need longer routes on the last planets: Gearth's
   last gold is ~105 s (was ~74).
+- *No holes on walls* (2026-10-14: "make sure there are no holes on
+  walls"): holes had sat 0.01 from the wall they leaned on, which read as a
+  hole cut into the wall's foot (and Magmars' glowing rim ran onto it). Now
+  0.06 of floor or more always shows between a hole and any wall or the
+  board's edge (verified), and a hole leans across its corridor toward a
+  closed face (it used to move in x always, sliding along an east-west
+  corridor). Radius 0.17 to 0.45 (was 0.20 to 0.48); Gearth's last gold ~93 s.
 
