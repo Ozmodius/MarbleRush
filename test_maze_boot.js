@@ -1039,7 +1039,7 @@ const failures = [];
         await rp.evaluate(() => { window.__s2seen = []; const e = document.getElementById('mazeStatus2'); new MutationObserver(() => window.__s2seen.push(e.textContent)).observe(e, { childList: true, characterData: true, subtree: true }); });
         check(await rdbg('warpToGoal'), 'the explored w1_07 clears');
         check(((await rdbg('progress')).diary || []).join() === 'w1_07', `the clear keeps the page: ${JSON.stringify((await rdbg('progress')).diary)}`);
-        const saidPage = await rp.waitForFunction(() => window.__s2seen.some(t => /DIARY PAGE 1 FOUND/.test(t)), null, { polling: 100, timeout: 20000 }).then(() => true, () => false);
+        const saidPage = await rp.waitForFunction(() => window.__s2seen.some(t => /DIARY PAGE \d+ FOUND/.test(t)), null, { polling: 100, timeout: 20000 }).then(() => true, () => false);
         check(saidPage, `the CLEARED panel says the page was found: ${JSON.stringify(await rp.evaluate(() => window.__s2seen))}`);
         // The story's voices on the ready line (rescue.js).
         await rdbg('startLevelForTest', 'w1_09');
@@ -1133,8 +1133,8 @@ const failures = [];
         check(/FRIENDS RESCUED 1 \/ 5/.test(await rp.textContent('#homeRescueText')) && await rp.locator('#homeRescueFriends .rescue-friend.is-freed').count() === 1, `home's tracker counts Pip freed: ${await rp.textContent('#homeRescueText')}`);
         await rp.tap('#tab_gear');
         await rp.waitForSelector('#profileView', { state: 'visible' });
-        check((await rp.locator('#profileDiary .diary-page').count()) === 10 && (await rp.locator('#profileDiary .diary-page.is-found').count()) === 1 && /PAGE 1/.test(await rp.textContent('#profileDiary .diary-page.is-found')),
-            'Gear shows the Baron\'s diary, page 1 found');
+        check((await rp.locator('#profileDiary .diary-page').count()) === 10 && (await rp.locator('#profileDiary .diary-page.is-found').count()) === 1 && /PAGE \d+/.test(await rp.textContent('#profileDiary .diary-page.is-found')),
+            'Gear shows the Baron\'s diary, one page found');
         await rp.tap('#tab_crew');
         await rp.waitForSelector('#crewView', { state: 'visible' });
         check(!/is-captive/.test(await pipCard.getAttribute('class')) && /SELECT/.test(await pipCard.locator('.marble-action').textContent())

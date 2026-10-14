@@ -347,9 +347,19 @@ const r2 = v => Math.round(v * 100) / 100;
 // behind a hole (world 1 got lucky; world 2's corridors did not).
 const HOLE_PASS_MARGIN = 0.18;
 const HOLE_WALL_GAP = 0.02;
+// BIGGER HOLES (the user's call, 2026-10-14: "increase the size of holes to
+// be a danger, but passable"). The ball falls only when its CENTRE is over a
+// hole, so it may lean out over the rim: the lane past a hole is the one its
+// centre needs, HOLE_CENTRE_LANE wide (a squeeze, never a seal), and the hole
+// takes the rest of the corridor. Never smaller than the old rule's size, so
+// the roomy first planet keeps its holes; the tight ones lose the 0.16 floor
+// that left their holes smaller than the marble.
+const HOLE_CENTRE_LANE = 0.16;
 function holeRadiusFor(cfg, g) {
     const free = Math.min(g.px, g.pz) - g.t;      // corridor width
-    return Math.max(0.16, r2((free - HOLE_WALL_GAP - 2 * cfg.ball - HOLE_PASS_MARGIN) / 2));
+    const old = (free - HOLE_WALL_GAP - 2 * cfg.ball - HOLE_PASS_MARGIN) / 2;
+    const lane = (free - HOLE_WALL_GAP - cfg.ball - HOLE_CENTRE_LANE) / 2;
+    return Math.max(0.16, r2(Math.max(old, lane)));
 }
 // How far off the corridor's centre a hole of radius r sits: against one
 // wall, leaving the other side as the lane.
@@ -975,7 +985,9 @@ function placeGeysers(open, cfg, g, path, rand, count) {
     const goalR = Math.min(g.px, g.pz) * 0.3;
     for (const [i, j] of cells) {
         if (out.length >= count) break;
-        if (out.some(o => Math.hypot(o.x - g.cx(i), o.z - g.cz(j)) < 2.6)) continue;
+        // Apart enough that no two blasts' reaches (<= 1.1 each) overlap; 2.6
+        // left too few spots for the 2026-10-14 trap counts.
+        if (out.some(o => Math.hypot(o.x - g.cx(i), o.z - g.cz(j)) < 2.3)) continue;
         const gy = { x: r2(g.cx(i)), z: r2(g.cz(j)), r: 0.24, reach: r2(Math.min(1.1, Math.min(g.px, g.pz) * 0.85)),
             periodMs: 3200 + Math.round(rand() * 8) * 100, phase: r2(rand()) };
         if (Math.hypot(gy.x - g.cx(gi), gy.z - g.cz(gj)) <= gy.reach + goalR + 0.05) continue;
@@ -1878,10 +1890,13 @@ function pickLevel(cfg, n, index, seedOf, minMw = 0, minJ = 0) {
             const built = buildLevel(cfg, n, index, cand.seed);
             if (built && quotaFull(built, cfg) && longer(built) && levelScore(built) <= prev * CLIMB_MAX + 8) return built;
         }
+        // None near the aim carries it all: the smallest step up of any that does.
+        let best = null;
         for (const cand of order) {
             const built = buildLevel(cfg, n, index, cand.seed);
-            if (built && quotaFull(built, cfg) && longer(built)) return built;
+            if (built && quotaFull(built, cfg) && longer(built) && (!best || levelScore(built) < levelScore(best))) best = built;
         }
+        if (best) return best;
         throw new Error(`w${cfg.world} slot ${n + 1}: no seed carries the full quota and beats ${minMw.toFixed(1)} marble widths / ${minJ} junctions`);
     }
     for (const cand of ranked.slice(0, SCAN)) {
@@ -1926,14 +1941,17 @@ function pickLevel(cfg, n, index, seedOf, minMw = 0, minJ = 0) {
 // TRAPS SCALE WITH THE MAZE (the user's call, 2026-10-13: "the mazes need
 // more traps now that they are bigger"). A slot's trap counts are written
 // for a 9 x 14 board; on a bigger one each is multiplied by the board's area
-// over 9 x 14's, rounded (never below the slot's own count). Coins stay.
+// over 9 x 14's -- and every count by TRAP_MORE (2026-10-14: "increase the
+// overall number of traps by 20%") -- rounded, never below the slot's own
+// count. Coins stay.
+const TRAP_MORE = 1.2;
 const TRAP_KEYS = ['holes', 'gates', 'molten', 'conveyors', 'ice', 'fans', 'icicles', 'flares', 'geysers',
     'bumpers', 'springs', 'arms', 'magnets', 'crushers', 'rails'];
 function trapScale(cfg) { return Math.max(1, ((cfg.boardW || VIEW_W) * (cfg.boardD || VIEW_D)) / (VIEW_W * VIEW_D)); }
 function slotConfig(world, n) {
     const cfg = { ...world, ...world.levels[n], ice: world.levels[n].ice || 0 };
     const k = trapScale(cfg);
-    for (const key of TRAP_KEYS) if (cfg[key]) cfg[key] = Math.max(cfg[key], Math.round(cfg[key] * k));
+    for (const key of TRAP_KEYS) if (cfg[key]) cfg[key] = Math.max(cfg[key], Math.round(cfg[key] * k * TRAP_MORE));
     return cfg;
 }
 

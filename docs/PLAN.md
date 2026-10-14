@@ -499,4 +499,12 @@ centre out maze for the last one".
   mazes need more traps now that they are bigger"): each slot's trap counts
   are written for 9 x 14 and multiplied by the board's area over that, so
   Gearth's last floors carry ~30 where they had ~14. Coins do not scale.
+- *More traps, bigger holes* (2026-10-14: "increase the overall number of
+  traps by 20%, increase the size of holes to be a danger, but passable"):
+  every scaled trap count times 1.2 (~19% after rounding); holes sized so the
+  marble's centre keeps a 0.16 lane past them (it falls only when its centre
+  is over one), never smaller than before -- radius 0.20 to 0.36 where it was
+  0.16 to 0.19. Geysers may sit 2.3 apart (was 2.6; their reaches still
+  never overlap). More traps need longer routes on the last planets: Gearth's
+  last gold is ~105 s (was ~74).
 
