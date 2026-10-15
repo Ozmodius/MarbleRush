@@ -349,9 +349,22 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   floor 10's story card) and pressing one clicks the page's button -- never
   a second copy of the game's logic. No ad buttons in the room. Leaving the
   level ends the session (the menus are flat). Explore is not offered in VR.
+  FEEL (2026-10-14): the controller holding the board (both when neither
+  does) pulses from the same calls the sound gets -- every wall hit's speed
+  along its normal, and the fall, bumper, coin, shield and win moments
+  (`cue()` in mazeGame.js, `xrFeel`, `pulseFor`); a hole's thud is the
+  strongest. THE REAL TABLE (2026-10-14): with WebXR hit-test (the Quest's
+  Space Setup) a ray dropped straight down at the planned spot puts the
+  board's floor 2 cm over the table under it (`tableHeight`: a table's
+  height, never the floor or a shelf near the eyes); PLACE BOARD is pointing
+  -- an outline follows the ray over real surfaces, the trigger sets the
+  board there facing you (`placeOnSurface`), pointing at nothing re-places
+  it in front of you. No hit-test: the head-height rule, as before. Tilt is
+  read on the board's own axes (it turns to face you), so a wrist rolled
+  toward the board rolls it.
   `test_xr.js` holds the numbers; `test_xr_browser.js` runs Meta's emulator
-  (IWER, a dev dependency, which also poses as a Quest's user agent) on both
-  builds. Feel is judged on the user's headset.
+  (IWER, a dev dependency, which also poses as a Quest's user agent; a fake
+  room with a 74 cm table through its environment seam) on both builds. Feel is judged on the user's headset.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

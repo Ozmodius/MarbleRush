@@ -83,3 +83,52 @@ export function grabTilt(q0, q) {
     const c = v => Math.max(-1, Math.min(1, v));
     return { beta: Math.asin(c(_up.z)) * RAD, gamma: Math.asin(c(_up.x)) * RAD };
 }
+
+// ---------------------------------------------------------------------------
+// FEEL (the user's call, 2026-10-14): the controller holding the board buzzes
+// with what the marble does -- from the SAME physics the sound hears
+// (soundModel.js impactStrength: a wall hit's speed along its normal), so a
+// clack you hear is a knock you feel. { intensity 0..1, ms } or null.
+// ---------------------------------------------------------------------------
+export const HAPTIC_MIN_SPEED = 0.6;      // gentler than this is a roll, not a knock
+export const HAPTIC_FULL_SPEED = 6.0;
+export function pulseFor(kind, v = 0) {
+    if (kind === 'hit') {
+        const s = Math.abs(Number(v) || 0);
+        if (s < HAPTIC_MIN_SPEED) return null;
+        const k = Math.min(1, (s - HAPTIC_MIN_SPEED) / (HAPTIC_FULL_SPEED - HAPTIC_MIN_SPEED));
+        return { intensity: 0.12 + 0.68 * k, ms: Math.round(14 + 26 * k) };
+    }
+    return ({
+        fall: { intensity: 1.0, ms: 160 },      // down a hole: the thud
+        bumper: { intensity: 0.75, ms: 45 },
+        shield: { intensity: 0.6, ms: 90 },
+        coin: { intensity: 0.15, ms: 14 },
+        win: { intensity: 0.5, ms: 110 }
+    })[kind] || null;
+}
+
+// ---------------------------------------------------------------------------
+// THE REAL TABLE (the user's call, 2026-10-14). The headset knows the room's
+// surfaces (WebXR hit-test, from the Quest's Space Setup): a ray dropped
+// straight down where the board is planned finds what is under it, and the
+// board sits on the highest surface there that is a table's height -- not the
+// floor, not a shelf over the eyes. Pointing (PLACE BOARD) puts it on any
+// surface the ray meets, facing you.
+// ---------------------------------------------------------------------------
+export const XR_TABLE_LIFT_M = 0.02;      // the board's floor, just above the real top
+export const XR_TABLE_FIND_MIN_M = 0.4;   // a low coffee table counts...
+export const XR_TABLE_EYE_GAP_M = 0.2;    // ...a surface near eye height does not
+// From the heights (metres, room space) a dropped ray met, the table's, or null.
+export function tableHeight(heights, eyeY) {
+    const top = Math.min(XR_TABLE_MAX_M + 0.1, eyeY - XR_TABLE_EYE_GAP_M);
+    const ok = (heights || []).filter(y => Number.isFinite(y) && y >= XR_TABLE_FIND_MIN_M && y <= top);
+    return ok.length ? Math.max(...ok) : null;
+}
+// The board's place on a surface the player pointed at: centred on the point,
+// its floor just above it, its far edge away from the head.
+export function placeOnSurface(point, headPos) {
+    const dx = point.x - headPos.x, dz = point.z - headPos.z;
+    const yaw = Math.hypot(dx, dz) < 1e-6 ? 0 : Math.atan2(-dx, -dz);
+    return { x: point.x, y: point.y + XR_TABLE_LIFT_M, z: point.z, yaw };
+}

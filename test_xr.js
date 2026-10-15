@@ -74,6 +74,24 @@ const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
     const far = X.grabTilt(q0, turn(Z_, -80));
     check(T.computeTilt(far, { beta: 0, gamma: 0 }, null).tilt.gamma === T.MAX_TILT_DEG, 'a wild roll is clamped at MAX_TILT_DEG like any reading');
 
+    // --- feel: knocks from the physics, a hole's thud the strongest ---------
+    check(X.pulseFor('hit', 0.3) === null, 'a marble rolling along a wall buzzes nothing');
+    const soft = X.pulseFor('hit', 1.2), hard = X.pulseFor('hit', 5), full = X.pulseFor('hit', 40);
+    check(soft && hard && soft.intensity < hard.intensity && soft.ms < hard.ms && full.intensity <= 1, `a harder knock is a stronger, longer pulse: ${JSON.stringify([soft, hard, full])}`);
+    check(['fall', 'bumper', 'shield', 'coin', 'win'].every(k => X.pulseFor(k)), 'a fall, a bumper, a shield, a coin and the clear are each felt');
+    check(X.pulseFor('fall').intensity >= Math.max(full.intensity, X.pulseFor('bumper').intensity), 'nothing is felt harder than going down a hole');
+    check(X.pulseFor('coin').intensity < soft.intensity, 'a coin is a tick, softer than any knock');
+
+    // --- the real table ------------------------------------------------------
+    check(X.tableHeight([0, 0.74], 1.6) === 0.74, 'under the planned spot: the table, not the floor');
+    check(X.tableHeight([0, 0.74, 1.55], 1.6) === 0.74, 'a surface near eye height (a shelf) is not the table');
+    check(X.tableHeight([0, 0.1], 1.6) === null && X.tableHeight([], 1.6) === null, 'only floor under it: no table, the head-height rule stands');
+    check(X.tableHeight([0.45], 1.2) === 0.45, 'seated at a coffee table: it counts');
+    const on = X.placeOnSurface({ x: 0.3, y: 0.72, z: -0.6 }, { x: 0, y: 1.6, z: 0 });
+    check(near(on.x, 0.3) && near(on.z, -0.6) && near(on.y, 0.72 + X.XR_TABLE_LIFT_M), `pointed at a surface, the board centres on it, just above: ${JSON.stringify(on)}`);
+    const farEdge2 = new THREE.Vector3(0, 0, -7).applyMatrix4(X.boardMatrix(on, X.XR_BOARD_SCALE));
+    check(Math.hypot(farEdge2.x, farEdge2.z) > Math.hypot(on.x, on.z), 'and its far edge points away from the player');
+
     if (failures.length) { console.log('FAIL: xr'); failures.forEach(f => console.log(' - ' + f)); process.exit(1); }
-    console.log('PASS: xr -- the board is table-sized and placed ahead of and under the eyes, facing the player; the rig scales the player, not the level; grab and tilt read in mazeTilt\'s signs');
+    console.log('PASS: xr -- the board is table-sized and placed ahead of and under the eyes, facing the player; the rig scales the player, not the level; grab and tilt read in mazeTilt\'s signs; knocks felt from the physics, a hole the hardest; the board finds the real table, not the floor or a shelf');
 })().catch(e => { console.error(e); process.exit(1); });

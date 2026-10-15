@@ -35,7 +35,7 @@ import { createMazeAudio } from './mazeAudio.js';
 import { wallForLevel, floorForLevel } from './soundModel.js';
 import { setSoundOn, isSoundOn, unlockSound } from './sound.js';
 import { keepAwake } from './wakeLock.js';
-import { xrAvailable, xrPresenting, xrReading, enterXR, xrDebug } from './xrMode.js';
+import { xrAvailable, xrPresenting, xrReading, enterXR, xrDebug, xrFeel } from './xrMode.js';
 import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
 import { ballSetup, CHARGES, TRAP_CHARGE_IDS, TRAP_GRANT, AD_REWARDS, MARBLES, WALK } from './shopCatalog.js';
 import { SIGNATURES, COVER, SIGHT_MS, signatureUses, crewStep, hasAura } from './crew.js';
@@ -1125,12 +1125,15 @@ function buildWorld(lv, wallSpecs) {
     // Every new contact is a hit, as loud as the speed along its normal
     // (mazeAudio.js decides whether that is loud enough to hear).
     const floorSound = floorForLevel(lv);
+    // In a headset the hand holding the board feels it too (xrMode.js).
     ball.addEventListener('collide', (e) => {
-        if (!audio || ball !== ballBody || phase === 'falling') return;
+        if (ball !== ballBody || phase === 'falling') return;
         const kind = bodySound.get(e.body);
         if (!kind) return;
         let v = 0;
         try { v = Math.abs(e.contact.getImpactVelocityAlongNormal()); } catch (_) { return; }
+        xrFeel('hit', v);
+        if (!audio) return;
         const material = kind === 'floor' ? (ballOnIce ? 'ice' : floorSound) : kind;
         audio.hit(e.body, material, v, ball.position.x, ball.position.z);
     });
@@ -1467,7 +1470,7 @@ function covered(kind) {
     crewRun.until[kind] = now + (c.windowMs || c.lingerMs || 0);
     crewRun.fired.push(kind);
     setStatus(by.toUpperCase() + '!');
-    if (audio) audio.event('shield');
+    cue('shield');
     emitRun('signature', { kind });
     renderSignature();
     return true;
@@ -1612,7 +1615,7 @@ function applyToys() {
         roll();
         bumperKicks++;
         if (props) props.hitBumper(i);
-        if (audio) audio.event('bumper', { x: b.x, z: b.z });
+        cue('bumper', { x: b.x, z: b.z });
     });
     if (level.springs) {
         const pad = springUnder(level.springs, runClockMs, p.x, p.z, R);
@@ -1961,7 +1964,7 @@ function checkOutcomes() {
         if (sightFx) sightFx.set(!!(crewRun && crewRun.sightMs > 0), performance.now() / 1000);
         if (fuelBeaconFx) fuelBeaconFx.set(!!(fuelBeaconOn && fuelCell && !fuelCell.taken && !fuelCell.found), performance.now() / 1000);
         for (const e of events) {
-            if (e.type === 'coin') { props.takeCoin(e.index); if (audio) audio.event('coin'); }
+            if (e.type === 'coin') { props.takeCoin(e.index); cue('coin'); }
             else { props.takePickup(e.index); setStatus(e.kind.toUpperCase()); if (audio) audio.event('pickup'); }
         }
         if (events.length) renderCoins();
@@ -2010,6 +2013,12 @@ function checkOutcomes() {
 // instead of the run: the ball is put back, stopped, on the last safe spot it
 // rolled over (mazePickups.js). Otherwise it falls.
 // What ended a run, for the stats page (play tracking): by its message.
+// A moment of the run, heard (mazeAudio.js) and, in a headset, felt
+// (xrMode.js xrFeel): a fall, a bumper, a coin, a shield, the clear.
+function cue(name, opts) {
+    if (audio) audio.event(name, opts);
+    xrFeel(name);
+}
 const FALL_CAUSE = { 'DOWN THE HOLE': 'hole', 'HIT BY AN ICICLE': 'icicle', 'BURNED': 'flare', 'BURNED BY A MOLTEN GATE': 'molten', 'SHOCKED': 'shock', 'CRUSHED': 'crush' };
 function knockOut(message, holeIndex) {
     if (captureNoKnockOut) return;   // marketing captures only (scripts/marketing/)
@@ -2022,7 +2031,7 @@ function knockOut(message, holeIndex) {
         ballBody.velocity.setZero();
         ballBody.angularVelocity.setZero();
         setStatus(crewRun.sig.name.toUpperCase() + '!');
-        if (audio) audio.event('shield');
+        cue('shield');
         emitRun('signature', { kind: 'fall' });
         renderPowerups();
         return;
@@ -2036,7 +2045,7 @@ function knockOut(message, holeIndex) {
         ballBody.velocity.setZero();
         ballBody.angularVelocity.setZero();
         setStatus('SHIELD SAVED YOU');
-        if (audio) audio.event('shield');
+        cue('shield');
         emitRun('shield', { cause: FALL_CAUSE[message] || 'other' });
         renderPowerups();
         return;
@@ -2051,7 +2060,7 @@ function fall(message, why) {
     // Drop through the floor rather than teleporting: the player needs to see
     // WHY the run ended. collisionResponse=false keeps the body in the sim (so
     // gravity still applies) while it stops colliding with anything.
-    if (audio) audio.event('fall', { cause: (why && why.cause) || 'other', speed: Math.hypot(ballBody.velocity.x, ballBody.velocity.z) });
+    cue('fall', { cause: (why && why.cause) || 'other', speed: Math.hypot(ballBody.velocity.x, ballBody.velocity.z) });
     ballBody.collisionResponse = false;
     // Rolling, the end is SHOWN (fallFx.js) rather than dropped through the
     // floor: the body is held where it went, and the drawn ball tips into the
@@ -2244,7 +2253,7 @@ function win() {
     // out of the goal it just reached while the CLEARED banner is still up.
     world.gravity.set(0, -GRAVITY, 0);
     mazeGroup.rotation.set(0, 0, 0); mazeGroup.position.set(0, 0, 0);
-    if (audio) audio.event('win', { x: level.goal.x, z: level.goal.z });
+    cue('win', { x: level.goal.x, z: level.goal.z });
     // The leaderboards (cloudSync.js, via main.js) hear of every win: the
     // clear when it counted, null when it did not.
     if (clearListener) {
