@@ -16,7 +16,7 @@ import { CRUSH_HEAD_H } from './foundryProps3d.js';
 import { ARM_Y0, ARM_Y1 } from './toyProps3d.js';
 import { createRunPickups, stepPickups, absorbFall, timeScale, useCharge } from './mazePickups.js';
 import { buildLevelProps } from './mazeProps3d.js';
-import { captiveFor, captiveSpot, isRescueLevel, CAPTIVE_REACH, storyCard, readyLine, lockedLine, freedLine, joinedLine, baronLine, friendLine, nearLine, RESCUE_FLOOR } from './rescue.js';
+import { captiveFor, captiveSpot, isRescueLevel, CAPTIVE_REACH, storyCard, readyLine, lockedLine, freedLine, joinedLine, baronLine, baronFloorLine, friendLine, RESCUE_FLOOR } from './rescue.js';
 import { buildCage } from './captive3d.js';
 import { drop as dropPose, shipDrop as shipDropPose, shipPickup as shipPickupPose, openingShow, closingShow, SHIP_DOME_Y, DROP_MS, SHIP_DROP_MS, SHIP_PICKUP_MS } from './levelShow.js';
 import { buildShip } from './ship3d.js';
@@ -593,9 +593,9 @@ try { if (typeof document !== 'undefined' && keyboardFirst()) document.documentE
 function storyReadyLine(lv, prog) {
     if (walkMode || !lv || isDaily(lv) || !Number.isInteger(lv.world) || !Number.isInteger(lv.index)) return '';
     const floor = lv.index - (lv.world - 1) * 10;
-    if (floor === RESCUE_FLOOR - 1 && captiveFor(lv.world) && !(prog.rescued || []).includes(lv.world)) return nearLine(lv.world);
     if (floor === 1) return baronLine(lv.world);
-    return '';
+    // The Baron's brag on floors 3, 6 and 9 (rescue.js baronFloorLine).
+    return baronFloorLine(lv.world, floor, !!captiveFor(lv.world) && !(prog.rescued || []).includes(lv.world));
 }
 function readyHint() {
     if (xrPresenting()) return 'PRESS START';
@@ -1905,7 +1905,8 @@ function openStory(worldNo) {
     if (!panel) return;
     const seen = storySeen();
     if (seen.includes(worldNo)) return;
-    const card = storyCard(worldNo, seen.length === 0);
+    const howTo = keyboardFirst() ? 'Arrow keys or WASD tilt the board.' : 'Tilt your device to roll the marble.';
+    const card = storyCard(worldNo, seen.length === 0, howTo);
     const cap = captiveFor(worldNo);
     if (!card || !cap) return;
     try { localStorage.setItem(STORY_SEEN_KEY, JSON.stringify([...seen, worldNo])); } catch (_) { /* private mode: shown again next time */ }
@@ -3005,7 +3006,10 @@ function startLevel(levelId, opts = {}) {
     // fuel cell and any diary page are -- not only from CLEARED.
     showEl('mazeExploreBtn', !walkMode && !isDaily(lv) && !trialMarble && !!(prog.cleared || {})[lv.id]);
     syncVrBtn();
-    if (rescue && !opts.noStory) openStory(rescue.world);
+    // The rescue card opens a planet (the user's call, 2026-10-15): on its
+    // floor 1, rolling, while its friend is still caged up on floor 10.
+    const floorNo = Number.isInteger(lv.world) && Number.isInteger(lv.index) && !isDaily(lv) ? lv.index - (lv.world - 1) * 10 : 0;
+    if (floorNo === 1 && !walkMode && !trialMarble && !opts.noStory && captiveFor(lv.world) && !(prog.rescued || []).includes(lv.world)) openStory(lv.world);
     requestRender();
 }
 
