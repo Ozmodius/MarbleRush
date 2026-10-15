@@ -533,6 +533,11 @@ centre out maze for the last one".
   0.16 to 0.19. Geysers may sit 2.3 apart (was 2.6; their reaches still
   never overlap). More traps need longer routes on the last planets: Gearth's
   last gold is ~105 s (was ~74).
+- *20% more again* (2026-10-14, evening: "All boards need 20% more traps/
+  holes"): TRAP_MORE 1.2 -> 1.44, holes included. The ladder went from 922
+  traps to 1110 (+20%), 512 holes to 611 (+19%); the daily pool from 1453 to
+  1751. Gold times held (Gearth's last ~93 s). 16 levels needed a new maze
+  to carry the extra (w3_06-09, w4_02-10, w5_01-03); the other 34 kept theirs.
 - *No holes on walls* (2026-10-14: "make sure there are no holes on
   walls"): holes had sat 0.01 from the wall they leaned on, which read as a
   hole cut into the wall's foot (and Magmars' glowing rim ran onto it). Now

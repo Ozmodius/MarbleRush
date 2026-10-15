@@ -1958,10 +1958,11 @@ function pickLevel(cfg, n, index, seedOf, minMw = 0, minJ = 0) {
 // TRAPS SCALE WITH THE MAZE (the user's call, 2026-10-13: "the mazes need
 // more traps now that they are bigger"). A slot's trap counts are written
 // for a 9 x 14 board; on a bigger one each is multiplied by the board's area
-// over 9 x 14's -- and every count by TRAP_MORE (2026-10-14: "increase the
-// overall number of traps by 20%") -- rounded, never below the slot's own
-// count. Coins stay.
-const TRAP_MORE = 1.2;
+// over 9 x 14's -- and every count by TRAP_MORE -- rounded, never below the
+// slot's own count. Coins stay. TRAP_MORE: 1.2 (2026-10-14: "increase the
+// overall number of traps by 20%"), then 1.2 again (same day: "all boards
+// need 20% more traps/ holes"), holes included.
+const TRAP_MORE = 1.44;
 const TRAP_KEYS = ['holes', 'gates', 'molten', 'conveyors', 'ice', 'fans', 'icicles', 'flares', 'geysers',
     'bumpers', 'springs', 'arms', 'magnets', 'crushers', 'rails'];
 function trapScale(cfg) { return Math.max(1, ((cfg.boardW || VIEW_W) * (cfg.boardD || VIEW_D)) / (VIEW_W * VIEW_D)); }
