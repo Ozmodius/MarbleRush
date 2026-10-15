@@ -5,13 +5,13 @@
   "description": "PlaneTilt: a tilt-controlled marble maze for CrazyGames.",
   "license": "UNLICENSED",
   "scripts": {
-    "test": "node test_maze_levels.js && node test_maze_hazards.js && node test_maze_tilt.js && node test_maze_walls.js && node test_maze_pickups.js && node test_rescue.js && node test_fuel.js && node test_safe_area.js && node test_crew.js && node test_fall_fx.js && node test_mission.js && node test_portrait.js && node test_survey.js && node test_pockets.js && node test_level_show.js && node test_home_sites.js && node test_progress_store.js && node test_daily.js && node test_player_level.js && node test_walk.js && node test_sync.js && node test_achievements.js && node test_shop.js && node test_forest.js && node test_sound.js && npm test --prefix server",
+    "test": "node test_maze_levels.js && node test_maze_hazards.js && node test_maze_tilt.js && node test_xr.js && node test_maze_walls.js && node test_maze_pickups.js && node test_rescue.js && node test_fuel.js && node test_safe_area.js && node test_crew.js && node test_fall_fx.js && node test_mission.js && node test_portrait.js && node test_survey.js && node test_pockets.js && node test_level_show.js && node test_home_sites.js && node test_progress_store.js && node test_daily.js && node test_player_level.js && node test_walk.js && node test_sync.js && node test_achievements.js && node test_shop.js && node test_forest.js && node test_sound.js && npm test --prefix server",
     "levels": "node scripts/generateMazeLevels.js",
-    "test:browser": "node test_wake_lock.js && node test_maze_boot.js",
+    "test:browser": "node test_wake_lock.js && node test_maze_boot.js && node test_xr_browser.js",
     "build:crazygames": "node scripts/buildCrazyGames.js",
-    "test:browser:bundle": "npm run build:crazygames && MAZE_ROOT=dist/crazygames node test_maze_boot.js",
+    "test:browser:bundle": "npm run build:crazygames && MAZE_ROOT=dist/crazygames node test_maze_boot.js && MAZE_ROOT=dist/crazygames node test_xr_browser.js",
     "build:web": "node scripts/buildCrazyGames.js --web",
-    "test:browser:web": "npm run build:web && MAZE_ROOT=dist/web node test_maze_boot.js",
+    "test:browser:web": "npm run build:web && MAZE_ROOT=dist/web node test_maze_boot.js && MAZE_ROOT=dist/web node test_xr_browser.js",
     "start:server": "node server/index.js"
   },
   "dependencies": {
@@ -19,7 +19,8 @@
     "three": "0.180.0"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "iwer": "2.4.0"
   },
   "engines": {
     "node": ">=22"

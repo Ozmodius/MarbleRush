@@ -86,12 +86,15 @@ function resizeToDisplay() {
 function frame() {
     if (covered && coverFrames <= 0) return;
     if (covered) { coverFrames--; dirty = true; }
-    resizeToDisplay();
+    // In a headset (xrMode.js) the session sizes the drawing and the
+    // headset places the camera: no resizing, no mode's pose, every frame drawn.
+    const xr = !!(renderer.xr && renderer.xr.isPresenting);
+    if (!xr) resizeToDisplay();
     for (const fn of frameFns) {
         try { fn(); } catch (e) { console.error('[sceneHost] frame callback failed:', e); }
     }
-    const live = !!(exclusive && exclusive.isActive());
-    if (live) {
+    const live = xr || !!(exclusive && exclusive.isActive());
+    if (live && !xr) {
         const pose = exclusive.getPose();
         if (pose) {
             camera.position.copy(pose.pos);
