@@ -464,6 +464,13 @@ Built (xrMode.js, xrMath.js, xrPanel.js):
   (START, PLACE BOARD, EXIT VR), the run (a strip: name, coins, the medal
   clock), a fall's RETRY, CLEARED (NEXT, LEVELS, the gift), a floor 10's
   story card. LEVELS / EXIT leave VR for the flat menus.
+- Felt (2026-10-14, Oz: "Go to 2 and 3"): the controller holding the board
+  knocks with every wall hit (as hard as the sound's), a bumper, a coin's
+  tick, a shield, the clear, and a hole's thud, the strongest.
+- On the real table (same day): with the Quest's room data (hit-test), the
+  board drops onto the table under where it would go, 2 cm over its top;
+  PLACE BOARD points instead -- an outline of the board follows the ray
+  over real surfaces and the trigger sets it there, facing you.
 - Not yet: power-up and signature buttons in the room, the MISSION card,
   Explore in VR, menus in VR. To tune on the headset: the board's size and
   height, the panel's place, tilt sensitivity, frame rate.

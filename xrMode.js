@@ -23,18 +23,32 @@
 // does it. PLACE BOARD and EXIT VR are the panel's own. Leaving the level
 // (LEVELS, EXIT) ends the session: the menus are flat.
 //
+// FEEL (2026-10-14): the controller holding the board buzzes with the marble
+// -- a wall's knock as hard as the sound's, a bumper, a coin's tick, a shield,
+// the clear, and the thud of a hole (xrFeel, from mazeGame.js's own hit and
+// event calls; xrMath.js pulseFor). Both controllers when neither holds on.
+//
+// THE REAL TABLE (2026-10-14). Where the headset knows the room (WebXR
+// hit-test, from the Quest's Space Setup), a ray dropped straight down at the
+// board's planned spot finds the table under it and the board sits on it
+// (xrMath.js tableHeight); PLACE BOARD becomes pointing: an outline of the
+// board follows the ray over real surfaces and the trigger sets it down
+// there. Without hit-test, both fall back to the head-height rule.
+//
 // Web only (platform.js features.xr): CrazyGames stays flat. Explore is not
 // offered in VR yet (comfort first, docs/PLAN.md).
 import * as THREE from 'three';
 import { getRenderer, getScene, getCamera, onFrame, requestRender } from './sceneHost.js';
 import { features } from './platform.js';
-import { boardScale, placeBoard, rigMatrix, grabTilt } from './xrMath.js';
+import { boardScale, placeBoard, rigMatrix, grabTilt, pulseFor, tableHeight, placeOnSurface, XR_TABLE_LIFT_M } from './xrMath.js';
 import { createXrPanel } from './xrPanel.js';
 
 const MODE = 'immersive-ar';
 const RAY_IDLE_M = 0.25;              // a ray's drawn length, pointing at nothing
 const DOT_R = 0.12;                   // the ray's dot on the panel, level units
 const PLACE_AFTER_FRAMES = 3;         // the headset's pose settles before placing
+const TABLE_LOOK_FRAMES = 90;         // how long the dropped ray looks for a table
+const HIT_GAP_MS = 30;                // knocks closer than this are one buzz
 const ZERO = Object.freeze({ beta: 0, gamma: 0 });
 // The page's buttons the panel shows, in its order, when they are showing;
 // true is the one bright choice. The ad buttons are left off: no ad on the web.
@@ -44,6 +58,7 @@ const MIRROR = [
     ['mazeLevelsBtn', false], ['mazeWinExitBtn', false]
 ];
 export const XR_HINT = 'GRIP OR PINCH, THEN TILT YOUR HAND';
+export const XR_PLACE_HINT = 'POINT AT A TABLE, THEN PULL THE TRIGGER';
 
 let supportP = null;
 let host = null;          // mazeGame.js: { phase(), level(), onChange(on) }
@@ -51,11 +66,18 @@ let session = null;
 let starting = false;
 let rig = null, panel = null;
 let head = null;          // the head pose the board was placed from (room space)
-let placeFrames = 0, placedKey = '';
+let placeFrames = 0, placedKey = '', placeVer = 0;
+let tableY = null;        // the real table's top under the planned spot, if found
+let spot = null;          // a place the player pointed at ({ x, y, z, yaw }), if any
+let lastPlace = null;     // where the board is now (room space)
+let drop = null;          // the dropped ray looking for the table: { source, frames }
+let placing = null;       // pointing to place: { h, source, hit, ghost }
+let felt = {};            // tests: pulses given, by kind
+let lastHitMs = 0;
 let saved = null, bgHeld = null;
-let canvasHome = null;
+let canvasHome = null;    // where the canvas sat in the page (an emulator may move it)
 // Objects whose frustum culling is off for the session (see xrFrame).
-const unculled = new Set();     // where the canvas sat in the page (an emulator may move it)
+const unculled = new Set();
 const hands = [];         // per input index: { ray, grip, line, dot, src, hover }
 let grab = null;          // { h, how, q0, settle }
 // A grab's level is taken this many frames after the press: closing a pinch
@@ -64,7 +86,7 @@ const GRAB_SETTLE_FRAMES = 2;
 let reading = ZERO;
 let frameBound = false;
 const raycaster = new THREE.Raycaster();
-const _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
+const _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _v = new THREE.Vector3(), _m = new THREE.Matrix4();
 
 // A phone's browser can do 'immersive-ar' too (Chrome on Android): the board
 // would be held up on the screen, with no controllers or hands to grab it.
@@ -117,6 +139,9 @@ function readPage() {
         const buttons = [{ id: 'storyGoBtn', label: labelOf(el('storyGoBtn')) || 'GO', primary: true }, { id: 'storyCloseBtn', label: 'CLOSE', primary: false }];
         return { title: text('storyTitle'), coins: '', clock: '', lines, buttons, hover, strip: false };
     }
+    if (placing) {
+        return { title: text('mazeLevelName'), coins: '', clock: '', lines: [XR_PLACE_HINT], buttons: [{ id: 'xr:cancel', label: 'CANCEL', primary: false }], hover, strip: false };
+    }
     const lines = [text('mazeStatus'), shown(el('mazeNearMiss')) ? text('mazeNearText') : '', text('mazeStatus2')].filter(Boolean);
     if (phase === 'ready') lines.push(XR_HINT);
     const buttons = MIRROR.filter(([id]) => shown(el(id))).map(([id, primary]) => ({ id, label: labelOf(el(id)), primary }));
@@ -133,11 +158,106 @@ function readPage() {
     };
 }
 
-function fire(id) {
+function fire(id, h) {
     if (id === 'xr:exit') { exitXR(); return; }
-    if (id === 'xr:place') { head = { pos: getCamera().position.clone(), quat: getCamera().quaternion.clone() }; placedKey = ''; return; }
+    if (id === 'xr:place') { startPlacing(h); return; }
+    if (id === 'xr:cancel') { endPlacing(); return; }
     const b = el(id);
     if (b) b.click();
+}
+
+// --- where the board goes --------------------------------------------------
+function headNow() { const c = getCamera(); return { pos: c.position.clone(), quat: c.quaternion.clone() }; }
+function hitTestOn() {
+    const s = session;
+    return !!(s && typeof s.requestHitTestSource === 'function' && (!s.enabledFeatures || s.enabledFeatures.includes('hit-test')));
+}
+// In front of the eyes again (the head-height rule), then look for the table
+// under that spot.
+function placeFromHead() {
+    head = headNow();
+    spot = null; tableY = null; placeVer++;
+    lookForTable();
+}
+function lookForTable() {
+    if (drop) { try { drop.source.cancel(); } catch (_) { /* gone */ } drop = null; }
+    const lv = host && host.level();
+    if (!hitTestOn() || !head || !lv || typeof XRRay !== 'function') return;
+    const plan = placeBoard(head.pos, head.quat, lv.size.d * boardScale(lv.size));
+    const ref = getRenderer().xr.getReferenceSpace();
+    const mine = drop = { source: null, frames: 0 };
+    session.requestHitTestSource({ space: ref, offsetRay: new XRRay({ x: plan.x, y: head.pos.y, z: plan.z, w: 1 }, { x: 0, y: -1, z: 0, w: 0 }) })
+        .then(src => { if (drop === mine && session) mine.source = src; else try { src.cancel(); } catch (_) { /* gone */ } })
+        .catch(() => { if (drop === mine) drop = null; });
+}
+function startPlacing(h) {
+    if (!h || !h.src || !hitTestOn()) { placeFromHead(); return; }
+    endPlacing();
+    const lv = host && host.level();
+    const s = lv ? boardScale(lv.size) : 0.033;
+    const w = lv ? lv.size.w * s : 0.3, d = lv ? lv.size.d * s : 0.46;
+    // The board's outline in the room (metres: a child of the rig), with a
+    // faint fill so it reads on a busy real table.
+    const ghost = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints([[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].map(([x, z]) => new THREE.Vector3(x, 0, z))),
+        new THREE.LineBasicMaterial({ color: 0x4fd8ff }));
+    ghost.add(new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0x4fd8ff, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide })));
+    ghost.visible = false;
+    rig.add(ghost);
+    const mine = placing = { h, source: null, hit: null, ghost };
+    session.requestHitTestSource({ space: h.src.targetRaySpace })
+        .then(src => { if (placing === mine && session) mine.source = src; else try { src.cancel(); } catch (_) { /* gone */ } })
+        .catch(() => { if (placing === mine) { endPlacing(); placeFromHead(); } });
+}
+function endPlacing() {
+    if (!placing) return;
+    if (placing.source) { try { placing.source.cancel(); } catch (_) { /* gone */ } }
+    if (rig) rig.remove(placing.ghost);
+    placing.ghost.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    placing = null;
+}
+// The pointing hand pulled its trigger: on the surface it points at, or --
+// pointing at nothing the headset knows -- in front of the eyes as before.
+function commitPlacing() {
+    const hit = placing && placing.hit;
+    endPlacing();
+    if (!hit) { placeFromHead(); return; }
+    head = headNow();
+    spot = placeOnSurface(hit, head.pos);
+    placeVer++;
+}
+function firstHit(frame, source) {
+    if (!frame || !source) return null;
+    let res = [];
+    try { res = frame.getHitTestResults(source); } catch (_) { return null; }
+    return res;
+}
+
+// --- what the hands feel ---------------------------------------------------
+// A pulse on the hand holding the board, or both when neither is: called
+// with the game's own hits and moments (mazeGame.js). Silent without a session.
+export function xrFeel(kind, v) {
+    if (!session) return;
+    const p = pulseFor(kind, v);
+    if (!p) return;
+    if (kind === 'hit') {
+        const now = performance.now();
+        if (now - lastHitMs < HIT_GAP_MS) return;
+        lastHitMs = now;
+    }
+    const who = grab ? [grab.h] : hands;
+    for (const h of who) {
+        const gp = h && h.src && !h.src.hand && h.src.gamepad;
+        if (!gp) continue;
+        const act = (gp.hapticActuators && gp.hapticActuators[0]) || gp.vibrationActuator;
+        try {
+            if (act && typeof act.pulse === 'function') act.pulse(p.intensity, p.ms);
+            else if (act && typeof act.playEffect === 'function') act.playEffect('dual-rumble', { duration: p.ms, strongMagnitude: p.intensity, weakMagnitude: p.intensity });
+            else continue;
+            felt[kind] = (felt[kind] || 0) + 1;
+        } catch (_) { /* a failed buzz is silent */ }
+    }
 }
 
 function handQuat(h, out) {
@@ -158,8 +278,9 @@ function press(h, how) {
     if (how === 'select') {
         const hit = rayHit(h);
         const id = hit ? panel.buttonAt(hit.uv) : null;
-        if (id) { fire(id); return; }
+        if (id) { fire(id, h); return; }
         if (hit) return;             // the panel's glass, not the board
+        if (placing && placing.h === h) { commitPlacing(); return; }
     }
     grab = { h, how, q0: null, settle: GRAB_SETTLE_FRAMES };
     reading = ZERO;
@@ -181,7 +302,7 @@ function setUpHands(renderer) {
             dot.visible = false;
             h = { i, ray, grip, line, dot, src: null, hover: null };
             ray.addEventListener('connected', e => { h.src = e.data || null; });
-            ray.addEventListener('disconnected', () => { h.src = null; h.hover = null; if (grab && grab.h === h) { grab = null; reading = ZERO; } });
+            ray.addEventListener('disconnected', () => { h.src = null; h.hover = null; if (grab && grab.h === h) { grab = null; reading = ZERO; } if (placing && placing.h === h) endPlacing(); });
             ray.addEventListener('selectstart', () => press(h, 'select'));
             ray.addEventListener('selectend', () => release(h, 'select'));
             ray.addEventListener('squeezestart', () => press(h, 'squeeze'));
@@ -192,13 +313,20 @@ function setUpHands(renderer) {
     }
 }
 
-// Put the level on the table: from the head pose captured once the headset
-// has one (or PLACE BOARD), at this level's scale, the near edge kept put.
+// Put the level on the table: where it was pointed to, else from the head
+// pose captured once the headset has one, on the real table when one was
+// found under it; at this level's scale, the near edge kept put.
 function placeNow(lv) {
     const s = boardScale(lv.size);
-    const hp = head ? head.pos : new THREE.Vector3(0, 1.3, 0);
-    const hq = head ? head.quat : new THREE.Quaternion();
-    rig.matrix.copy(rigMatrix(placeBoard(hp, hq, lv.size.d * s), s));
+    let pl = spot;
+    if (!pl) {
+        const hp = head ? head.pos : new THREE.Vector3(0, 1.3, 0);
+        const hq = head ? head.quat : new THREE.Quaternion();
+        pl = placeBoard(hp, hq, lv.size.d * s);
+        if (tableY !== null) pl = { ...pl, y: tableY + XR_TABLE_LIFT_M };
+    }
+    lastPlace = pl;
+    rig.matrix.copy(rigMatrix(pl, s));
     rig.matrixWorldNeedsUpdate = true;
     if (panel) panel.setLevel(lv);
 }
@@ -210,15 +338,40 @@ function xrFrame() {
     if (scene.background) { bgHeld = scene.background; scene.background = null; }
     if (!host || host.phase() === 'menu') { exitXR(); return; }
     const lv = host.level();
-    if (placeFrames < PLACE_AFTER_FRAMES && ++placeFrames === PLACE_AFTER_FRAMES && !head) {
-        head = { pos: camera.position.clone(), quat: camera.quaternion.clone() };
-        placedKey = '';
+    if (placeFrames < PLACE_AFTER_FRAMES && ++placeFrames === PLACE_AFTER_FRAMES && !head) placeFromHead();
+    // The dropped ray: the table under the planned spot, once seen.
+    const frame = getRenderer().xr.getFrame ? getRenderer().xr.getFrame() : null;
+    const ref = getRenderer().xr.getReferenceSpace();
+    if (drop && drop.source) {
+        const res = firstHit(frame, drop.source);
+        if (res) {
+            drop.frames++;
+            const ys = res.map(r => { const p = r.getPose(ref); return p ? p.transform.position.y : NaN; });
+            const y = tableHeight(ys, head ? head.pos.y : 1.6);
+            if (y !== null || drop.frames >= TABLE_LOOK_FRAMES) {
+                if (y !== null) { tableY = y; placeVer++; }
+                try { drop.source.cancel(); } catch (_) { /* gone */ }
+                drop = null;
+            }
+        }
     }
     if (lv) {
-        const key = lv.id + '|' + (head ? head.pos.toArray().join(',') : '-');
+        const key = lv.id + '|' + placeVer;
         if (key !== placedKey) { placedKey = key; placeNow(lv); }
     }
     rig.updateMatrixWorld(true);
+    // Pointing to place: the board's outline where the ray meets the room.
+    if (placing) {
+        const res = placing.source ? firstHit(frame, placing.source) : null;
+        const pose = res && res[0] ? res[0].getPose(ref) : null;
+        placing.hit = pose ? { x: pose.transform.position.x, y: pose.transform.position.y, z: pose.transform.position.z } : null;
+        placing.ghost.visible = !!placing.hit;
+        if (placing.hit) {
+            const at = placeOnSurface(placing.hit, camera.position);
+            placing.ghost.position.set(at.x, at.y, at.z);
+            placing.ghost.rotation.set(0, at.yaw, 0);
+        }
+    }
 
     // NO FRUSTUM CULLING IN THE HEADSET. three.js culls against one camera
     // spanning both eyes, set back behind them by an offset it measures in
@@ -237,7 +390,11 @@ function xrFrame() {
         const hit = rayHit(h);
         h.hover = hit ? panel.buttonAt(hit.uv) : null;
         h.line.visible = !!h.src && !(grab && grab.h === h);
-        h.line.scale.z = hit ? hit.distance * s : RAY_IDLE_M;
+        // Pointing to place, the ray reaches the surface it has found.
+        const onSurface = !hit && placing && placing.h === h && placing.hit;
+        h.line.scale.z = hit ? hit.distance * s
+            : onSurface ? Math.max(RAY_IDLE_M, h.ray.getWorldPosition(_p).applyMatrix4(_m.copy(rig.matrix).invert()).distanceTo(_v.set(placing.hit.x, placing.hit.y, placing.hit.z)))
+            : RAY_IDLE_M;
         h.dot.visible = !!hit && h.line.visible;
         if (hit) h.dot.position.copy(hit.point);
     }
@@ -253,7 +410,7 @@ export async function enterXR(h) {
     starting = true;
     let s;
     try {
-        s = await navigator.xr.requestSession(MODE, { requiredFeatures: ['local-floor'], optionalFeatures: ['hand-tracking'] });
+        s = await navigator.xr.requestSession(MODE, { requiredFeatures: ['local-floor'], optionalFeatures: ['hand-tracking', 'hit-test'] });
     } catch (e) {
         starting = false;
         console.warn('[xr] no session:', e && e.message);
@@ -276,7 +433,8 @@ export async function enterXR(h) {
     setUpHands(renderer);
     panel = createXrPanel();
     scene.add(panel.mesh);
-    head = null; placeFrames = 0; placedKey = '';
+    head = null; placeFrames = 0; placedKey = ''; placeVer = 0;
+    tableY = null; spot = null; lastPlace = null; drop = null; placing = null; felt = {};
     grab = null; reading = ZERO;
     session = s;
     starting = false;
@@ -302,6 +460,9 @@ export function exitXR() {
 function onEnd() {
     if (!rig) { session = null; return; }
     const renderer = getRenderer(), scene = getScene(), camera = getCamera();
+    endPlacing();
+    if (drop && drop.source) { try { drop.source.cancel(); } catch (_) { /* gone */ } }
+    drop = null;
     session = null; grab = null; reading = ZERO;
     for (const h of hands) {
         if (!h) continue;
@@ -339,6 +500,11 @@ export function xrDebug() {
     return {
         presenting: !!session,
         grabbing: !!grab,
+        place: lastPlace ? { ...lastPlace } : null,
+        table: tableY,
+        pointed: !!spot,
+        placing: placing ? { hit: placing.hit ? { ...placing.hit } : null, ghost: placing.ghost.visible } : null,
+        felt: { ...felt },
         reading: { ...xrReading() || ZERO },
         rig: rig ? rig.matrix.toArray() : null,
         camera: (() => { const c = getCamera(); c.updateMatrixWorld(true); return c.getWorldPosition(new THREE.Vector3()).toArray(); })(),

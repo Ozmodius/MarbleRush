@@ -20,6 +20,36 @@ const ROOT = process.env.MAZE_ROOT ? path.resolve(__dirname, process.env.MAZE_RO
 const CRAZY = /crazygames/.test(ROOT);
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 const IWER = fs.readFileSync(require.resolve('iwer/build/iwer.min.js'), 'utf8');
+// A room for the emulator's hit tests (its Synthetic Environment Module seam):
+// a table top TABLE_Y high in front of the player, the floor everywhere.
+const TABLE_Y = 0.74, TABLE = { x0: -0.6, x1: 0.6, z0: -1.3, z1: -0.15 };
+const ROOM = `
+class FakeRoom {
+    constructor() { this.c = document.createElement('canvas'); this.planes = new Set(); this.meshes = new Set(); }
+    render() {}
+    loadEnvironment() {} loadDefaultEnvironment() {}
+    get environmentCanvas() { return this.c; }
+    get trackedPlanes() { return this.planes; }
+    get trackedMeshes() { return this.meshes; }
+    deleteAll() {}
+    computeDepthBuffer() { return null; }
+    computeHitTestResults(m) {
+        const o = [m[12], m[13], m[14]], d = [-m[8], -m[9], -m[10]];
+        const out = [];
+        const at = (y, inside) => {
+            if (d[1] >= -1e-6) return;
+            const t = (y - o[1]) / d[1];
+            if (t <= 0) return;
+            const x = o[0] + d[0] * t, z = o[2] + d[2] * t;
+            if (inside && !(x >= ${TABLE.x0} && x <= ${TABLE.x1} && z >= ${TABLE.z0} && z <= ${TABLE.z1})) return;
+            const r = new Float32Array(16); r[0] = r[5] = r[10] = r[15] = 1; r[12] = x; r[13] = y; r[14] = z;
+            out.push([t, r]);
+        };
+        at(${TABLE_Y}, true); at(0, false);
+        return out.sort((a, b) => a[0] - b[0]).map(e => e[1]);
+    }
+}`;
+const QUEST = IWER + ';\n' + ROOM + ';\nwindow.__xrDevice = new IWER.XRDevice(IWER.metaQuest3); window.__xrDevice.installSEM(FakeRoom); window.__xrDevice.installRuntime({ forceInstall: true });';
 
 function serve() {
     const server = http.createServer((req, res) => {
@@ -47,7 +77,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         page.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push(e.message); });
         page.on('console', m => { if (m.type() === 'error' && !foreign(m.text() + JSON.stringify(m.location()))) errors.push(m.text()); });
         // A Quest 3 where Chromium's own (device-less) WebXR would be.
-        await page.addInitScript(IWER + ';\nwindow.__xrDevice = new IWER.XRDevice(IWER.metaQuest3); window.__xrDevice.installRuntime({ forceInstall: true });');
+        await page.addInitScript(QUEST);
         const dbg = (fn, ...args) => page.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
         const xr = () => dbg('xr');
         const frames = (n) => page.evaluate((k) => new Promise(r => { let i = k; const f = () => (--i ? requestAnimationFrame(f) : r()); requestAnimationFrame(f); setTimeout(r, 8000); }), n);
@@ -80,10 +110,15 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await frames(8);
         let d = await xr();
         const head = await page.evaluate(() => { const p = window.__xrDevice.position; return [p.x, p.y, p.z]; });
-        const centre = await page.evaluate(() => window.__mazeDebug.xr().room(0, 0, 0));
-        const below = head[1] - centre[1], ahead = head[2] - centre[2];
-        check(below > 0.35 && below < 0.55 && ahead > 0.35 && ahead < 0.7 && Math.abs(centre[0] - head[0]) < 0.05,
-            `the board is placed under the eyes and ahead of them: head ${head.map(v => v.toFixed(2))}, board ${centre.map(v => v.toFixed(2))}`);
+        await page.waitForFunction(() => window.__mazeDebug.xr().table !== null, null, { timeout: 8000 }).catch(() => {});
+        await frames(3);
+        d = await xr();
+        let centre = await page.evaluate(() => window.__mazeDebug.xr().room(0, 0, 0));
+        const ahead = head[2] - centre[2];
+        check(d.table !== null && Math.abs(d.table - 0.74) < 1e-3 && Math.abs(centre[1] - (0.74 + 0.02)) < 1e-3,
+            `the board finds the real table under it and sits just on it: table ${d.table}, board floor ${centre[1] && centre[1].toFixed(3)}`);
+        check(ahead > 0.35 && ahead < 0.7 && Math.abs(centre[0] - head[0]) < 0.05,
+            `ahead of the eyes, straight on: head ${head.map(v => v.toFixed(2))}, board ${centre.map(v => v.toFixed(2))}`);
         check(d.hands.filter(h => h.connected).length === 2, `both controllers are in the session: ${JSON.stringify(d.hands)}`);
         const sky = await dbg('sky');
         check(!sky.shown && !sky.background, `passthrough: no sky and no backdrop colour behind the board: ${JSON.stringify(sky)}`);
@@ -91,6 +126,38 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const m = d.panel && d.panel.model;
         check(m && m.title === levelName && m.buttons.map(b => b.id).join() === 'mazeStartBtn,xr:place,xr:exit' && m.lines.includes('PRESS START') && m.lines.some(l => /GRIP OR PINCH/.test(l)) && !m.strip,
             `the panel mirrors the ready screen -- its name, START, then PLACE BOARD and EXIT VR, and how to tilt: ${JSON.stringify(m)}`);
+
+        // --- PLACE BOARD: point at the table, see the outline, pull to set it -
+        const point = async (hand, target, from) => {
+            const eye = new THREE.Vector3(...from);
+            const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(eye, new THREE.Vector3(...target), new THREE.Vector3(0, 1, 0)));
+            await page.evaluate(([h, p, r]) => { const c = window.__xrDevice.controllers[h]; c.position.set(...p); c.quaternion.set(...r); }, [hand, eye.toArray(), [q.x, q.y, q.z, q.w]]);
+            await frames(4);
+        };
+        const pull = async (hand) => {
+            await page.evaluate((h) => window.__xrDevice.controllers[h].updateButtonValue('trigger', 1), hand); await frames(4);
+            await page.evaluate((h) => window.__xrDevice.controllers[h].updateButtonValue('trigger', 0), hand); await frames(4);
+        };
+        const hand0 = [head[0] + 0.18, head[1] - 0.3, head[2] - 0.15];
+        await point('right', await page.evaluate(() => window.__mazeDebug.xr().aim('xr:place')), hand0);
+        await pull('right');
+        d = await xr();
+        check(d.placing && d.panel.model.lines[0] === 'POINT AT A TABLE, THEN PULL THE TRIGGER' && d.panel.model.buttons.map(b => b.id).join() === 'xr:cancel',
+            `PLACE BOARD asks to point at a table, with CANCEL: ${JSON.stringify(d.placing)} ${JSON.stringify(d.panel.model)}`);
+        const target = [0.3, 0.74, -0.95];
+        await point('right', target, hand0);
+        await frames(4);
+        d = await xr();
+        check(d.placing && d.placing.ghost && d.placing.hit && Math.abs(d.placing.hit.x - target[0]) < 0.01 && Math.abs(d.placing.hit.y - target[1]) < 0.01 && Math.abs(d.placing.hit.z - target[2]) < 0.01,
+            `pointed at the table, the board's outline sits where the ray meets it: ${JSON.stringify(d.placing)}`);
+        await pull('right');
+        d = await xr();
+        centre = await page.evaluate(() => window.__mazeDebug.xr().room(0, 0, 0));
+        check(!d.placing && d.pointed && Math.abs(centre[0] - target[0]) < 0.01 && Math.abs(centre[2] - target[2]) < 0.01 && Math.abs(centre[1] - (target[1] + 0.02)) < 0.002,
+            `the trigger sets the board there, just on the table: ${centre.map(v => v.toFixed(3))}`);
+        const farPt = await page.evaluate(() => window.__mazeDebug.xr().room(0, 0, -7));
+        check(Math.hypot(farPt[0] - head[0], farPt[2] - head[2]) > Math.hypot(centre[0] - head[0], centre[2] - head[2]), 'facing the player: its far edge points away');
+        check(d.panel.model.buttons[0] && d.panel.model.buttons[0].id === 'mazeStartBtn', 'and the ready screen is back on the panel');
 
         // --- START by pointing the right controller and pulling its trigger -
         const aimAt = async (hand, id) => {
@@ -118,7 +185,11 @@ const check = (c, m) => { if (!c) failures.push(m); };
         const start = await dbg('ballPos');
         await button('left', 'squeeze', 1);
         check((await xr()).grabbing, 'a squeeze grabs the board');
-        const roll = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -20 * Math.PI / 180);
+        // About the BOARD's axes: it was turned to face the player, and a
+        // player rolls the wrist toward what they face.
+        const yaw = (await xr()).place.yaw;
+        const boardAxis = (x, y, z) => new THREE.Vector3(x, y, z).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+        const roll = new THREE.Quaternion().setFromAxisAngle(boardAxis(0, 0, 1), -20 * Math.PI / 180);
         await page.evaluate((r) => window.__xrDevice.controllers.left.quaternion.set(...r), [roll.x, roll.y, roll.z, roll.w]);
         await frames(30);
         d = await xr();
@@ -127,11 +198,21 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(g.x > 5, `and pulls the marble right: gravity ${JSON.stringify(g)}`);
         check(lean.z < -0.2, `the board leans as far as gravity does, its right edge down (a flat screen shows a seventh): ${JSON.stringify(lean)}`);
         check(now.x > start.x + 0.05, `the marble rolled right: ${start.x.toFixed(3)} -> ${now.x.toFixed(3)}`);
+        // Rolled right into the maze's walls, the holding hand feels the knocks.
+        await page.waitForFunction(() => (window.__mazeDebug.xr().felt.hit || 0) > 0, null, { timeout: 6000 }).catch(() => {});
+        check(((await xr()).felt.hit || 0) > 0, `a knock on a wall is felt in the hand holding the board: ${JSON.stringify((await xr()).felt)}`);
         await button('left', 'squeeze', 0);
         await frames(40);
         d = await xr();
         check(!d.grabbing && d.reading.gamma === 0 && d.reading.beta === 0, `letting go levels the reading: ${JSON.stringify(d.reading)}`);
         check(Math.abs((await dbg('gravity')).x) < 0.5, 'and the board settles level');
+
+        // --- felt: a fall buzzes the controllers (none holding: both) -------
+        const before = (await xr()).felt.fall || 0;
+        await dbg('fallForTest', 'hole', 0);
+        await frames(3);
+        check(((await xr()).felt.fall || 0) >= before + 1, `going down a hole is felt in the controllers: ${JSON.stringify((await xr()).felt)}`);
+        await page.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { timeout: 10000 }).catch(() => {});
 
         // --- a clear: the CLEARED panel in the room, and NEXT by trigger ----
         await dbg('ageRun', 25000);
@@ -147,6 +228,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await aimAt('right', 'mazeNextBtn');
         await button('right', 'trigger', 1);
         await button('right', 'trigger', 0);
+        check(((await xr()).felt.win || 0) >= 1, 'the clear is felt too');
         await page.waitForFunction((n) => window.__mazeDebug.phase() === 'ready' && document.getElementById('mazeLevelName').textContent.trim() !== n, levelName, { timeout: 8000 }).catch(() => {});
         await frames(8);
         d = await xr();
@@ -154,7 +236,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(d.presenting && await dbg('phase') === 'ready' && name2 !== levelName && d.panel.model.title === name2,
             `NEXT on the panel starts the next level, still in the headset, the panel following: ${name2}, ${JSON.stringify(d.panel.model.title)}`);
         const centre2 = await page.evaluate(() => window.__mazeDebug.xr().room(0, 0, 0));
-        check(Math.abs(centre2[1] - centre[1]) < 1e-6 && Math.abs(centre2[0] - centre[0]) < 1e-6, `the next board sits on the same table: ${centre2.map(v => v.toFixed(3))}`);
+        check(Math.abs(centre2[1] - centre[1]) < 1e-6 && Math.abs(centre2[0] - centre[0]) < 1e-6 && Math.abs(centre2[2] - centre[2]) < 1e-6, `the next board sits where the last was put: ${centre2.map(v => v.toFixed(3))}`);
 
         // --- hands: a pinch grabs and tilts, like a squeeze ------------------
         await page.evaluate(() => { window.__xrDevice.primaryInputMode = 'hand'; });
@@ -168,7 +250,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.evaluate(() => window.__xrDevice.hands.right.updatePinchValue(1));
         await frames(4);
         check((await xr()).grabbing, 'a pinch away from the panel grabs the board');
-        const tip = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -15 * Math.PI / 180);
+        const tip = new THREE.Quaternion().setFromAxisAngle(boardAxis(1, 0, 0), -15 * Math.PI / 180);
         await page.evaluate((r) => window.__xrDevice.hands.right.quaternion.set(...r), [tip.x, tip.y, tip.z, tip.w]);
         await frames(20);
         d = await xr();
@@ -204,7 +286,7 @@ const check = (c, m) => { if (!c) failures.push(m); };
         server.close();
     }
     check(!errors.length, 'no page errors: ' + errors.join(' | '));
-    const label = CRAZY ? 'the CrazyGames build stays flat (no ENTER VR)' : 'ENTER VR puts level 1 on the table under the eyes, with no sky; the panel mirrors the ready screen and its START works by trigger; a squeeze and a wrist roll lean the board and roll the marble; letting go levels it; the CLEARED panel\'s NEXT goes on in the headset; a pinch tilts like a squeeze; leaving the level ends the session and the flat view comes back';
+    const label = CRAZY ? 'the CrazyGames build stays flat (no ENTER VR)' : 'ENTER VR puts level 1 on the table under the eyes, with no sky; the panel mirrors the ready screen and its START works by trigger; it finds the real table and PLACE BOARD sets it where you point; a squeeze and a wrist roll lean the board and roll the marble; letting go levels it; a fall and the clear are felt; the CLEARED panel\'s NEXT goes on in the headset; a pinch tilts like a squeeze; leaving the level ends the session and the flat view comes back';
     if (failures.length) { console.log('FAIL: xr browser'); failures.forEach(f => console.log(' - ' + f)); process.exit(1); }
     console.log('PASS: xr browser -- ' + label);
 })();
