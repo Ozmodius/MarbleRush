@@ -110,7 +110,26 @@ const check = (c, m) => { if (!c) failures.push(m); };
         check(line.startsWith(R.captiveFor(w).name.toUpperCase() + ': ') && (line.includes(W.worldName(w + 1).toUpperCase()) || line.includes(next.name.toUpperCase())), `world ${w}'s friend points the way on: ${line}`);
     }
     check(/ALL FREE/.test(R.friendLine(5)), `the last friend says they are all free: ${R.friendLine(5)}`);
-    check([1, 2, 3, 4, 5].every(w => R.nearLine(w).includes(R.captiveFor(w).name.toUpperCase())), 'floor 9 names the friend ahead');
+    // The card opens a planet (2026-10-15): it says the friend is up on
+    // floor 10, the first one ever carries the how-to, and none other does.
+    for (const w of [1, 2, 3, 4, 5]) {
+        const cap = R.captiveFor(w).name;
+        const later = R.storyCard(w, false, 'HOW');
+        check(later.lines.some(l => l.includes(cap) && l.includes('floor ' + R.RESCUE_FLOOR) && l.includes(W.worldName(w))) && !later.lines.includes('HOW') && later.title.includes(cap.toUpperCase()),
+            `world ${w}'s card says ${cap} is caged on floor ${R.RESCUE_FLOOR} of ${W.worldName(w)}: ${JSON.stringify(later)}`);
+    }
+    check(R.storyCard(1, true, 'Tilt to roll.').lines.slice(-1)[0] === 'Tilt to roll.', 'the first card ever ends on how to steer');
+    // The Baron on floors 3, 6 and 9 of every planet, and only there.
+    for (const w of [1, 2, 3, 4, 5]) {
+        const lines = R.BARON_FLOORS.map(f => R.baronFloorLine(w, f, false));
+        check(lines.every(l => l.startsWith('BARON: ') && l.length <= 64) && new Set(lines).size === 3, `world ${w}: three different brags, each a ready line's length: ${JSON.stringify(lines)}`);
+        check([1, 2, 4, 5, 7, 8, 10].every(f => R.baronFloorLine(w, f, true) === ''), `world ${w}: the Baron says nothing on the other floors`);
+        const cap = R.captiveFor(w).name.toUpperCase();
+        const caged = R.baronFloorLine(w, 9, true);
+        check(caged.includes(cap) && /ONE FLOOR UP/.test(caged) && /NEXT TRAP/.test(caged) && !R.baronFloorLine(w, 9, false).includes(cap),
+            `world ${w}: floor 9 names ${cap}'s cage while it holds them: ${caged}`);
+    }
+    check(R.baronFloorLine(1, 3, true) === "BARON: YOU CAN'T GET PAST MY NEXT TRAP, ROLLE!", 'his first brag is the one asked for');
 
     if (failures.length) {
         console.log('FAIL: rescue');

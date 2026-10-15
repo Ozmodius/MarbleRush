@@ -55,8 +55,12 @@ const failures = [];
     // A level-up card can come first; its OK goes on to the calendar.
     // A new player with no sign-in front door opens on level 1 instead
     // (main.js): back out of it to home. Boot is done once __cloudSync is set.
+    // A new player's level 1 opens on the rescue card (rescue.js, the
+    // user's call, 2026-10-15): close it to get on with the rest.
+    const closeStory = async (pg) => { if (await pg.isVisible('#storyPanel')) await pg.tap('#storyCloseBtn'); };
     const homeUp = async (pg) => {
         await pg.waitForFunction(() => window.__cloudSync !== undefined, null, { timeout: 30000 });
+        await closeStory(pg);
         const autoOpened = await pg.evaluate(() => window.__mazeDebug.phase() === 'ready' && !Object.keys(window.__mazeDebug.progress().cleared || {}).length);
         if (autoOpened && await pg.isVisible('#mazeStartBtn')) await pg.tap('#mazeExitBtn');
         await pg.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
@@ -82,6 +86,15 @@ const failures = [];
         // (CrazyGames' Full Launch rule: at most one click before gameplay.)
         await page.goto(base);
         await page.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 30000 });
+        // The rescue card opens the first planet (2026-10-15): the story, who
+        // is caged on floor 10, and how to steer, with GO one tap from play.
+        await page.waitForSelector('#storyPanel', { state: 'visible', timeout: 5000 }).catch(() => {});
+        const card1 = await page.evaluate(() => ({ title: document.getElementById('storyTitle').textContent.trim(), go: document.getElementById('storyGoBtn').textContent.trim(), lines: Array.from(document.querySelectorAll('#storyLines p')).map(p => p.textContent) }));
+        check(await page.isVisible('#storyPanel') && card1.title === 'ROLLE TO THE RESCUE' && card1.go === 'GO GET PIP!'
+            && card1.lines.some(l => /Pip at the top of Sawturn, on floor 10/.test(l)) && card1.lines[card1.lines.length - 1] === 'Tilt your device to roll the marble.',
+            `a new player's level 1 opens on the rescue card, ending on how to steer: ${JSON.stringify(card1)}`);
+        await page.tap('#storyCloseBtn');
+        check(await page.isHidden('#storyPanel'), 'it closes onto the ready screen');
         check(await dbg('phase') === 'ready' && (await page.textContent('#mazeLevelName')).trim() === levels[0].name
             && await page.isHidden('#rewardsPanel') && await page.isHidden('#tabBar'),
             'a new player opens on level 1\'s START, with no calendar or menus in the way');
@@ -214,7 +227,7 @@ const failures = [];
         await page.tap('#homePlayBtn');
         check(await page.isHidden('#tabBar'), 'the tab bar hides during a level');
         await page.waitForSelector('#mazeStartBtn', { state: 'visible' });
-        await page.tap('#mazeStartBtn');
+        await closeStory(page); await page.tap('#mazeStartBtn');
         await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         check(await dbg('mission') === null && await page.isHidden('#mazeMission'), 'the mission card goes once the run starts');
         // The medal clock (HUD): the run's time against the medal in reach.
@@ -393,7 +406,7 @@ const failures = [];
         const lv10 = levels.find(l => (l.conveyors || []).length);
         if (lv10) {
             check(await dbg('startLevelForTest', lv10.id), `can build ${lv10.id}`);
-            await page.tap('#mazeStartBtn');
+            await closeStory(page); await page.tap('#mazeStartBtn');
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const belt = lv10.conveyors[0];
             const axis = belt.dir[1], sign = belt.dir[0] === '+' ? 1 : -1;
@@ -420,7 +433,7 @@ const failures = [];
         const lvWind = levels.find(l => (l.fans || []).length);
         if (lvWind) {
             check(await dbg('startLevelForTest', lvWind.id), `can build ${lvWind.id}`);
-            await page.tap('#mazeStartBtn');
+            await closeStory(page); await page.tap('#mazeStartBtn');
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const fan = lvWind.fans[0];
             let peak = 0, peakT = 0, calmT = null;
@@ -442,7 +455,7 @@ const failures = [];
         const lvIce = levels.find(l => (l.icicles || []).length);
         if (lvIce) {
             check(await dbg('startLevelForTest', lvIce.id), `can build ${lvIce.id}`);
-            await page.tap('#mazeStartBtn');
+            await closeStory(page); await page.tap('#mazeStartBtn');
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const ic = lvIce.icicles[0];
             const t0 = H.firstImpactMs(ic);
@@ -461,7 +474,7 @@ const failures = [];
         const lvFl = levels.find(l => (l.flares || []).length && (l.gates || []).some(g => g.molten));
         if (lvFl) {
             check(await dbg('startLevelForTest', lvFl.id), `can build ${lvFl.id}`);
-            await page.tap('#mazeStartBtn');
+            await closeStory(page); await page.tap('#mazeStartBtn');
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const f = lvFl.flares[0], tf = H.firstFlareMs(f);
             await dbg('setRunClock', tf - 1300);
@@ -490,7 +503,7 @@ const failures = [];
         const lvGy = levels.find(l => (l.geysers || []).length);
         if (lvGy) {
             check(await dbg('startLevelForTest', lvGy.id), `can build ${lvGy.id}`);
-            await page.tap('#mazeStartBtn');
+            await closeStory(page); await page.tap('#mazeStartBtn');
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const gy = lvGy.geysers[0], tb = H.firstBlastMs(gy);
             await dbg('setRunClock', tb - 40);
@@ -513,7 +526,7 @@ const failures = [];
         const lvB = levels.find(l => (l.bumpers || []).length);
         if (lvB) {
             check(await dbg('startLevelForTest', lvB.id), `can build ${lvB.id}`);
-            await page.tap('#mazeStartBtn');
+            await closeStory(page); await page.tap('#mazeStartBtn');
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const b = lvB.bumpers[0], R = lvB.ballRadius;
             // Beside the bumper on its open side (it sits snug in a corner).
@@ -535,7 +548,7 @@ const failures = [];
         const lvS = levels.find(l => (l.springs || []).length);
         if (lvS) {
             check(await dbg('startLevelForTest', lvS.id), `can build ${lvS.id}`);
-            await page.tap('#mazeStartBtn');
+            await closeStory(page); await page.tap('#mazeStartBtn');
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const sp = lvS.springs[0], tf = H.firstFireMs(sp);
             const along = (p, q) => sp.dir[1] === 'x' ? (q.x - p.x) * (sp.dir[0] === '+' ? 1 : -1) : (q.z - p.z) * (sp.dir[0] === '+' ? 1 : -1);
@@ -552,7 +565,7 @@ const failures = [];
         const lvArm = levels.find(l => (l.arms || []).length);
         if (lvArm) {
             check(await dbg('startLevelForTest', lvArm.id), `can build ${lvArm.id}`);
-            await page.tap('#mazeStartBtn');
+            await closeStory(page); await page.tap('#mazeStartBtn');
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const ar = lvArm.arms[0];
             await dbg('setRunClock', 1000);
@@ -574,7 +587,7 @@ const failures = [];
         const lvM = levels.find(l => (l.magnets || []).length);
         if (lvM) {
             check(await dbg('startLevelForTest', lvM.id), `can build ${lvM.id}`);
-            await page.tap('#mazeStartBtn');
+            await closeStory(page); await page.tap('#mazeStartBtn');
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const m = lvM.magnets[0];
             const at = { x: m.x + m.nx * 0.55, z: m.z + m.nz * 0.55 };
@@ -587,7 +600,7 @@ const failures = [];
         const lvC = levels.find(l => (l.crushers || []).length);
         if (lvC) {
             check(await dbg('startLevelForTest', lvC.id), `can build ${lvC.id}`);
-            await page.tap('#mazeStartBtn');
+            await closeStory(page); await page.tap('#mazeStartBtn');
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const c = lvC.crushers[0], ts = H.firstSlamMs(c);
             await dbg('setRunClock', ts - 1500);
@@ -605,7 +618,7 @@ const failures = [];
         const lvR = levels.find(l => (l.rails || []).length);
         if (lvR) {
             check(await dbg('startLevelForTest', lvR.id), `can build ${lvR.id}`);
-            await page.tap('#mazeStartBtn');
+            await closeStory(page); await page.tap('#mazeStartBtn');
             await page.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const r = lvR.rails[0], tl = H.firstLiveMs(r), R = lvR.ballRadius;
             const thick = Math.min(r.w, r.d);
@@ -679,7 +692,7 @@ const failures = [];
 
         // The next game uses it all.
         await shop.tap('#homePlayBtn');
-        await shop.tap('#mazeStartBtn');
+        await closeStory(shop); await shop.tap('#mazeStartBtn');
         await shop.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         await sdbg('advanceFrames', 1);
         check(await sdbg('ballColor') === '#e0563f', `the ball wears the Rubber marble, got ${await sdbg('ballColor')}`);
@@ -705,7 +718,7 @@ const failures = [];
         // saves the ball and is spent.
         const lvPast = levels[3];
         check(await sdbg('startLevelForTest', lvPast.id), `can build ${lvPast.id}`);
-        await shop.tap('#mazeStartBtn');
+        await closeStory(shop); await shop.tap('#mazeStartBtn');
         await shop.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         check(/SHIELD/.test(await shop.textContent('#mazePowerups')) && (await sdbg('crew')).free === 1, 'past the beginner levels the bought shield is armed, and a new run brings Hole Hop back');
         await sdbg('placeBall', lvPast.holes[0].x, lvPast.holes[0].z);
@@ -718,7 +731,7 @@ const failures = [];
         const iceLv = levels.find(l => (l.ice || []).length);
         if (iceLv) {
             check(await sdbg('startLevelForTest', iceLv.id), `can build ${iceLv.id}`);
-            await shop.tap('#mazeStartBtn');
+            await closeStory(shop); await shop.tap('#mazeStartBtn');
             await shop.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const r = iceLv.ice[0];
             await sdbg('placeBall', r.x, r.z);
@@ -731,7 +744,7 @@ const failures = [];
         const flLv = levels.find(l => (l.flares || []).length);
         if (flLv) {
             check(await sdbg('startLevelForTest', flLv.id), `can build ${flLv.id}`);
-            await shop.tap('#mazeStartBtn');
+            await closeStory(shop); await shop.tap('#mazeStartBtn');
             await shop.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const f = flLv.flares[0];
             await sdbg('setRunClock', H.firstFlareMs(f) + 20);
@@ -785,7 +798,7 @@ const failures = [];
             await cp.tap('#homePlayBtn');
             await cp.waitForSelector('#mazeStartBtn', { state: 'visible' });
             check(await cdbg('startLevelForTest', flCrew.id), `can build ${flCrew.id}`);
-            await cp.tap('#mazeStartBtn');
+            await closeStory(cp); await cp.tap('#mazeStartBtn');
             await cp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             let c0 = await cdbg('crew');
             check(c0 && c0.id === 'cinder' && c0.sig === 'Fire Shield' && c0.free === 1 && /FIRE SHIELD/.test(await cp.textContent('#mazePowerups')), `Cinder starts the run with his Fire Shield: ${JSON.stringify(c0)}`);
@@ -802,7 +815,7 @@ const failures = [];
             // (2026-10-12): the Fire Shield is on the HUD and the flare cannot burn him.
             check(await cdbg('walkLevel', flCrew.id), `${flCrew.id} can be explored`);
             await cp.waitForSelector('#mazeStartBtn', { state: 'visible' });
-            await cp.tap('#mazeStartBtn');
+            await closeStory(cp); await cp.tap('#mazeStartBtn');
             await cp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             check(/FIRE SHIELD/.test(await cp.textContent('#mazePowerups')), `exploring, Cinder's Fire Shield is on the HUD: ${await cp.textContent('#mazePowerups')}`);
             await cdbg('setRunClock', H.firstFlareMs(f) + 20);
@@ -829,12 +842,12 @@ const failures = [];
             await cp.tap('#homePlayBtn');
             await cp.waitForSelector('#mazeStartBtn', { state: 'visible' });
             check(await cdbg('startLevelForTest', 'w1_07'), 'can build w1_07');
-            await cp.tap('#mazeStartBtn');
+            await closeStory(cp); await cp.tap('#mazeStartBtn');
             await cp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             check(await cp.isHidden('#mazeUse_sig') && !(await cdbg('useSignature')), 'rolling, Clear Sight has nothing to show: no button, no use');
             check(await cdbg('walkLevel', 'w1_07'), 'w1_07 can be explored');
             await cp.waitForSelector('#mazeStartBtn', { state: 'visible' });
-            await cp.tap('#mazeStartBtn');
+            await closeStory(cp); await cp.tap('#mazeStartBtn');
             await cp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             check(await cp.isVisible('#mazeUse_sig') && /CLEAR SIGHT/.test(await cp.textContent('#mazeUse_sig')), "exploring, Glint's Clear Sight shows as a HUD button");
             await cp.tap('#mazeUse_sig');
@@ -872,7 +885,7 @@ const failures = [];
         await dp.tap('#mazeCamBtn');
         check((await ddbg('ballCam')).on && (await ddbg('progress')).ballCam === true && (await dp.getAttribute('#mazeCamBtn', 'aria-pressed')) === 'true', 'the camera button turns ball cam on, and saves it');
         check((await ddbg('ballCam')).zoom < 0.05, 'the ready screen still shows the whole level');
-        await dp.tap('#mazeStartBtn');
+        await closeStory(dp); await dp.tap('#mazeStartBtn');
         await dp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         // Frames, not a clock: the zoom eases in per frame.
         await dp.waitForFunction(() => window.__mazeDebug.ballCam().zoom > 0.6, null, { timeout: 20000 }).catch(() => {});
@@ -895,7 +908,7 @@ const failures = [];
         await dp.tap('#homeDailyMaze');
         await dp.waitForSelector('#mazeStartBtn', { state: 'visible' });
         check((await dp.getAttribute('#mazeCamBtn', 'aria-pressed')) === 'true', 'ball cam stays on for the next level');
-        await dp.tap('#mazeStartBtn');
+        await closeStory(dp); await dp.tap('#mazeStartBtn');
         await dp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         await ddbg('ageRun', Math.round(dlv.goldMs * 1.4));
         await ddbg('warpToGoal');
@@ -1006,7 +1019,7 @@ const failures = [];
         sh = await rdbg('show');
         await rdbg('holdShow', null);
         check(sh.kind === 'shipDrop' && sh.shipShown, `a planet's first level opens on the ship: ${JSON.stringify({ k: sh.kind, s: sh.shipShown })}`);
-        await rp.tap('#mazeStartBtn');
+        await closeStory(rp); await rp.tap('#mazeStartBtn');
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100 });
         await rdbg('advanceFrames', 1);   // the drawn ball follows the body on the next frame
         sh = await rdbg('show');
@@ -1017,7 +1030,7 @@ const failures = [];
         // and the page behind it is banked by a clear, to read in Gear.
         await rdbg('startLevelForTest', 'w1_07');
         check(await rdbg('pocket') === null, `rolling, w1_07 hides nothing: ${JSON.stringify(await rdbg('pocket'))}`);
-        await rp.tap('#mazeStartBtn');
+        await closeStory(rp); await rp.tap('#mazeStartBtn');
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100 });
         await rdbg('ageRun', 60000);
         check(await rdbg('warpToGoal'), 'w1_07 clears rolled');
@@ -1025,7 +1038,7 @@ const failures = [];
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
         const pk = await rdbg('pocket');
         check(pk && !pk.found && !pk.taken, `exploring, w1_07 hides a diary page: ${JSON.stringify(pk)}`);
-        await rp.tap('#mazeStartBtn');
+        await closeStory(rp); await rp.tap('#mazeStartBtn');
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100 });
         await rdbg('holdFallOffer', false);
         const inWall = await rdbg('placeBall', pk.wall.x, pk.wall.z);
@@ -1042,20 +1055,33 @@ const failures = [];
         const saidPage = await rp.waitForFunction(() => window.__s2seen.some(t => /DIARY PAGE \d+ FOUND/.test(t)), null, { polling: 100, timeout: 20000 }).then(() => true, () => false);
         check(saidPage, `the CLEARED panel says the page was found: ${JSON.stringify(await rp.evaluate(() => window.__s2seen))}`);
         // The story's voices on the ready line (rescue.js).
+        await rdbg('startLevelForTest', 'w1_03');
+        check((await rp.textContent('#mazeStatus')).trim() === "BARON: YOU CAN'T GET PAST MY NEXT TRAP, ROLLE!", `the Baron brags on floor 3: ${await rp.textContent('#mazeStatus')}`);
+        await rdbg('startLevelForTest', 'w1_06');
+        check(/^BARON: /.test((await rp.textContent('#mazeStatus')).trim()), `and on floor 6: ${await rp.textContent('#mazeStatus')}`);
         await rdbg('startLevelForTest', 'w1_09');
-        check(/PIP'S CAGE IS ON THE NEXT FLOOR/.test(await rp.textContent('#mazeStatus')), `floor 9 warns the cage is near: ${await rp.textContent('#mazeStatus')}`);
+        check(/^BARON: PIP'S CAGE IS ONE FLOOR UP/.test((await rp.textContent('#mazeStatus')).trim()), `floor 9's Baron names the cage one floor up: ${await rp.textContent('#mazeStatus')}`);
         await rdbg('startLevelForTest', 'w2_01');
         check(/^BARON: SLIPSTONIA'S ICE/.test((await rp.textContent('#mazeStatus')).trim()), `the Baron taunts on a planet's first level: ${await rp.textContent('#mazeStatus')}`);
-        check(await rdbg('startLevelForTest', 'w1_10', { story: true }), 'floor 10 starts');
+        // The next planet's floor 1 opens on its own card; GO starts the run.
+        check(await rdbg('startLevelForTest', 'w2_01', { story: true }), 'Slipstonia\'s floor 1 starts');
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
-        check(await rp.isVisible('#storyPanel') && (await rp.textContent('#storyTitle')).trim() === 'ROLLE TO THE RESCUE' && (await rp.textContent('#storyGoBtn')).trim() === 'FREE PIP!',
-            'the first floor 10 opens on the story card');
-        check(/FIND PIP'S CAGE/.test(await rp.textContent('#mazeStatus')), `the ready line sends you for the cage: ${await rp.textContent('#mazeStatus')}`);
-        const cage = await rdbg('rescue');
-        check(cage && cage.captive === 'pip' && cage.cage && !cage.freed && await rdbg('goalLocked'), `Pip is caged and the exit locked: ${JSON.stringify(cage)}`);
+        const card2 = { title: (await rp.textContent('#storyTitle')).trim(), go: (await rp.textContent('#storyGoBtn')).trim(), text: await rp.textContent('#storyLines') };
+        // (This device never opened level 1, so this is its first card: the
+        // whole story. Its friend and floor are the planet's own either way.)
+        check(await rp.isVisible('#storyPanel') && card2.go === 'GO GET FLURRY!' && /Flurry at the top of Slipstonia, on floor 10/.test(card2.text),
+            `a planet's floor 1 opens on its rescue card: ${JSON.stringify(card2)}`);
         await rp.tap('#storyGoBtn');
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100, timeout: 10000 }).catch(() => {});
         check(await rp.isHidden('#storyPanel') && (await rdbg('phase')) === 'running', 'its button starts the run');
+        check(await rdbg('startLevelForTest', 'w1_10', { story: true }), 'floor 10 starts');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'ready', null, { polling: 100 });
+        check(await rp.isHidden('#storyPanel'), 'floor 10 opens on no card now (the planet\'s floor 1 had it)');
+        check(/FIND PIP'S CAGE/.test(await rp.textContent('#mazeStatus')), `the ready line sends you for the cage: ${await rp.textContent('#mazeStatus')}`);
+        const cage = await rdbg('rescue');
+        check(cage && cage.captive === 'pip' && cage.cage && !cage.freed && await rdbg('goalLocked'), `Pip is caged and the exit locked: ${JSON.stringify(cage)}`);
+        await closeStory(rp); await rp.tap('#mazeStartBtn');
+        await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100, timeout: 10000 }).catch(() => {});
         const r10 = levels.find(l => l.id === 'w1_10');
         await rdbg('ageRun', Math.round(r10.goldMs * 1.2));
         check(!(await rdbg('warpToGoal')) && (await rdbg('phase')) === 'running' && /FREE PIP FIRST/.test(await rp.textContent('#mazeStatus')),
@@ -1111,7 +1137,7 @@ const failures = [];
         check(wm && wm.map(r => r.kind).join(',') === 'fuel,exit' && wm[0].text === 'Find the fuel cell', `exploring, the ready screen asks for the fuel cell, then the exit: ${JSON.stringify(wm)}`);
         const cell10 = await rdbg('fuel');
         check(cell10 && !cell10.found && !cell10.taken && cell10.shown && await rp.isVisible('#mazeFuel') && !/is-found/.test(await rp.getAttribute('#mazeFuel', 'class')), `exploring, the maze shows its fuel cell, the HUD's cell dim: ${JSON.stringify(cell10)}`);
-        await rp.tap('#mazeStartBtn');
+        await closeStory(rp); await rp.tap('#mazeStartBtn');
         await rp.waitForFunction(() => window.__mazeDebug.phase() === 'running', null, { polling: 100, timeout: 20000 });
         await rdbg('placeBall', cell10.x, cell10.z);
         // (By its state and the HUD's cell: the status line can be taken over
@@ -1193,7 +1219,7 @@ const failures = [];
         check((await wdbg('walk')).fov === 90 && (await wdbg('progress')).comfort.fov === 90, 'a field of view change applies at once and is saved');
         await wp.tap('#comfortCloseBtn');
         // Walk forward, stop.
-        await wp.tap('#mazeStartBtn');
+        await closeStory(wp); await wp.tap('#mazeStartBtn');
         await wp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         const wlv = levels.find(l => l.id === 'w1_01');
         const wp0 = await wdbg('advanceFrames', 1, 16);
@@ -1246,6 +1272,7 @@ const failures = [];
             const bdbg = (fn, ...args) => bp.evaluate(([f, a]) => window.__mazeDebug[f](...a), [fn, args]);
             await bp.goto(base);
             await bp.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 30000 });
+            await closeStory(bp);
             const small = levels.find(l => l.size.w <= 9 && l.size.d <= 14);
             const big = levels.reduce((a, l) => (l.size.w * l.size.d > a.size.w * a.size.d ? l : a), levels[0]);
             check(await bdbg('startLevelForTest', small.id), `can build ${small.id}`);
@@ -1257,7 +1284,7 @@ const failures = [];
             // Closer on a bigger board (70% of the window at 13.5 wide and over;
             // the camera's margin round the window keeps it from scaling exactly).
             check(big.size.w > 9 && big.size.d > 14 && bigPose.y < smallY * 0.85 && bigPose.y > smallY * 0.6, `a ${big.size.w} x ${big.size.d} board is seen closer than a 9 x 14 one (camera height ${bigPose.y.toFixed(2)} vs ${smallY.toFixed(2)})`);
-            await bp.tap('#mazeStartBtn');
+            await closeStory(bp); await bp.tap('#mazeStartBtn');
             await bp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             // To the side opposite the start, so the view has somewhere to go.
             const sx = big.start.x >= 0 ? -1 : 1;
@@ -1286,6 +1313,7 @@ const failures = [];
             tp.on('pageerror', e => { if (!foreign(e.message + (e.stack || ''))) errors.push('[turned] ' + e.message); });
             await tp.goto(base);
             await tp.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 30000 });
+            await closeStory(tp);
             const tv = await tp.evaluate(() => {
                 const c = document.querySelector('canvas'), s = document.getElementById('mazeStartBtn').getBoundingClientRect();
                 return { cls: document.documentElement.className, cw: c.clientWidth, ch: c.clientHeight, startX: s.left + s.width / 2, startY: s.top + s.height / 2 };
@@ -1293,7 +1321,7 @@ const failures = [];
             // turn 90: the page's top is along the viewport's left, so its bottom (START) is at the right.
             check(/\bis-turned\b/.test(tv.cls) && /\bturn-90\b/.test(tv.cls) && tv.cw === 390 && tv.ch === 844 && tv.startX > 844 * 0.75 && Math.abs(tv.startY - 195) < 60,
                 `a phone gone landscape is turned back upright, START at the phone's own bottom: ${JSON.stringify(tv)}`);
-            await tp.tap('#mazeStartBtn');
+            await closeStory(tp); await tp.tap('#mazeStartBtn');
             await tp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             // The phone's own down is the viewport's +x; its own right is the viewport's -y.
             const steer = async (dx, dy) => {
@@ -1324,9 +1352,14 @@ const failures = [];
             await kp.waitForSelector('#homeView', { state: 'visible', timeout: 30000 });
             if (await kp.isVisible('#rewardsPanel')) await kp.click('#rewardsCloseBtn');
             check((await kdbg('dailyMaze')).locked, 'with two levels cleared the daily maze is still locked');
-            await kdbg('startLevelForTest', levels[2].id);
+            // Floor 2 has no story line: a computer is told its keys. Floor 3
+            // is the Baron's (rescue.js baronFloorLine); Space starts it all the same.
+            await kdbg('startLevelForTest', levels[1].id);
             await kp.waitForFunction(() => window.__mazeDebug.phase() === 'ready');
             check(/PRESS SPACE/.test(await kp.textContent('#mazeStatus')), `a computer is told to press Space: ${await kp.textContent('#mazeStatus')}`);
+            await kdbg('startLevelForTest', levels[2].id);
+            await kp.waitForFunction(() => window.__mazeDebug.phase() === 'ready');
+            check(/^BARON: /.test((await kp.textContent('#mazeStatus')).trim()), `floor 3's ready line is the Baron's: ${await kp.textContent('#mazeStatus')}`);
             await kp.keyboard.press('Space');
             await kp.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             await kdbg('ageRun', levels[2].goldMs + 2000);
@@ -1464,7 +1497,7 @@ const failures = [];
             await d1.pg.waitForSelector('#mazeSelect', { state: 'visible' });
             await d1.pg.locator('.level-node').first().tap();
             await d1.pg.waitForSelector('#mazeStartBtn', { state: 'visible' });
-            await d1.pg.tap('#mazeStartBtn');
+            await closeStory(d1.pg); await d1.pg.tap('#mazeStartBtn');
             await d1.pg.waitForFunction(() => window.__mazeDebug.phase() === 'running');
             const l1 = levels.find(l => l.id === 'w1_01');
             await d1.dbg('ageRun', l1.goldMs + 2000);
@@ -1599,6 +1632,9 @@ const failures = [];
         // A new CrazyGames player opens on level 1, START away from playing;
         // backing out of it untouched is no break, so no ad.
         await ad.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 30000 });
+        // The rescue card's GO starts the run: still one tap from playing.
+        check(await ad.isVisible('#storyPanel') && /^GO GET/.test((await ad.textContent('#storyGoBtn')).trim()), 'on CrazyGames too, level 1 opens on the rescue card, its GO one tap from playing');
+        await closeStory(ad);
         check(await adbg('phase') === 'ready' && await ad.isHidden('#tabBar'), 'on CrazyGames a new player opens on level 1, one tap from playing');
         await ad.tap('#mazeExitBtn');
         await ad.waitForSelector('#homeView', { state: 'visible' });
@@ -1642,7 +1678,7 @@ const failures = [];
         // A beginner level (uncleared, among the first three) is shielded for
         // free, so it offers no shield for an ad.
         check(await ad.isHidden('#mazeAdShieldBtn'), 'a beginner level offers no shield for an ad (its own shield is free)');
-        await ad.tap('#mazeStartBtn');
+        await closeStory(ad); await ad.tap('#mazeStartBtn');
         await ad.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         check(await ad.isHidden('#mazeAdShieldBtn'), 'and none once the run starts');
         const lvOne = levels[0];
@@ -1733,7 +1769,7 @@ const failures = [];
         let tr = await adbg('trial');
         check(tr.ball === 'steel' && tr.trial && tr.trial.id === 'steel', `TRY starts the next level with that marble: ${JSON.stringify(tr)}`);
         check(/TRYING STERLING/.test(await ad.textContent('#mazeStatus')), 'and says so');
-        await ad.tap('#mazeStartBtn');
+        await closeStory(ad); await ad.tap('#mazeStartBtn');
         await ad.waitForFunction(() => window.__mazeDebug.phase() === 'running');
         await adbg('placeBall', levels[1].holes[0].x, levels[1].holes[0].z);
         await ad.waitForTimeout(900);

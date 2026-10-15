@@ -36,19 +36,27 @@ export function isRescueLevel(lv) {
 }
 
 // The words, kept together so the story reads the same everywhere.
-export function storyCard(world, firstEver) {
+//
+// THE CARD OPENS A PLANET (the user's call, 2026-10-15: "move the rescue card
+// from the last floor on a world to the first floor of each world"): on its
+// floor 1, it says who the Baron has caged up on floor 10 and what freeing
+// them takes, so the planet's ten floors are a climb toward them. Its button
+// starts the run: a new player whose first screen it is stays one tap from
+// playing, and `howTo` (in the device's words) says how to steer.
+export function storyCard(world, firstEver, howTo = '') {
     const c = captiveFor(world);
     if (!c) return null;
     const planet = worldName(world);
     return {
-        title: firstEver ? 'ROLLE TO THE RESCUE' : `${c.name.toUpperCase()} IS HERE`,
+        title: firstEver ? 'ROLLE TO THE RESCUE' : `${c.name.toUpperCase()} IS ON ${planet.toUpperCase()}`,
         lines: [
             ...(firstEver ? [`${VILLAIN} wound up five planets like clocks. To keep them ticking, he kidnapped Rolle's friends from MarbleTopia and set them rolling his maze-engines.`] : []),
-            `${c.name} is caged somewhere in this maze on ${planet}.`,
-            `Roll through the cage to free ${c.name}. The exit stays locked until you do.`,
-            ...(firstEver ? ['And grab the fuel cell hidden in every maze: Rolle\'s ship needs them to fly on to the next planet.'] : [])
+            `The Baron has caged ${c.name} at the top of ${planet}, on floor ${RESCUE_FLOOR}.`,
+            `Climb the floors, then roll through the cage to free ${c.name}. That floor's exit stays locked until you do.`,
+            ...(firstEver ? ['And grab the fuel cell hidden in every maze: Rolle\'s ship needs them to fly on to the next planet.'] : []),
+            ...(firstEver && howTo ? [howTo] : [])
         ],
-        go: `FREE ${c.name.toUpperCase()}!`
+        go: `GO GET ${c.name.toUpperCase()}!`
     };
 }
 export const readyLine = (world) => { const c = captiveFor(world); return c ? `FIND ${c.name.toUpperCase()}'S CAGE, THEN ESCAPE` : ''; };
@@ -58,8 +66,11 @@ export const joinedLine = (world) => { const c = captiveFor(world); return c ? `
 
 // THE STORY'S VOICES (the user's call, 2026-10-10): the Baron taunts Rolle
 // on each planet's first level (not Sawturn's: a new player's first screen
-// keeps its how-to line), a freed friend points to the next planet, and
-// floor 9 warns that the cage is near.
+// keeps its how-to line) and a freed friend points to the next planet. And
+// on floors 3, 6 and 9 of every
+// planet (the user's call, 2026-10-15: "you can't get past my next trap!")
+// the Baron brags about what is ahead -- his own traps, by name -- floor 9's
+// naming the cage one floor up while the friend is still in it.
 const TAUNTS = {
     2: "SLIPSTONIA'S ICE WILL STOP YOU COLD, ROLLE!",
     3: 'NO MARBLE SURVIVES THE MAGMA WORKS!',
@@ -74,8 +85,34 @@ const FRIEND_SAYS = {
     5: "THE BARON GOT AWAY\u2026 BUT WE'RE ALL FREE!"
 };
 export const baronLine = (world) => (TAUNTS[world] ? 'BARON: ' + TAUNTS[world] : '');
+export const BARON_FLOORS = [3, 6, 9];
+const BRAGS = {
+    1: ["YOU CAN'T GET PAST MY NEXT TRAP, ROLLE!",
+        'MY MILL GRINDS MARBLES TO SAWDUST. TURN BACK!',
+        'SPLINTERWOOD WILL BE YOUR LAST ROLL!'],
+    2: ["ICE AHEAD! YOU'LL SLIDE RIGHT INTO MY NEXT TRAP!",
+        'FEEL THAT WIND? IT BLOWS TOWARD MY HOLES!',
+        'MY AVALANCHE IS COMING FOR YOU, ROLLE!'],
+    3: ['HOT ENOUGH? MY NEXT TRAP BURNS HOTTER!',
+        'MY FLARES ONLY GET FASTER FROM HERE!',
+        'NOTHING ROLLS OUT OF MY SMELTER!'],
+    4: ['BOING! MY NEXT TRAP BOUNCES YOU INTO A HOLE!',
+        "MY SPRINGS ARE WOUND TIGHT. ENJOY THE FLIGHT!",
+        'MY TOY SOLDIERS NEVER LET A MARBLE PASS!'],
+    5: ['MY MAGNETS WILL DRAG YOU RIGHT OFF COURSE!',
+        'MY PRESSES DROP ON THE BEAT. KEEP UP IF YOU CAN!',
+        'THE NIGHT SHIFT NEVER SLEEPS, AND NEITHER DO MY TRAPS!']
+};
+// The Baron on floor 3, 6 or 9 of `world` ('' on any other floor). `caged`:
+// the world's friend is still in the cage on floor 10.
+export function baronFloorLine(world, floor, caged) {
+    const k = BARON_FLOORS.indexOf(floor);
+    if (k < 0 || !BRAGS[world]) return '';
+    const c = captiveFor(world);
+    if (floor === RESCUE_FLOOR - 1 && caged && c) return `BARON: ${c.name.toUpperCase()}'S CAGE IS ONE FLOOR UP. YOU'LL NEVER GET PAST MY NEXT TRAP!`;
+    return 'BARON: ' + BRAGS[world][k];
+}
 export const friendLine = (world) => { const c = captiveFor(world); return c && FRIEND_SAYS[world] ? `${c.name.toUpperCase()}: ${FRIEND_SAYS[world]}` : ''; };
-export const nearLine = (world) => { const c = captiveFor(world); return c ? `${c.name.toUpperCase()}'S CAGE IS ON THE NEXT FLOOR. HANG ON, ${c.name.toUpperCase()}!` : ''; };
 
 // How close the ball must come to free the captive (centre to centre).
 export const CAPTIVE_REACH = 0.42;

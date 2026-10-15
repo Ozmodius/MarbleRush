@@ -98,6 +98,8 @@ const check = (c, m) => { if (!c) failures.push(m); };
         await page.goto(base);
         await page.waitForSelector('#mazeStartBtn', { state: 'visible', timeout: 30000 });
         await frames(10);
+        // Level 1 opens on the rescue card (rescue.js): closed first.
+        if (await page.isVisible('#storyPanel')) await page.click('#storyCloseBtn');
         if (CRAZY) {
             check(await page.isHidden('#mazeVrBtn'), 'the CrazyGames build never offers ENTER VR, headset or not');
             throw 'done';

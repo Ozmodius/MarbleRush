@@ -218,8 +218,14 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   tracker (the five friends, caged or freed); the coin counter says COINS
   (GOLD is a medal). The story speaks in rescue.js's lines: the Baron on a
   planet's first level (never Sawturn's -- a new player's first screen keeps
-  its how-to), floor 9 warning the cage is near, a freed friend pointing to
-  the next planet.
+  its how-to) and bragging about his traps ahead on floors 3, 6 and 9 of
+  every planet (the user's call, 2026-10-15; floor 9's names the friend's
+  cage one floor up while it holds them: `baronFloorLine`), a freed friend
+  pointing to the next planet. The RESCUE CARD opens a planet (the user's
+  call, 2026-10-15): on its floor 1, rolling, once a device, while the
+  friend is still caged on floor 10 -- never on floor 10 itself. Its GO
+  starts the run, so a new player whose first screen it is stays one tap
+  from playing; the first card ever ends on how to steer (device words).
 - **Fuel cells fly the ship** (`fuel.js`, the user's call, 2026-10-10): one
   in every ladder level's deepest dead end, found in EXPLORE MODE ONLY (the
   user's call, 2026-10-11: the one thing a world needs explored -- a rolling

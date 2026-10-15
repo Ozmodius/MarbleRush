@@ -310,9 +310,18 @@ world's floor 10 count.
 - *Floor 10*: until its friend is freed, a cage sits in the maze and the exit
   is locked (grey; rolling over it says FREE <NAME> FIRST!). Rolling into the
   cage frees them -- the bars fly off and the friend rolls along behind the
-  ball, on the ball's own path, to the exit. A fall cages them again. The
-  first floor 10 a device sees opens on the whole story, each later one on
-  its friend (a device preference, `planetilt.storySeen`).
+  ball, on the ball's own path, to the exit. A fall cages them again.
+- *The card* (moved 2026-10-15, Oz: "move the rescue card from the last floor
+  on a world to the first floor of each world"): a planet's floor 1 opens on
+  it while its friend is caged -- who is held, that it is up on floor 10,
+  and that floor's exit stays locked until they are freed. The first a
+  device sees carries the whole story and ends on how to steer; GO starts
+  the run (one tap from playing, as CrazyGames asks). Shown once a device
+  (`planetilt.storySeen`).
+- *The Baron's brags* (2026-10-15, Oz: "a message from the baron on floor 3,
+  6 and 9 of each world... 'you can't get passed my next trap!'"): the ready
+  line on those floors, fifteen lines naming each planet's own traps; floor
+  9's says the friend's cage is one floor up while it still holds them.
 - *Where the cage goes* is computed from the level (`rescue.js`
   `captiveSpot`), never stored in `mazeLevels.json`: a side branch off the
   start-to-exit route, a detour of a quarter to three fifths of it, clear of
