@@ -68,7 +68,8 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   static physics body (a body per wall cost ~3 ms a step at 450 walls).
   Traps scale with the board (the user's call, 2026-10-13): a slot's trap
   counts are for 9 x 14, multiplied by the board's area over that and by
-  1.2 (`TRAP_MORE`, 2026-10-14: 20% more everywhere) (`slotConfig` in the
+  1.44 (`TRAP_MORE`, 2026-10-14: 20% more everywhere, then 20% more again,
+  holes included) (`slotConfig` in the
   generator); coins do not scale. Holes are as big as their corridor allows
   with a lane left for the marble's CENTRE (`HOLE_CENTRE_LANE`, the ball
   falls only when its centre is over one: "a danger, but passable"), set
