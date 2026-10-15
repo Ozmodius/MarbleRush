@@ -65,9 +65,12 @@ try { if (typeof document !== 'undefined') document.documentElement.setAttribute
 //                     Username/password, Register, Sign Out and editing your
 //                     name or picture are hidden (.web-only): CrazyGames
 //                     allows no other login and owns the name and picture.
+//   xr             -- ENTER VR on a level's ready screen (xrMode.js, the
+//                     user's call, 2026-10-14: Meta Quest 3, the board on
+//                     your table). Web only: CrazyGames stays flat.
 export const features = Object.freeze(isCrazyGames
-    ? { offlineInstall: false, externalLogin: false, requireLogin: false, guestPlay: true, sellsOfflinePlay: false, platformLogin: true, ownLoader: true, ads: true, sdkInvites: true }
-    : { offlineInstall: true, externalLogin: true, requireLogin: true, guestPlay: true, sellsOfflinePlay: true, platformLogin: false, ownLoader: false, ads: false, sdkInvites: false });
+    ? { offlineInstall: false, externalLogin: false, requireLogin: false, guestPlay: true, sellsOfflinePlay: false, platformLogin: true, ownLoader: true, ads: true, sdkInvites: true, xr: false }
+    : { offlineInstall: true, externalLogin: true, requireLogin: true, guestPlay: true, sellsOfflinePlay: true, platformLogin: false, ownLoader: false, ads: false, sdkInvites: false, xr: true });
 
 // ---------------------------------------------------------------------------
 // SDK plumbing

@@ -35,6 +35,7 @@ import { createMazeAudio } from './mazeAudio.js';
 import { wallForLevel, floorForLevel } from './soundModel.js';
 import { setSoundOn, isSoundOn, unlockSound } from './sound.js';
 import { keepAwake } from './wakeLock.js';
+import { xrAvailable, xrPresenting, xrReading, enterXR, xrDebug } from './xrMode.js';
 import { computeTilt, captureNeutral, MAX_TILT_DEG, DEADZONE_DEG, DEFAULT_SENSITIVITY } from './mazeTilt.js';
 import { ballSetup, CHARGES, TRAP_CHARGE_IDS, TRAP_GRANT, AD_REWARDS, MARBLES, WALK } from './shopCatalog.js';
 import { SIGNATURES, COVER, SIGHT_MS, signatureUses, crewStep, hasAura } from './crew.js';
@@ -197,7 +198,8 @@ function viewScale() {
 const _leanP = new THREE.Vector3(), _leanQ = new THREE.Vector3();
 function pivotLean() {
     if (!mazeGroup) return;
-    if (!boardBiggerThanView() || !camFollowSet) { mazeGroup.position.set(0, 0, 0); return; }
+    // In a headset the whole board is on the table: it leans round its centre.
+    if (!boardBiggerThanView() || !camFollowSet || xrPresenting()) { mazeGroup.position.set(0, 0, 0); return; }
     _leanP.set(_camFollow.x, FLOOR_Y, _camFollow.z - CAM_LOOKAT.z);
     _leanQ.copy(_leanP).applyEuler(mazeGroup.rotation);
     mazeGroup.position.set(_leanP.x - _leanQ.x, _leanP.y - _leanQ.y, _leanP.z - _leanQ.z);
@@ -207,6 +209,9 @@ function pivotLean() {
 function shadowFocusNow() {
     if (!level || !ballBody) return [0, 0];
     if (walkMode) return [ballBody.position.x, ballBody.position.z];
+    // In a headset the whole board is in view: on one bigger than the box,
+    // the box follows the marble (where the eye is).
+    if (xrPresenting()) return boardBiggerThanView() ? [ballBody.position.x, ballBody.position.z] : [0, 0];
     if (boardBiggerThanView() && camFollowSet) return [_camFollow.x, _camFollow.z - CAM_LOOKAT.z];
     return [0, 0];
 }
@@ -570,7 +575,7 @@ function noteManualInput() {
     if (manualHintShown) { manualHintShown = false; if (phase === 'running') setStatus(''); }
 }
 function showManualHint() {
-    if (!active || phase !== 'running' || sensorSeen) return;
+    if (!active || phase !== 'running' || sensorSeen || xrPresenting()) return;
     manualHintShown = true;
     setStatus(manualHintText());
 }
@@ -593,6 +598,7 @@ function storyReadyLine(lv, prog) {
     return '';
 }
 function readyHint() {
+    if (xrPresenting()) return 'PRESS START';
     if (keyboardFirst()) return walkMode ? 'PRESS SPACE TO START, THEN FIND THE EXIT' : 'PRESS SPACE OR AN ARROW KEY TO START';
     return walkMode ? 'TAP START, THEN FIND THE EXIT' : 'TAP START, THEN TILT';
 }
@@ -1219,6 +1225,8 @@ function step() {
     const elapsedMs = lastStepTime ? (now - lastStepTime) : (1000 / 60);
     lastStepTime = now;
     tickScenery(now);
+    // Passthrough: the planet far below is the flat screen's sky, not your room's.
+    if (levelSky) levelSky.group.visible = !xrPresenting();
     advance(elapsedMs);
     setShadowFocus(...shadowFocusNow());
     if (phase === 'running') placeCharges();
@@ -1259,11 +1267,15 @@ function advance(elapsedMs) {
     if (phase === 'running' && walkMode) stepWalkControls(elapsedMs, false);
     else if (phase === 'ready' && walkMode) stepWalkControls(elapsedMs, true);
     if (phase === 'running' && !walkMode) {
-        // Manual input is already in screen terms and needs no calibration.
-        const manual = manualActive() || !sensorSeen;
-        const { tilt, gravity } = computeTilt(manual ? manualReading() : latestReading,
-            manual ? { beta: 0, gamma: 0 } : neutral, smoothed, {
-            screenAngle: manual ? 0 : screenAngle(),
+        // In a headset the hand holding on steers (xrMode.js), its lean taken
+        // from the grab. Manual input is already in screen terms and needs no
+        // calibration either.
+        const xr = xrReading();
+        const manual = !xr && (manualActive() || !sensorSeen);
+        const flat = !!xr || manual;
+        const { tilt, gravity } = computeTilt(xr || (manual ? manualReading() : latestReading),
+            flat ? { beta: 0, gamma: 0 } : neutral, smoothed, {
+            screenAngle: flat ? 0 : screenAngle(),
             // A marble's response reaches full tilt with less lean; mazeTilt
             // still clamps at MAX_TILT_DEG, so full tilt pulls no harder.
             sensitivity: getMazeSensitivity() * ballSpec.response,
@@ -1280,8 +1292,11 @@ function advance(elapsedMs) {
         // Scaled against mazeTilt's own MAX_TILT_DEG rather than a local copy of
         // that number, so retuning how far a player must lean can't leave the
         // board's visible lean calibrated to the old value.
-        mazeGroup.rotation.z = -clamp(tilt.gamma / MAX_TILT_DEG, -1, 1) * VISUAL_TILT_MAX_RAD;
-        mazeGroup.rotation.x = clamp(tilt.beta / MAX_TILT_DEG, -1, 1) * VISUAL_TILT_MAX_RAD;
+        // In a headset the board leans as far as gravity does: it is in your
+        // hand, and no screen edge can crop it.
+        const lean = xr ? MAX_TILT_DEG * Math.PI / 180 : VISUAL_TILT_MAX_RAD;
+        mazeGroup.rotation.z = -clamp(tilt.gamma / MAX_TILT_DEG, -1, 1) * lean;
+        mazeGroup.rotation.x = clamp(tilt.beta / MAX_TILT_DEG, -1, 1) * lean;
         pivotLean();
     }
     if (phase === 'running') {
@@ -2354,7 +2369,7 @@ function restart() {
     revivedThisAttempt = false;
     closeFallOffer();
     showEl('mazeDoubleBtn', false);
-    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false); showEl('mazeExploreBtn', false);
+    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false); showEl('mazeExploreBtn', false); showEl('mazeVrBtn', false);
     placeBallAtStart();
     if (walkMode) { walkYaw = walkStartYaw; walkPitch = -0.08; resetThirdCam(); thirdEyeSet = false; if (walkHud) walkHud.show(true); }
     smoothed = null;
@@ -2844,6 +2859,25 @@ function showLevelSelect() { enterMenus('home'); }   // home's planet is the lev
 // Build and enter one level. Everything from the previous level is disposed
 // first -- levels are rebuilt per run, unlike the game board which is built
 // once for the page's lifetime.
+// MIXED REALITY (xrMode.js): ENTER VR on a rolling level's ready screen, where
+// the device and build can (platform.js features.xr, then the headset).
+const XR_HOST = {
+    phase: () => (active ? phase : 'menu'),
+    level: () => level,
+    onChange: () => {
+        syncVrBtn();
+        // The ready line in the words of the hands in use.
+        if (phase === 'ready' && !walkMode && /START/.test(el('mazeStatus') ? el('mazeStatus').textContent : '')) setStatus(readyHint());
+        requestRender();
+    }
+};
+function syncVrBtn() {
+    showEl('mazeVrBtn', false);
+    if (walkMode || xrPresenting()) return;
+    const lv = level;
+    xrAvailable().then(ok => { if (ok && level === lv && phase === 'ready' && !walkMode && !xrPresenting()) showEl('mazeVrBtn', true); });
+}
+
 function startLevel(levelId, opts = {}) {
     const lv = allLevels.find(l => l.id === levelId) || dailyLevels.find(l => l.id === levelId);
     if (!lv || !scene) return;
@@ -2961,6 +2995,7 @@ function startLevel(levelId, opts = {}) {
     // rolled can be explored straight from its ready screen -- where the
     // fuel cell and any diary page are -- not only from CLEARED.
     showEl('mazeExploreBtn', !walkMode && !isDaily(lv) && !trialMarble && !!(prog.cleared || {})[lv.id]);
+    syncVrBtn();
     if (rescue && !opts.noStory) openStory(rescue.world);
     requestRender();
 }
@@ -3043,6 +3078,11 @@ export function isMazeActive() { return active; }
 // unverifiable off-device: raw Euler angles -> mazeTilt -> gravity -> cannon ->
 // the ball actually moving, and moving in the right direction.
 window.__mazeDebug = {
+    // Mixed reality (xrMode.js): the session, the board's place, the panel.
+    xr: () => xrDebug(),
+    lean: () => (mazeGroup ? { x: mazeGroup.rotation.x, z: mazeGroup.rotation.z } : null),
+    camera: () => { const c = getCamera(); return c ? { fov: c.fov, scale: c.scale.toArray(), parent: c.parent ? c.parent.name || c.parent.type : null } : null; },
+    sky: () => ({ shown: !!(levelSky && levelSky.group.visible && levelSky.group.parent === scene), background: !!(scene && scene.background) }),
     // Home's world picker: which world is shown, what PLAY would start, and
     // where the planet is (0 once it has slid home).
     homeWorld: () => homeWorld(),
@@ -3360,7 +3400,7 @@ async function startRun() {
         // Walking needs no motion sensor: joystick and look, or keys.
         clearManual();
         showEl('mazeStartBtn', false);
-        showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false); showEl('mazeExploreBtn', false);
+        showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false); showEl('mazeExploreBtn', false); showEl('mazeVrBtn', false);
         restart();
         walkHintShown = true;
         setStatus(walkHintText());
@@ -3379,7 +3419,7 @@ async function startRun() {
     }
     clearManual();
     showEl('mazeStartBtn', false);
-    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false); showEl('mazeExploreBtn', false);
+    showEl('mazeAdShieldBtn', false); showEl('mazeAdBeaconBtn', false); showEl('mazeExploreBtn', false); showEl('mazeVrBtn', false);
     recenterPending = true;      // first reading becomes neutral
     neutral = captureNeutral(latestReading.beta, latestReading.gamma);
     restart();
@@ -3489,6 +3529,7 @@ export function getLevels() { return allLevels.slice(); }
 
 export function initMazeControls() {
     bindTap('mazeStartBtn', () => { startRun(); });
+    bindTap('mazeVrBtn', () => { if (phase === 'ready' && !walkMode) enterXR(XR_HOST); });
     // EXIT from a level goes back to the level list; there is no other screen
     // to leave to yet.
 

@@ -329,6 +329,29 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   screen under them (a big board, Explore), as see-through as they can be
   (`placeCharges` in mazeGame.js, from the board's corners projected with the
   live camera each frame of a run).
+- **Mixed reality on Meta Quest 3** (`xrMode.js`, the user's call,
+  2026-10-14: the room around the board, grab and tilt, the playable loop
+  first). ENTER VR on a rolling level's ready screen, web only
+  (`features.xr`) and headsets only (a phone's AR has no hands to grab
+  with). An `immersive-ar` session: passthrough behind the board (no sky, no
+  backdrop colour), the level on your table (`xrMath.js` placeBoard: ahead
+  of and under the eyes, PLACE BOARD to move it). THE PLAYER IS SCALED, NEVER
+  THE LEVEL: the camera rides a rig that maps the room onto level units, so
+  walls, physics, shadows and gold times are everyone's. That breaks
+  three.js's frustum culling (its both-eyes camera mixes world units and
+  metres), so culling is off while presenting. Tilt is a grab -- squeeze,
+  trigger or pinch anywhere but the panel -- read as the hand's lean since
+  (two frames after the press: a closing pinch moves the palm), through
+  mazeTilt.js like any reading; the board leans as far as gravity does. The
+  run's panel (`xrPanel.js`) MIRRORS THE PAGE: built every frame from the
+  level's own DOM (name, coins, medal clock, status lines, whichever of
+  START / RETRY / NEXT / REPLAY / gift / LEVELS / EXIT are showing, a
+  floor 10's story card) and pressing one clicks the page's button -- never
+  a second copy of the game's logic. No ad buttons in the room. Leaving the
+  level ends the session (the menus are flat). Explore is not offered in VR.
+  `test_xr.js` holds the numbers; `test_xr_browser.js` runs Meta's emulator
+  (IWER, a dev dependency, which also poses as a Quest's user agent) on both
+  builds. Feel is judged on the user's headset.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

@@ -1342,6 +1342,9 @@ html[data-platform="crazygames"] .ad-banner { display: block; }
 .walk-pad.is-active { opacity: 0.95; border-style: solid; transition: none; }
 .maze-viewbtn { font-weight: 900; letter-spacing: 0.04em; }
 .maze-walkbtn { display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(#6fc3ff, #2f74d0); color: #fff; border-color: transparent; box-shadow: 0 3px 0 #1d4a8a; }
+/* ENTER VR (xrMode.js): a spacecraft's glass plate with its cyan edge. */
+.maze-vrbtn { display: inline-flex; align-items: center; gap: 7px; background: rgba(12, 24, 48, 0.92); color: var(--ink); border: 1px solid #4fd8ff; box-shadow: 0 3px 0 rgba(0, 0, 0, 0.45), 0 0 12px rgba(79, 216, 255, 0.25); }
+.maze-vrbtn .vr-icon { width: 20px; height: 20px; fill: none; stroke: #4fd8ff; stroke-width: 1.8; stroke-linejoin: round; }
 .walk-icon { font-size: 1.05em; }
 
 .walk-compass {

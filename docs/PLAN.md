@@ -449,7 +449,26 @@ growth list -- conversion):
 
 ## Meta Quest 3 (planned for a future release, the user's call 2026-10-11)
 
-Not started. The plan, cheapest first:
+*Started 2026-10-14.* Oz: "Lets start the vr work". His picks: the room
+around the board (mixed reality, passthrough), grab and tilt (hold the grip
+or pinch, tilt the hand; letting go levels it), and the playable loop first.
+Built (xrMode.js, xrMath.js, xrPanel.js):
+- ENTER VR on a rolling level's ready screen, web only, headsets only.
+- The board on the table: 3.3 cm a level unit (9 x 14 is 30 x 46 cm, no
+  board's long side over 65 cm), its near edge 25 cm ahead of the eyes and
+  its floor 45 cm under them (55 cm to 1.3 m off the floor). PLACE BOARD
+  puts it in front of you again.
+- Grab and tilt from either controller (grip or trigger) or a tracked hand
+  (pinch); the board leans in full with the hand.
+- The panel past the board's far edge mirrors the page: the ready screen
+  (START, PLACE BOARD, EXIT VR), the run (a strip: name, coins, the medal
+  clock), a fall's RETRY, CLEARED (NEXT, LEVELS, the gift), a floor 10's
+  story card. LEVELS / EXIT leave VR for the flat menus.
+- Not yet: power-up and signature buttons in the room, the MISSION card,
+  Explore in VR, menus in VR. To tune on the headset: the board's size and
+  height, the panel's place, tilt sensitivity, frame rate.
+
+The plan as first written, cheapest first:
 - *Flat, today:* the Quest browser should run planetilt.com in a window,
   steered by drag (the controller's pointer). To check on a headset.
 - *Mixed reality, the board on your table:* an ENTER VR button (WebXR; the
