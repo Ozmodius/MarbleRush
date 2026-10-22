@@ -55,6 +55,10 @@
           <button class="lp-btn lp-ghost" type="button" data-lp="signin">I already play</button>
         </div>
         <button class="lp-guest" type="button" data-lp="guest">or play as a guest &rsaquo;</button>
+        <!-- The iPhone Home Screen app keeps its own storage, so its first
+             open is signed out: say so before they think something broke
+             (offlinePlay.js). -->
+        <p id="lpAppWelcome" class="lp-app-welcome" hidden>Welcome to the PlaneTilt app! Sign in to pick up where you left off.</p>
       </div>
     </section>
 
@@ -167,7 +171,7 @@
       <button class="lp-guest" type="button" data-lp="guest">or play as a guest &rsaquo;</button>
     </section>
   </main>
-  <footer class="lp-foot">© 2026 PlaneTilt. Free to play. · <button class="lp-foot-link" type="button" data-privacy>Privacy</button></footer>
+  <footer class="lp-foot">© 2026 PlaneTilt. Free to play. · <button class="lp-foot-link" type="button" data-install hidden>Get the app</button><span data-install hidden> · </span><button class="lp-foot-link" type="button" data-privacy>Privacy</button></footer>
 </div>
 <!-- LANDING:END -->
 
@@ -309,6 +313,24 @@
     <div id="profileDiary" class="diary-list"></div>
     <p class="shop-section">CARRYING</p>
     <div id="profileInventory" class="profile-inventory"></div>
+    <!-- PLAY ANYWHERE (offlinePlay.js; the web only, features.offlineInstall):
+         the app on the home screen (free), and OFFLINE PLAY, the whole game
+         kept on the device so it starts with no connection (sold through
+         Square to accounts, server/offlineUnlock.js). -->
+    <div id="appSection" hidden>
+      <p class="shop-section">PLAY ANYWHERE</p>
+      <div class="cloud-card app-card">
+        <div class="app-head"><span id="appIcon" class="app-icon" aria-hidden="true"></span>
+          <p id="appInstallLine" class="cloud-help">Put PlaneTilt on your home screen: full screen, one tap away.</p></div>
+        <button id="appInstallBtn" class="maze-btn" type="button">INSTALL THE APP</button>
+        <div id="appOffline" class="app-offline" hidden>
+          <p class="app-offline-title">OFFLINE PLAY <span id="appOfflineBadge" class="app-badge"></span></p>
+          <p id="appOfflineLine" class="cloud-help"></p>
+          <button id="appOfflineBtn" class="maze-btn maze-btn-big" type="button"></button>
+          <p id="appOfflineMsg" class="cloud-msg" role="status"></p>
+        </div>
+      </div>
+    </div>
     <!-- ACCOUNT (leaderboardUi.js): hidden with no server. Saving to the
          server just happens (cloudSync.js); the card is only for the account. -->
     <div id="cloudSection" hidden>
@@ -502,6 +524,28 @@
     <button id="privacyCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
     <h2 id="privacyTitle" class="modal-title">PRIVACY</h2>
     <div id="privacyBody" class="privacy-body"></div>
+  </div>
+</div>
+
+<!-- INSTALL: this phone's and browser's own steps to the home screen
+     (offlinePlay.js), each with the icon to look for, drawn -->
+<div id="installPanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="installTitle" hidden>
+  <div class="modal-card install-card">
+    <button id="installCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+    <h2 id="installTitle" class="modal-title">GET THE APP</h2>
+    <ol id="installSteps" class="ig-steps"></ol>
+    <p id="installNote" class="ig-note" hidden></p>
+    <div class="modal-actions"><button id="installGoBtn" class="maze-btn maze-btn-big" type="button" hidden>INSTALL</button></div>
+  </div>
+</div>
+
+<!-- OFFLINE PLAY, back from Square's checkout (offlinePlay.js) -->
+<div id="offlinePanel" class="modal" role="dialog" aria-modal="true" aria-labelledby="offlineTitle" hidden>
+  <div class="modal-card">
+    <button id="offlineCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+    <h2 id="offlineTitle" class="modal-title">OFFLINE PLAY</h2>
+    <p id="offlinePanelMsg" class="modal-note" role="status"></p>
+    <div class="modal-actions"><button id="offlineOkBtn" class="maze-btn maze-btn-big" type="button">OK</button></div>
   </div>
 </div>
 

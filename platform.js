@@ -55,9 +55,11 @@ try { if (typeof document !== 'undefined') document.documentElement.setAttribute
 //                     save, synced as a guest, and can make an account later
 //                     from Gear without losing anything. Only means something
 //                     where requireLogin does (CrazyGames has no gate at all).
-//   sellsOfflinePlay -- offline play is a one-time purchase (server.js's
-//                     OFFLINE PLAY UNLOCK, paid through Square). Web only: a
-//                     build carries one way of making money, and CrazyGames'
+//                     (PlaneTilt, 2026-10-22: offlinePlay.js, sw.js, the
+//                     manifest and icons the web build adds.)
+//   sellsOfflinePlay -- offline play is a one-time purchase (PlaneTilt:
+//                     server/offlineUnlock.js, paid through Square). Web only:
+//                     a build carries one way of making money, and CrazyGames'
 //                     is its own. Whether it is actually ON SALE is the
 //                     server's call (it sends no price when it isn't).
 //   platformLogin  -- the platform's own account is how players sign in

@@ -9,6 +9,7 @@ import { initCloudUi } from './leaderboardUi.js';
 import { initPrivacy } from './privacy.js';
 import { fitSafeArea } from './safeArea.js';
 import { holdPortrait } from './portraitLock.js';
+import { initOfflinePlay } from './offlinePlay.js';
 
 // BOOT. Platform first (CrazyGames wants loadingStart as early as possible and
 // the save may live in its SDK), then the renderer, then the save, then the
@@ -61,6 +62,9 @@ async function boot() {
     game.setRunListener((ev) => { if (ev && ev.type === 'start') privacy.runStarted(); sync.track(ev); });
     store.onAction(name => sync.track({ type: 'act', name }));
     onPlatformAuthChange(() => sync.reconnect());
+    // The app and OFFLINE PLAY (web only; offlinePlay.js). Before start(), so
+    // it hears the first sync.
+    initOfflinePlay({ sync, openAccount: () => { const b = document.getElementById('acctCreateBtn'); if (b) b.click(); } });
     sync.start();
     if (typeof window !== 'undefined') window.__cloudSync = sync;   // tests look at it
 }

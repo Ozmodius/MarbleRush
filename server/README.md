@@ -29,6 +29,11 @@ Environment variables:
 | `CRAZYGAMES_PUBLIC_KEY_URL` | optional; default `https://sdk.crazygames.com/publicKey.json` |
 | `RATE_LIMIT` | optional; requests per IP per minute, default 240 |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | optional; email for account codes (port 465 by default). Without them, accounts are made with no emailed code and "Forgot password?" says it is not available |
+| `SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID` | optional; sell OFFLINE PLAY on planetilt.com (`offlineUnlock.js`). Without them it is not for sale and the game offers none |
+| `SQUARE_ENVIRONMENT` | `production` to take real money; anything else is Square's sandbox |
+| `SQUARE_WEBHOOK_SIGNATURE_KEY`, `SQUARE_WEBHOOK_URL` | optional, together: a Square webhook subscription (payment.created, payment.updated) to `<this API>/webhooks/square`; the URL must be exactly the one registered. Without them a payment is settled by looking it up when the buyer comes back |
+| `OFFLINE_UNLOCK_PRICE_CENTS` | optional; default 499 ($4.99) |
+| `SQUARE_RETURN_URL` | optional; where checkout sends the buyer back (default: the page they bought from) |
 | `ADMIN_TOKEN` | optional; a long random string of your choosing. Opens the admin page at `/admin`. Unset, the page is off |
 
 Tables are created on first start. Without `DATABASE_URL` the server runs on
