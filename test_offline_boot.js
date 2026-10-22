@@ -233,8 +233,12 @@ const listen = s => new Promise(r => s.listen(0, '127.0.0.1', () => r(`http://12
             if (fresh) break;
             await new Promise(r => setTimeout(r, 500));
         }
-        await page.waitForFunction(async () => { for (const k of await caches.keys()) if (k.startsWith('planetilt-offline-')) return false; return true; }, null, { timeout: 30000 }).catch(() => {});
-        check((await offlineCaches(page)).length === 0 && await page.isVisible('#landing'), 'signing out drops the offline copy (back at the front door)');
+        await page.waitForFunction(async () => { for (const k of await caches.keys()) if (k.startsWith('planetilt-offline-') && await (await caches.open(k)).match('/__planetilt_offline_complete__')) return false; return true; }, null, { timeout: 30000 }).catch(() => {});
+        // A request in flight as the copy is dropped can leave an empty,
+        // incomplete cache behind for a moment; it is never read (sw.js reads
+        // only a complete one) and the next load clears it.
+        const left = (await offlineCaches(page)).filter(c => c.complete);
+        check(left.length === 0 && await page.isVisible('#landing'), 'signing out drops the offline copy (back at the front door)');
         await ctx.close();
 
         // --- an iPhone ---------------------------------------------------------

@@ -119,7 +119,9 @@ self.addEventListener('fetch', (event) => {
                 const name = await completeCache();
                 // Only an owner's copy is kept current; the page lives under
                 // '/' whatever its query (?offline_unlock=done).
-                if (name) { const copy = res.clone(); event.waitUntil(caches.open(name).then(c => c.put(page ? '/' : req, copy)).catch(() => {})); }
+                // caches.open would RECREATE a copy dropped meanwhile (signed
+                // out), so only a cache still there is written to.
+                if (name) { const copy = res.clone(); event.waitUntil(caches.has(name).then(ok => ok && caches.open(name).then(c => c.put(page ? '/' : req, copy))).catch(() => {})); }
             }
             return res;
         } catch (err) {
