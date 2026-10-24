@@ -18,7 +18,11 @@
 //   createLink() -> { code, expiresAt } | null,
 //   claimLink(code) -> { ok, error? },
 //   reconnect()  (the platform account changed)
+//   offline() -> { owned, priceCents }   OFFLINE PLAY (server/offlineUnlock.js)
+//   offlineCheckout() -> { ok, url?, error? }, offlineCheck() -> { ok, owned? }
 // }
+// offline().owned is remembered on the device, for the player it was told
+// for, so a launch with no connection still knows (offlinePlay.js).
 // Boards: roll:<levelId>, walk:<levelId>, daily:<YYYY-MM-DD>:<dailyId>.
 
 export const CLOUD_KEY = 'planetilt.cloud.v1';
@@ -68,6 +72,17 @@ export function createCloudSync({
     let token = saved.token || null, me = saved.player || null;
     let status = base ? 'idle' : 'off';
     let acct = null, mailOn = false;       // the account, if signed in to one
+    // Offline play: owned (remembered, for `me`), and the price the server
+    // sells it at (null: not for sale here; never remembered).
+    let offPrice = null;
+    const offOwned = () => !!(saved.offline && me && saved.offline === me.id);
+    const setOffline = (o) => {
+        if (!o) return;
+        offPrice = Number.isFinite(o.priceCents) ? o.priceCents : null;
+        const was = offOwned();
+        saved = { ...saved, offline: o.owned && me ? me.id : null }; write(saved);
+        if (was !== offOwned()) for (const fn of listeners) { try { fn(status, me); } catch (_) { /* ignore */ } }
+    };
     const listeners = new Set();
     let adopting = false, pushTimer = null, retryTimer = null, connecting = null, retries = 0;
     const pending = [];          // scores that could not be sent yet
@@ -168,7 +183,7 @@ export function createCloudSync({
             setStatus('syncing');
             try {
                 const joined = await session();
-                try { const a = await req('GET', '/v1/account'); acct = a.account; mailOn = !!a.email; } catch (_) { /* an older server */ }
+                try { const a = await req('GET', '/v1/account'); acct = a.account; mailOn = !!a.email; setOffline(a.offline); } catch (_) { /* an older server */ }
                 const r = await req('GET', '/v1/save');
                 adopt(r.save, joined);
                 await pushNow();
@@ -220,6 +235,8 @@ export function createCloudSync({
             remember(r.token, r.player);
             acct = r.account || null;
             adopt(r.save, joined);
+            // What this account owns (offline play) comes with who it is.
+            req('GET', '/v1/account').then(a => setOffline(a.offline), () => {});
             const pushed = pushNow().then(() => {
                 status = 'synced';
                 for (const fn of listeners) { try { fn(status, me); } catch (_) { /* ignore */ } }
@@ -318,6 +335,19 @@ export function createCloudSync({
         // (username-taken, login-wrong, code-wrong, ...) or 'offline'.
         account: () => acct,
         emailOn: () => mailOn,
+        // --- offline play (server/offlineUnlock.js) -------------------------
+        offline: () => ({ owned: offOwned(), priceCents: offPrice }),
+        async offlineCheckout() {
+            if (!base || !token) return { ok: false, error: 'offline' };
+            try { const r = await req('POST', '/v1/offline/checkout'); return { ok: true, url: r.url }; }
+            catch (e) { return { ok: false, error: e.status ? (e.message || 'server') : 'offline' }; }
+        },
+        // Back from checkout: the server asks Square at once.
+        async offlineCheck() {
+            if (!base || !token) return { ok: false, error: 'offline' };
+            try { const r = await req('POST', '/v1/offline/check'); setOffline(r); return { ok: true, owned: !!r.owned }; }
+            catch (e) { return { ok: false, error: e.status ? (e.message || 'server') : 'offline' }; }
+        },
         register: (f) => accountCall('/v1/account/register', { username: f.username, email: f.email, password: f.password }),
         verifyEmail: (f) => accountCall('/v1/account/verify', { email: f.email, code: f.code }),
         login: (f) => accountCall('/v1/account/login', { login: f.login, password: f.password }),

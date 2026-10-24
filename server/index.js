@@ -15,6 +15,8 @@
 //   SMTP_USER, SMTP_PASS,      account, resetting a password); unset,
 //   SMTP_FROM                  accounts are made without a code and there
 //                              is no password reset
+//   SQUARE_ACCESS_TOKEN,       offline play's sale (offlineUnlock.js, which
+//   SQUARE_LOCATION_ID, ...    lists them all); unset, it is not for sale
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -24,6 +26,7 @@ import { createApp } from './app.js';
 import { createPgStore, createMemoryStore } from './db.js';
 import { createCrazyVerifier, DEFAULT_KEY_URL } from './auth.js';
 import { createMailer } from './accounts.js';
+import { createOfflineUnlock } from './offlineUnlock.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readLevels = f => JSON.parse(fs.readFileSync(path.join(root, f), 'utf8')).levels || [];
@@ -43,8 +46,10 @@ const handle = createApp({
     origins: env.ALLOWED_ORIGINS || '*',
     rateMax: Number(env.RATE_LIMIT) || 240,
     adminToken: env.ADMIN_TOKEN || null,
-    mailer: await createMailer(env)
+    mailer: await createMailer(env),
+    unlock: createOfflineUnlock({ store, env })
 });
+console.log('[api] offline play: ' + (env.SQUARE_ACCESS_TOKEN && env.SQUARE_LOCATION_ID ? 'for sale (' + (env.SQUARE_ENVIRONMENT === 'production' ? 'production' : 'SANDBOX') + ')' : 'not for sale (no Square settings)'));
 
 const server = http.createServer(handle);
 const port = Number(env.PORT) || 8787;

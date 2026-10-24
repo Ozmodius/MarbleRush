@@ -118,6 +118,19 @@ DO $$ BEGIN
         ALTER TABLE event_stats ADD PRIMARY KEY (day, name, platform);
     END IF;
 END $$;
+-- Offline play (2026-10-22, the user's call: sold through Square on the
+-- web, offlineUnlock.js): what unlocked it ({ at, source: 'square' |
+-- 'admin', orderId?, paymentId?, amount? }), null while it is not owned.
+-- And the checkout orders we made and have not yet seen paid.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS offline_play JSONB;
+CREATE TABLE IF NOT EXISTS unlock_orders (
+    order_id    TEXT PRIMARY KEY,              -- Square's order id
+    player_id   TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    unlock_id   TEXT NOT NULL,                 -- ours (the idempotency key)
+    amount      INTEGER NOT NULL,              -- cents asked
+    created_at  BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS unlock_orders_player ON unlock_orders (player_id, created_at);
 `;
 
 // ONE-TIME WIPES (the user's calls). Each runs once, in one transaction, and
@@ -191,7 +204,8 @@ function adminRow(r) {
         lastSeen: r.last_seen ? Number(r.last_seen) : null, furthest: r.furthest || 0, playerLevel: r.player_level || null,
         account: r.username ? { username: r.username, email: r.email, verified: !!r.verified } : null,
         wallet: r.wallet === null || r.wallet === undefined ? null : Number(r.wallet), xp: r.xp === null || r.xp === undefined ? null : Number(r.xp),
-        saveAt: r.save_at ? new Date(r.save_at).getTime() : null, scores: Number(r.scores || 0)
+        saveAt: r.save_at ? new Date(r.save_at).getTime() : null, scores: Number(r.scores || 0),
+        offlinePlay: r.offline_play || null
     };
 }
 
@@ -371,13 +385,33 @@ export async function createPgStore(url) {
             const r = await one('DELETE FROM links WHERE code = $1 RETURNING player_id, expires_at', [code]);
             return r && Number(r.expires_at) >= now ? r.player_id : null;
         },
+        // --- offline play (offlineUnlock.js) ---
+        async offlinePlayOf(playerId) { const r = await one('SELECT offline_play FROM players WHERE id = $1', [playerId]); return (r && r.offline_play) || null; },
+        async setOfflinePlay(playerId, info) { await pool.query('UPDATE players SET offline_play = $2 WHERE id = $1', [playerId, info ? JSON.stringify(info) : null]); },
+        async addUnlockOrder({ orderId, playerId, unlockId, amount, createdAt }) {
+            await pool.query('INSERT INTO unlock_orders (order_id, player_id, unlock_id, amount, created_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING', [orderId, playerId, unlockId, amount, createdAt]);
+        },
+        // A player's pending orders since `since`, newest first.
+        async unlockOrdersOf(playerId, since = 0) {
+            const { rows } = await pool.query('SELECT * FROM unlock_orders WHERE player_id = $1 AND created_at >= $2 ORDER BY created_at DESC', [playerId, since]);
+            return rows.map(r => ({ orderId: r.order_id, playerId: r.player_id, unlockId: r.unlock_id, amount: r.amount, createdAt: Number(r.created_at) }));
+        },
+        async pruneUnlockOrders(before) { await pool.query('DELETE FROM unlock_orders WHERE created_at < $1', [before]); },
+        // ONE statement: the order is consumed and the unlock granted together,
+        // or neither (unknown order, already settled, or `paid` under what was
+        // asked). -> { playerId } | null.
+        async settleUnlockOrder(orderId, paid, info) {
+            const r = await one(`WITH o AS (DELETE FROM unlock_orders WHERE order_id = $1 AND amount <= $2 RETURNING player_id)
+                UPDATE players p SET offline_play = COALESCE(p.offline_play, $3::jsonb) FROM o WHERE p.id = o.player_id RETURNING p.id`, [orderId, paid, JSON.stringify(info)]);
+            return r ? { playerId: r.id } : null;
+        },
         async close() { await pool.end(); }
     };
 }
 
 export function createMemoryStore() {
     const players = new Map(), tokens = new Map(), saves = new Map(), scores = new Map(), links = new Map(), stats = new Map();
-    const accounts = new Map(), codes = new Map(), events = new Map();
+    const accounts = new Map(), codes = new Map(), events = new Map(), orders = new Map();
     const acct = a => a && { ...a };
     const key = (p, b) => p + '\u0000' + b;
     const memAdminRow = (p) => {
@@ -387,7 +421,8 @@ export function createMemoryStore() {
             createdAt: p.createdAt || null, firstDay: p.firstDay || null, lastSeen: p.lastSeen || null, furthest: p.furthest || 0, playerLevel: p.playerLevel || null,
             account: a ? { username: a.username, email: a.email, verified: !!a.verified } : null,
             wallet: s && Number.isFinite(s.data.wallet) ? s.data.wallet : null, xp: s && Number.isFinite(s.data.xp) ? s.data.xp : null,
-            saveAt: s ? (s.at || null) : null, scores: [...scores.values()].filter(x => x.playerId === p.id).length
+            saveAt: s ? (s.at || null) : null, scores: [...scores.values()].filter(x => x.playerId === p.id).length,
+            offlinePlay: p.offlinePlay || null
         };
     };
     return {
@@ -513,6 +548,7 @@ export function createMemoryStore() {
             players.delete(playerId); accounts.delete(playerId); saves.delete(playerId);
             for (const [h, id] of tokens) if (id === playerId) tokens.delete(h);
             for (const [k, s] of scores) if (s.playerId === playerId) scores.delete(k);
+            for (const [k, o] of orders) if (o.playerId === playerId) orders.delete(k);
         },
         async deleteToken(hash) { tokens.delete(hash); },
         async revokeTokens(playerId) { for (const [h, id] of tokens) if (id === playerId) tokens.delete(h); },
@@ -525,6 +561,20 @@ export function createMemoryStore() {
             const l = links.get(code);
             links.delete(code);
             return l && l.expiresAt >= now ? l.playerId : null;
+        },
+        async offlinePlayOf(playerId) { const p = players.get(playerId); return (p && p.offlinePlay) ? { ...p.offlinePlay } : null; },
+        async setOfflinePlay(playerId, info) { const p = players.get(playerId); if (p) p.offlinePlay = info ? { ...info } : null; },
+        async addUnlockOrder(o) { if (!orders.has(o.orderId)) orders.set(o.orderId, { ...o }); },
+        async unlockOrdersOf(playerId, since = 0) { return [...orders.values()].filter(o => o.playerId === playerId && o.createdAt >= since).sort((a, b) => b.createdAt - a.createdAt).map(o => ({ ...o })); },
+        async pruneUnlockOrders(before) { for (const [k, o] of orders) if (o.createdAt < before) orders.delete(k); },
+        async settleUnlockOrder(orderId, paid, info) {
+            const o = orders.get(orderId);
+            if (!o || o.amount > paid) return null;
+            orders.delete(orderId);
+            const p = players.get(o.playerId);
+            if (!p) return null;
+            if (!p.offlinePlay) p.offlinePlay = { ...info };
+            return { playerId: p.id };
         },
         async close() {}
     };

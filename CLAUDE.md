@@ -107,8 +107,9 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   save field needs a merge rule in `mergeProgress` and a case in
   `test_sync.js`. The server does saves, leaderboards, anonymous play
   tracking (per-level counts for the `/admin` stats page, 2026-10-08) and
-  player accounts (2026-10-08); anything further (real-money purchases,
-  personal data beyond an account's email) needs the user's call. The
+  player accounts (2026-10-08), and the one real-money purchase, OFFLINE
+  PLAY (2026-10-22, below); anything further (another purchase, personal
+  data beyond an account's email) needs the user's call. The
   `/admin` page (ADMIN_TOKEN; the user's call, 2026-10-11) is PLAYERS and
   METRICS, both filtered by PLATFORM (web | crazygames): the build says
   which in every session and event (cloudSync's `platform`, from
@@ -372,6 +373,38 @@ renderer) and the **progress store** (`progressStore.js`: `load`,
   `test_xr.js` holds the numbers; `test_xr_browser.js` runs Meta's emulator
   (IWER, a dev dependency, which also poses as a Quest's user agent; a fake
   room with a 74 cm table through its environment seam) on both builds. Feel is judged on the user's headset.
+- **The web build is an app, and OFFLINE PLAY is sold** (`offlinePlay.js`,
+  `sw.js`, `server/offlineUnlock.js`; the user's calls, 2026-10-22: "make
+  planetilt have an offline mode and installable from safari/chrome", then
+  "Gate", like Ball Smack's). Web only (`features.offlineInstall`,
+  `features.sellsOfflinePlay`); the CrazyGames bundle carries no manifest,
+  icons or worker, and the build fails if it does. INSTALLING is free: the
+  build adds `manifest.webmanifest`, `icons/` (cropped from the marketing
+  cover) and the iPhone's Home Screen tags; Gear's PLAY ANYWHERE card and the
+  landing footer's "Get the app" open Chrome's own dialog in one tap where
+  it is on offer, else this phone's and browser's steps (iPhone: the app has
+  its OWN storage, so it opens signed out; the sheet and the landing say so).
+  STARTING WITH NO CONNECTION is what is sold: $4.99 once
+  (`OFFLINE_UNLOCK_PRICE_CENTS`), ACCOUNTS ONLY (a guest is sent to make
+  one), through a Square payment link; the server grants it only when Square
+  says a payment against an order it made COMPLETED -- a signed webhook, or
+  its own lookup when the buyer comes back (`/?offline_unlock=done`) or next
+  connects -- in ONE statement that consumes the order (`settleUnlockOrder`).
+  Not configured (no `SQUARE_ACCESS_TOKEN` / `SQUARE_LOCATION_ID` on the API)
+  means not for sale: no offer shown. No founders (alpha); the admin page
+  gives or takes it. `sw.js` is NETWORK FIRST, ALWAYS (never cache-first, no
+  timeout: a mix of two deploys is worse than a wait), registered for every
+  web player but keeping the game (`offline-manifest.json`, versioned by a
+  hash of the files) only for an owner -- one complete cache at a time --
+  and dropping it otherwise (signed out, refunded); a non-owner opened with
+  no connection gets its "needs the internet" page naming OFFLINE PLAY.
+  Losing signal MID-GAME was never sold: the game is local-first. Ownership
+  is remembered on the device for the player it was told for (cloudSync
+  `offline()`). The privacy policy says what a purchase keeps.
+  `test_offline_boot.js` CUTS THE SERVERS for "no connection" (Playwright's
+  setOffline does not reach a worker's fetches): a guest gets the page, an
+  owner boots and clears a level, signing out drops the copy.
+  `server/test_offline.js` holds the sale.
 - **A level keeps the screen on** (`wakeLock.js`, the user's call,
   2026-10-08): a tilt game gets no taps, so a phone would lock mid-run. The
   Screen Wake Lock first; where it is missing (older iPhones) or refused

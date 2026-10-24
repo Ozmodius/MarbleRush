@@ -13,13 +13,14 @@
 
 const OPERATOR = 'Ponotech LLC';
 const CONTACT = 'ballsmack@ponotechhi.com';
-const UPDATED = '8 October 2026';
+const UPDATED = '22 October 2026';
 
 const SECTIONS = [
     ['Who we are', `PlaneTilt is made by ${OPERATOR}. Questions or requests about your data: ${CONTACT}.`],
     ['On your device', 'Your progress (levels, medals, coins, marbles, settings) is saved on your device, or in your CrazyGames account when you play on CrazyGames.'],
     ['Online, when you play with an internet connection', 'A copy of your progress is kept on our server so it follows you between devices. With it we keep: the name you play under (a guest name like Guest-1234, your CrazyGames username, or your PlaneTilt username); your best time on each maze, shown on its public leaderboard with that name; which days you played, how far you have got, and whether you play on planetilt.com or CrazyGames; and daily totals of play (how often each level is started, cleared or failed), which are anonymous.'],
     ['PlaneTilt accounts (planetilt.com)', 'If you make an account we also keep your email address, used only to send you sign-in and password-reset codes and never shown to anyone, and your password, stored only as a salted scrypt hash. Delete your account in Gear and your account, save and leaderboard times are removed.'],
+    ['Offline play (planetilt.com)', 'If you buy offline play, Square takes the payment on its own checkout page under its own privacy policy; we never see your card. We keep that your account owns offline play, with Square\'s order and payment numbers and the amount, so it follows your account to every device. Offline, the game is kept on your device by your browser, not sent anywhere.'],
     ['What we do not do', 'We do not sell your data, show our own ads or track you across other sites. Your IP address is used only for a moment to stop abuse and is not stored. Ads and sign-in on CrazyGames are run by CrazyGames under its own privacy policy.'],
     ['Where it is kept', 'Our server and database are hosted by Render in the United States.'],
     ['Your choices', `To have your PlaneTilt data deleted, delete your account in Gear, or email ${CONTACT} with the name you play under.`],

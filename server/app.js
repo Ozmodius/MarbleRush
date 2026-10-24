@@ -25,6 +25,12 @@
 //   GET  /admin                       the admin page (asks for the token)
 // platform: 'web' | 'crazygames' (or none for all). Sessions and events say
 // which the game is on; the player keeps the last one.
+//   POST /v1/offline/checkout          -> { url }   a Square checkout for
+//        offline play (offlineUnlock.js); accounts only, never CrazyGames
+//   POST /v1/offline/check            -> { owned }  back from checkout: asks
+//        Square at once rather than waiting on its webhook
+//   POST /webhooks/square             Square's signed payment notifications
+//   POST /v1/admin/player/offline  {id, on}       grant or take away offline play
 //   POST /v1/link                     -> { code, expiresAt }
 //   POST /v1/link/claim {code}        -> { token, player, save }
 //        Another device's player, by its 6-letter code: this device becomes
@@ -38,6 +44,7 @@ import { levelForXp } from '../playerLevel.js';
 import { ADMIN_PAGE } from './adminPage.js';
 import { platformOf } from './db.js';
 import { hashPassword, verifyPassword, newCode, hashCode, usernameProblem, emailProblem, passwordProblem, codeEmail, CODE_TTL_MS, CODE_TRIES } from './accounts.js';
+import { createOfflineUnlock } from './offlineUnlock.js';
 import { hashToken, newToken, newId, newLinkCode, cleanLinkCode, guestName, cleanName } from './auth.js';
 
 const MAX_BODY = 256 * 1024;
@@ -92,7 +99,9 @@ const FUNNEL = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50];
 const MODES = new Set(['roll', 'explore', 'daily']);
 const dayOf = t => new Date(t).toISOString().slice(0, 10);
 
-export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = null, origins = '*', rateMax = 240, now = () => Date.now(), adminToken = null, mailer = { enabled: false, async send() { throw new Error('email is not set up'); } } }) {
+export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = null, origins = '*', rateMax = 240, now = () => Date.now(), adminToken = null, mailer = { enabled: false, async send() { throw new Error('email is not set up'); } }, unlock = null }) {
+    // Offline play's sale (offlineUnlock.js): not for sale unless Square is set up.
+    const offline = unlock || createOfflineUnlock({ store, now });
     const ladder = new Map(levels.map(l => [l.id, l]));
     const dailies = new Map(dailyLevels.map(l => [l.id, l]));
     const allowOrigin = originMatcher(origins);
@@ -457,6 +466,16 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             console.log('[admin] sign out everywhere', p.id);
             return { ok: true };
         },
+        // Offline play by hand: { on: true } grants it ('admin'), false takes
+        // it away (a refund made in Square's dashboard, say).
+        'POST /v1/admin/player/offline': async (req, body) => {
+            adminOnly(req);
+            const p = await adminTarget(body);
+            const was = await store.offlinePlayOf(p.id);
+            await store.setOfflinePlay(p.id, body.on ? (was || { at: now(), source: 'admin' }) : null);
+            console.log('[admin] offline play', body.on ? 'granted' : 'taken away', p.id, was ? JSON.stringify(was) : '');
+            return { ok: true, offlinePlay: body.on ? (was || { source: 'admin' }) : null };
+        },
         'POST /v1/admin/player/scores': async (req, body) => {
             adminOnly(req);
             const p = await adminTarget(body);
@@ -525,8 +544,28 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
         'GET /v1/account': async (req) => {
             const p = await authed(req);
             const a = await store.accountOf(p.id);
-            return { player: pub(p), account: a ? { username: a.username, email: a.email, verified: a.verified } : null, email: mailer.enabled };
+            // A checkout that came back while the webhook was late or off is
+            // settled here too (throttled per player; never waited on).
+            if (a) offline.reconcile(p.id, 'account').catch(err => console.error('[offline] lookup failed:', err && err.message));
+            return { player: pub(p), account: a ? { username: a.username, email: a.email, verified: a.verified } : null, email: mailer.enabled, offline: await offline.statusFor(p) };
         },
+
+        // --- offline play (offlineUnlock.js) -----------------------------
+        'POST /v1/offline/checkout': async (req) => {
+            const p = await authed(req);
+            let out;
+            try { out = await offline.checkout(p, req.headers.origin || ''); }
+            catch (err) { console.error('[offline] checkout failed:', err && err.message); throw new HttpError(502, 'checkout-failed'); }
+            if (out.error) throw new HttpError(out.status, out.error);
+            return out;
+        },
+        'POST /v1/offline/check': async (req) => {
+            const p = await authed(req);
+            try { await offline.reconcile(p.id, 'return', { force: true }); }
+            catch (err) { console.error('[offline] lookup failed:', err && err.message); }
+            return offline.statusFor(p);
+        },
+        'POST /webhooks/square': async (req, body, url, raw) => ({ status: await offline.webhook(raw, req.headers['x-square-hmacsha256-signature']) }),
 
         // A new account: the device's guest BECOMES it (same player, so its
         // save and times are already there); from a signed-in device, a new
@@ -649,11 +688,13 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             if (size > MAX_BODY) { reject(new HttpError(413, 'too-large')); req.destroy(); return; }
             chunks.push(c);
         });
+        // { body, raw }: the raw text too, for a signed webhook.
         req.on('end', () => {
-            if (!chunks.length) return resolve({});
+            const raw = Buffer.concat(chunks).toString('utf8');
+            if (!chunks.length) return resolve({ body: {}, raw });
             try {
-                const v = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-                resolve(v && typeof v === 'object' ? v : {});
+                const v = JSON.parse(raw);
+                resolve({ body: v && typeof v === 'object' ? v : {}, raw });
             } catch (_) { reject(new HttpError(400, 'bad-json')); }
         });
         req.on('error', reject);
@@ -677,8 +718,9 @@ export function createApp({ store, levels = [], dailyLevels = [], verifyCrazy = 
             const url = new URL(req.url, 'http://x');
             const route = routes[`${req.method} ${url.pathname.replace(/\/+$/, '') || '/'}`];
             if (!route) throw new HttpError(404, 'not-found');
-            const body = req.method === 'GET' ? {} : await readBody(req);
-            const out = await route(req, body, url);
+            const { body, raw } = req.method === 'GET' ? { body: {}, raw: '' } : await readBody(req);
+            const out = await route(req, body, url, raw);
+            if (out && out.status && Object.keys(out).length === 1) { res.writeHead(out.status, { 'Cache-Control': 'no-store' }); res.end(); return; }
             if (out && out.html) {
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
                 res.end(out.html);

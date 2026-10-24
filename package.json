@@ -11,7 +11,7 @@
     "build:crazygames": "node scripts/buildCrazyGames.js",
     "test:browser:bundle": "npm run build:crazygames && MAZE_ROOT=dist/crazygames node test_maze_boot.js && MAZE_ROOT=dist/crazygames node test_xr_browser.js",
     "build:web": "node scripts/buildCrazyGames.js --web",
-    "test:browser:web": "npm run build:web && MAZE_ROOT=dist/web node test_maze_boot.js && MAZE_ROOT=dist/web node test_xr_browser.js",
+    "test:browser:web": "npm run build:web && MAZE_ROOT=dist/web node test_maze_boot.js && MAZE_ROOT=dist/web node test_xr_browser.js && node test_offline_boot.js",
     "start:server": "node server/index.js"
   },
   "dependencies": {

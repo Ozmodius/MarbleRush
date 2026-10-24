@@ -10,7 +10,7 @@
   },
   "scripts": {
     "start": "node index.js",
-    "test": "node test.js && node test_cloud.js && node test_accounts.js"
+    "test": "node test.js && node test_cloud.js && node test_accounts.js && node test_offline.js"
   },
   "dependencies": {
     "jose": "^5.10.0",

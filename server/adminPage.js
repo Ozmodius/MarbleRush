@@ -196,6 +196,7 @@ async function openPlayer(id) {
     + (p.account ? fact('Username', esc(p.account.username)) + fact('Email', esc(p.account.email) + (p.account.verified ? '' : ' <span class="muted">(unconfirmed)</span>')) + fact('Account made', dateOf(p.accountAt)) : '')
     + fact('First played', p.firstDay || dateOf(p.createdAt)) + fact('Last seen', when(p.lastSeen)) + fact('Days played', p.daysPlayed)
     + fact('Signed-in devices', p.sessions) + fact('Leaderboard times', p.scores) + fact('Save last synced', p.saveAt ? when(p.saveAt) : 'never')
+    + fact('Offline play', p.offlinePlay ? 'owned <span class="muted">(' + esc(p.offlinePlay.source || '?') + (p.offlinePlay.amount ? ', $' + (p.offlinePlay.amount / 100).toFixed(2) : '') + (p.offlinePlay.at ? ', ' + dateOf(p.offlinePlay.at) : '') + ')</span>' : 'no')
     + '</div>';
   if (s) {
     h += '<div class="facts">'
@@ -207,7 +208,8 @@ async function openPlayer(id) {
   } else h += '<p class="muted">No save on the server yet.</p>';
   if (r.scores.length) h += '<details><summary class="muted">Leaderboard times (' + r.scores.length + ')</summary><div class="scroll"><table><tbody>' + r.scores.map(x => '<tr><td>' + esc(x.board) + '</td><td>' + fmtMs(x.ms) + '</td></tr>').join('') + '</tbody></table></div></details>';
   h += '<div class="acts"><input id="newName" value="' + esc(p.name) + '" maxlength="24" size="20" aria-label="New name"><button type="button" class="ghost" id="doRename">Rename</button>'
-    + '<button type="button" class="ghost" id="doSignout">Sign out everywhere</button><button type="button" class="ghost" id="doScores"' + (p.scores ? '' : ' disabled') + '>Remove from leaderboards</button><span id="actMsg"></span></div>';
+    + '<button type="button" class="ghost" id="doSignout">Sign out everywhere</button><button type="button" class="ghost" id="doScores"' + (p.scores ? '' : ' disabled') + '>Remove from leaderboards</button>'
+    + (p.kind === 'account' || p.offlinePlay ? '<button type="button" class="ghost" id="doOffline">' + (p.offlinePlay ? 'Take away offline play' : 'Give offline play') + '</button>' : '') + '<span id="actMsg"></span></div>';
   h += '<div class="acts"><span class="muted">Delete this player for good (account, save, times, sessions): type their name</span><input id="delName" size="20" aria-label="Type the name to confirm"><button type="button" class="danger" id="doDelete" disabled>Delete player</button></div>';
   h += '</div>';
   $('detail').innerHTML = h;
@@ -215,6 +217,7 @@ async function openPlayer(id) {
   $('doRename').onclick = async () => { const out = await api('POST', '/v1/admin/player/rename', { id: p.id, name: $('newName').value }); if (out) { await loadPlayers(); await openPlayer(p.id); done('Renamed to ' + out.name + '.'); } };
   $('doSignout').onclick = async () => { if (await api('POST', '/v1/admin/player/signout', { id: p.id })) { await openPlayer(p.id); done('Signed out on every device.'); } };
   $('doScores').onclick = async () => { if (await api('POST', '/v1/admin/player/scores', { id: p.id })) { await loadPlayers(); await openPlayer(p.id); done('Removed from every leaderboard.'); } };
+  if ($('doOffline')) $('doOffline').onclick = async () => { if (await api('POST', '/v1/admin/player/offline', { id: p.id, on: !p.offlinePlay })) { await openPlayer(p.id); done(p.offlinePlay ? 'Offline play taken away.' : 'Offline play given.'); } };
   $('delName').oninput = () => { $('doDelete').disabled = $('delName').value !== p.name; };
   $('doDelete').onclick = async () => {
     if ($('delName').value !== p.name) return;
