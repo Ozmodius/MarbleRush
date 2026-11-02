@@ -26,7 +26,7 @@ trail: Slipstonia (Prism, Aurora), Magmars (Ember, Flame), Bouncelot (Galaxy,
 Rainbow), Gearth (Eight Ball, Gold Dust); then the wordmark on the home
 planet (1.6 s). No audio, no cursor, no promotional text.
 
-Checked against CrazyGames' docs on 2026-10-08
+Checked against CrazyGames' docs on 2026-11-01 (unchanged since 2026-10-08)
 (docs.crazygames.com/requirements/game-covers): covers 1920×1080, 800×1200,
 800×800 with no borders and only the title as text; videos at most 20 s and
 50 MB, no audio, landscape 1080p 16:9 and portrait 1080p 2:3, opening on the
